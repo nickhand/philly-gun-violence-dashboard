@@ -20,7 +20,6 @@ dependencies = [
     "typer>=0.20.0",
     "tenacity>=8.2.3",
     "s3fs>=2021.7.0",
-    "simplejson>=3.20.2",
 ]
 
 [project.scripts]
@@ -32,6 +31,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "boto3-stubs>=1.42.14",
     "ipython>=9.8.0",
     "jupyterlab>=4.5.0",
     "matplotlib>=3.10.7",

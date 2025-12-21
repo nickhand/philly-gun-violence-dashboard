@@ -1,13 +1,13 @@
+import json
 import os
 import sys
 
 import boto3
 import pandas as pd
-import simplejson as json
 from dotenv import find_dotenv, load_dotenv
-from fsspec.implementations.local import LocalFileSystem
+from fsspec.implementations.local import LocalFileSystem  # type: ignore
 from loguru import logger
-from s3fs import S3FileSystem
+from s3fs import S3FileSystem  # type: ignore
 
 # ECS family/task name for the portal batch jobs
 CMD = "courts-portal"
