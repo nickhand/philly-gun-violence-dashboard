@@ -72,11 +72,10 @@ def append_daily_total(
         old_year = db.iloc[-2]["date"].year
         if not force and new_total < old_total and new_year == old_year:
             raise ValueError(
-                f"New YTD homicide total ({new_total}) is less than previous YTD total ({old_total})"
+                f"New YTD homicide total ({new_total}) "
+                f"is less than previous YTD total ({old_total})"
             )
 
-    db = db.drop_duplicates(subset=["date"], keep="last").sort_values(
-        "date", ascending=True
-    )
+    db = db.drop_duplicates(subset=["date"], keep="last").sort_values("date", ascending=True)
     logger.debug("Updated homicide database now has {} rows", len(db))
     return db

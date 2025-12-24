@@ -1,12 +1,10 @@
 """
 Extraction helpers for PPD homicide statistics.
 
-Uses Playwright (sync) to render the page and JustHTML to parse selectors.
+Uses Playwright to render the page and JustHTML to parse selectors.
 """
 
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from typing import Tuple
+from typing import Any
 
 import pandas as pd
 from justhtml import JustHTML
@@ -14,7 +12,6 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 __all__ = [
-    "DEFAULT_URL",
     "fetch_homicide_dom",
     "parse_homicide_dom",
     "extract_homicide_stats",
@@ -23,9 +20,6 @@ __all__ = [
 CRIME_TABLE_SELECTOR = ".container-crime"
 PLAYWRIGHT_TIMEOUT_MS = 20_000  # milliseconds
 DEFAULT_URL = "https://www.phillypolice.com/crime-data/crime-statistics/"
-
-# Run sync Playwright in a worker thread when called from a running event loop
-_THREAD_EXECUTOR: ThreadPoolExecutor | None = None
 
 
 def _parse_if_complete(html: str) -> JustHTML | None:
@@ -42,14 +36,13 @@ def _parse_if_complete(html: str) -> JustHTML | None:
     JustHTML or None
         Parsed DOM if the expected selector is present; otherwise ``None``.
     """
-
     doc = JustHTML(html)
     if doc.query(CRIME_TABLE_SELECTOR):
         return doc
     return None
 
 
-def _fetch_homicide_dom_sync(url: str = DEFAULT_URL, debug: bool = False) -> JustHTML:
+def fetch_homicide_dom(url: str = DEFAULT_URL, debug: bool = False) -> JustHTML:
     """
     Render the PPD crime stats page and return a parsed DOM (sync Playwright).
 
@@ -76,9 +69,7 @@ def _fetch_homicide_dom_sync(url: str = DEFAULT_URL, debug: bool = False) -> Jus
             page = browser.new_page()
             try:
                 page.goto(url, wait_until="networkidle", timeout=PLAYWRIGHT_TIMEOUT_MS)
-                page.wait_for_selector(
-                    CRIME_TABLE_SELECTOR, timeout=PLAYWRIGHT_TIMEOUT_MS
-                )
+                page.wait_for_selector(CRIME_TABLE_SELECTOR, timeout=PLAYWRIGHT_TIMEOUT_MS)
                 html = page.content()
             finally:
                 browser.close()
@@ -91,56 +82,7 @@ def _fetch_homicide_dom_sync(url: str = DEFAULT_URL, debug: bool = False) -> Jus
     return dom
 
 
-def _run_sync_threadsafe(fn, *args, **kwargs):
-    """
-    Run a sync function safely, even when already inside an event loop.
-
-    Parameters
-    ----------
-    fn : callable
-        Function to execute.
-    *args
-        Positional arguments passed to ``fn``.
-    **kwargs
-        Keyword arguments passed to ``fn``.
-
-    Returns
-    -------
-    Any
-        Result from the function call.
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return fn(*args, **kwargs)
-
-    global _THREAD_EXECUTOR
-    if _THREAD_EXECUTOR is None:
-        _THREAD_EXECUTOR = ThreadPoolExecutor(max_workers=1)
-    future = loop.run_in_executor(_THREAD_EXECUTOR, lambda: fn(*args, **kwargs))
-    return future.result()
-
-
-def fetch_homicide_dom(url: str = DEFAULT_URL, debug: bool = False) -> JustHTML:
-    """
-    Fetch the homicide stats DOM using sync Playwright; safe in async contexts.
-
-    Parameters
-    ----------
-    url : str, optional
-        Page URL to fetch, by default the PPD crime statistics page.
-    debug : bool, optional
-        Whether to run Playwright with a visible (non-headless) browser.
-
-    Returns
-    -------
-    JustHTML
-        Parsed DOM containing the crime stats tables.
-    """
-    return _run_sync_threadsafe(_fetch_homicide_dom_sync, url, debug)
-
-
-def _query_first(node, selector: str):
+def _query_first(node: JustHTML, selector: str) -> Any:
     """
     Return the first match for a selector or raise if none exists.
 
@@ -167,9 +109,7 @@ def _query_first(node, selector: str):
     return matches[0]
 
 
-def parse_homicide_dom(
-    dom: JustHTML,
-) -> Tuple[pd.Timestamp, pd.DataFrame, pd.DataFrame]:
+def parse_homicide_dom(dom: JustHTML) -> tuple[pd.Timestamp, pd.DataFrame, pd.DataFrame]:
     """
     Extract as-of date, annual totals, and YTD totals from the DOM.
 
@@ -184,49 +124,47 @@ def parse_homicide_dom(
         ``(as_of_date, annual_totals_df, ytd_totals_df)`` where ``as_of_date`` is a
         pandas Timestamp and the DataFrames have columns ``year`` plus ``annual`` or ``ytd``.
     """
+    # Extract the month/day from the title
     month_day_text = _query_first(
-        _query_first(dom, ".crime-title"), "span.crime-text"
+        _query_first(dom, ".crime-title"),
+        "span.crime-text",
     ).to_text(strip=True)
     month_day = month_day_text.split("to")[-1].strip()
 
+    # Extract the year-to-date container and year
     ytd_container = _query_first(dom, ".container-crime.year-to-date")
     year_text = _query_first(ytd_container, ".data-heading").to_text(strip=True)
     year = int(year_text)
+
+    # Build the as-of date
     as_of_date = pd.to_datetime(f"{month_day} {year} 11:59:00")
 
+    # Extract full-year container and build the annual total DataFrame
     full_year_container = _query_first(dom, ".container-crime.full-year")
     annual_totals = pd.DataFrame(
         {
             "year": [
-                int(div.to_text(strip=True))
-                for div in full_year_container.query(".data-heading")
+                int(div.to_text(strip=True)) for div in full_year_container.query(".data-heading")
             ],
             "annual": [
-                int(div.to_text(strip=True))
-                for div in full_year_container.query(".counted-data")
+                int(div.to_text(strip=True)) for div in full_year_container.query(".counted-data")
             ],
         }
     ).sort_values("year", ascending=False)
 
+    # Build the year-to-date total DataFrame
     ytd_totals = pd.DataFrame(
         {
-            "year": [
-                int(div.to_text(strip=True))
-                for div in ytd_container.query(".data-heading")
-            ],
-            "ytd": [
-                int(div.to_text(strip=True))
-                for div in ytd_container.query(".counted-data")
-            ],
+            "year": [int(div.to_text(strip=True)) for div in ytd_container.query(".data-heading")],
+            "ytd": [int(div.to_text(strip=True)) for div in ytd_container.query(".counted-data")],
         }
     ).sort_values("year", ascending=False)
 
+    # Return the results
     return as_of_date, annual_totals, ytd_totals
 
 
-def extract_homicide_stats(
-    debug: bool = False,
-) -> Tuple[pd.Timestamp, pd.DataFrame, pd.DataFrame]:
+def extract_homicide_stats(debug: bool = False) -> tuple[pd.Timestamp, pd.DataFrame, pd.DataFrame]:
     """
     Fetch and parse homicide stats in one call.
 

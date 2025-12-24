@@ -1,51 +1,25 @@
-"""
-Orchestration for scraping courts data from the PA UJS portal.
-"""
+"""Orchestration for scraping courts data from the PA UJS portal."""
 
 import pandas as pd
 from loguru import logger
 
-from .extract import PortalBatchConfig, extract_portal
-from .load import DATA_PATH, read_existing_flags, write_flags
-from etl.utils.paths import processed_data_dir
-import geopandas as gpd
-from .transform import results_to_flags
+from etl.courts.extract import PortalBatchConfig, extract_portal
+from etl.courts.load import read_existing_flags, write_flags
+from etl.courts.transform import results_to_flags
+from etl.utils.paths import get_processed_path
+from etl.utils.storage import load_shootings_database, write_meta
 
-__all__ = ["update_courts", "merge_flags"]
-
-
-def _load_shootings_default() -> pd.DataFrame:
-    """
-    Load the shootings GeoJSON from processed data for dc_key inputs.
-    """
-    path = processed_data_dir() / "shootings" / "shootings.geojson"
-    if not path.exists():
-        raise RuntimeError(f"Missing shootings database at {path}")
-    gdf = gpd.read_file(path)
-    return pd.DataFrame({"dc_key": gdf["dc_key"].astype(str).unique()})
+__all__ = ["update_courts"]
 
 
-def update_courts(
-    data: pd.DataFrame | None = None,
-    *,
-    cfg: PortalBatchConfig | None = None,
-    load_shootings=None,
-) -> pd.DataFrame:
+def update_courts(cfg: PortalBatchConfig | None = None) -> pd.DataFrame:
     """
     Run the courts portal scraper and update local flags.
 
     Parameters
     ----------
-    data : pandas.DataFrame
-        Input data with a ``dc_key`` column.
-    data : pandas.DataFrame, optional
-        Input data with a ``dc_key`` column. If None, attempts to load the
-        shootings database via ``load_existing_shootings_database``.
     cfg : PortalBatchConfig, optional
         Batch scraping configuration. If None, uses defaults.
-    load_shootings : callable, optional
-        Function that returns a dataframe with a ``dc_key`` column when ``data``
-        is not provided. Defaults to attempting to import from shootings.
 
     Returns
     -------
@@ -55,47 +29,35 @@ def update_courts(
     if cfg is None:
         cfg = PortalBatchConfig()
 
-    if data is None:
-        loader = load_shootings or _load_shootings_default
-        data = loader()
-
+    # Get unique incident numbers from shootings database
+    gdf = load_shootings_database()
+    data = pd.DataFrame({"dc_key": gdf["dc_key"].astype(str).unique()})
     incident_numbers = data[["dc_key"]].drop_duplicates()
 
     # Remove dc_keys we already know are true
-    existing = read_existing_flags()
-    if not existing.empty:
-        known_true = existing[existing["has_court_case"] == True]["dc_key"]
-        incident_numbers = incident_numbers[
-            ~incident_numbers["dc_key"].isin(known_true)
-        ]
+    if cfg.exclude_known_cases:
+        existing = read_existing_flags()
+        if not existing.empty:
+            known_true = existing.loc[existing["has_court_case"], "dc_key"]
+            incident_numbers = incident_numbers[~incident_numbers["dc_key"].isin(known_true)]
 
+    # Extract from portal
     portal_results, echoed_input = extract_portal(incident_numbers, cfg)
     flags = results_to_flags(portal_results, echoed_input)
 
     # Merge with existing (keep any prior entries)
-    combined = pd.concat([existing, flags]).drop_duplicates(
-        subset=["dc_key"], keep="last"
-    )
-    combined = combined.sort_values("dc_key")
-    write_flags(combined)
-    logger.info("Saved courts flags to %s", DATA_PATH)
-    return combined
+    out: pd.DataFrame
+    if cfg.exclude_known_cases:
+        out = pd.concat([existing, flags]).drop_duplicates(subset=["dc_key"], keep="last")
+    else:
+        out = flags
 
+    # Sort by dc_key in ascending order
+    out = out.sort_values("dc_key", ascending=True).reset_index(drop=True)
 
-def merge_flags(data: pd.DataFrame, debug: bool = False) -> pd.DataFrame:
-    """
-    Merge courts flags into an existing dataframe by dc_key.
-    """
-    existing = read_existing_flags()
-    if existing.empty:
-        if debug:
-            logger.debug("No existing courts data at %s", DATA_PATH)
-        data = data.copy()
-        data["has_court_case"] = False
-        return data
+    # Save updated flags
+    write_flags(out)
+    logger.info(f"Saved courts flags to {get_processed_path('courts_flags')}")
+    write_meta("courts")
 
-    if debug:
-        logger.debug("Merging courts flags into dataframe")
-    return data.merge(existing, on="dc_key", how="left").assign(
-        has_court_case=lambda df: df["has_court_case"].fillna(False)
-    )
+    return out

@@ -1,28 +1,37 @@
 import inspect
+from typing import Literal, cast
 
 import numpy as np
-from loguru import logger
-
+import pandas as pd
+from etl.courts.batch import io
+from etl.courts.batch.aws import AWS
 from etl.courts.portal.core import UJSPortalScraper
-
-from . import io
-from .aws import AWS
+from etl.courts.portal.schema import PortalResult
+from loguru import logger
 
 
 def _scrape(
-    data,
-    search_by=None,
+    data: pd.Series,
+    search_by: Literal["Incident Number", "Docket Number"] = "Incident Number",
     sleep: int = 7,
     log_freq: int = 50,
-    errors: str = "ignore",
+    errors: Literal["ignore", "raise"] = "ignore",
     debug: bool = False,
-):
-    """Scrape incident/docket info from the UJS portal."""
+) -> list[PortalResult]:
+    """Scrape incident/docket info from the UJS portal.
 
+    Returns
+    -------
+    list[PortalResult]
+        List of portal results.
+    """
     if debug:
         logger.debug(
-            f"Initializing portal scraper: search_by={search_by}, sleep={sleep}, log_freq={log_freq}, errors={errors}"
+            "Initializing portal scraper: "
+            "search_by={search_by}, sleep={sleep}, log_freq={log_freq}, errors={errors}"
         )
+
+    # Initialize the scraper
     scraper = UJSPortalScraper(
         search_by=search_by,
         sleep=sleep,
@@ -31,9 +40,10 @@ def _scrape(
         debug=debug,
     )
 
+    # Scrape the data
     if debug:
         logger.debug(f"Scraping portal data for {len(data)} rows")
-    results = scraper.scrape_portal_data(data.values)
+    results: list[PortalResult] = scraper.scrape_portal_data(data.tolist())
     if debug:
         logger.debug("...done")
 
@@ -43,17 +53,17 @@ def _scrape(
 def scrape(
     input_filename: str,
     output_folder: str,
-    search_by: str | None = None,
+    search_by: Literal["Incident Number", "Docket Number"] = "Incident Number",
     nprocs: int | None = None,
     pid: int | None = None,
     dry_run: bool = False,
     sample: int | None = None,
     log_freq: int = 50,
     seed: int = 42,
-    errors: str = "ignore",
+    errors: Literal["raise", "ignore"] = "ignore",
     sleep: int = 7,
     debug: bool = False,
-):
+) -> None:
     """
     Scrape portal data in batch (optionally split across workers).
 
@@ -99,9 +109,17 @@ def scrape(
         data = data.sample(sample, random_state=seed)
 
     # Split data
+    if nprocs is None:
+        nprocs = 1
+    if pid is None:
+        pid = 0
+
     assert pid < nprocs
+
+    # Split the data for this worker
+    # NOTE: data_chunk is a pd.Series
     if nprocs > 1:
-        data_chunk = np.array_split(data, nprocs)[pid]
+        data_chunk = cast(pd.Series, np.array_split(data, nprocs)[pid])
         chunk = pid
     else:
         data_chunk = data
@@ -127,8 +145,7 @@ def scrape(
 
     # Save!
     if not dry_run:
-
-        # Get output folder and data path
+        # Get output folder and output path for results
         output_folder, outfile = io.get_output_paths(
             output_folder=output_folder,
             chunk=chunk,
@@ -137,27 +154,41 @@ def scrape(
         if debug:
             logger.debug(f"Saving results to {outfile}")
 
-        # Save the results
-        io.save_output_data(outfile, results, aws=aws)
+        # Save the results to portal_results[_chunk].json
+        io.save_output_data(outfile, results=[r.model_dump() for r in results], aws=aws)
 
         # Get the input config
         local_variables = locals()
         frame = inspect.currentframe()
-        fname = inspect.getframeinfo(frame).function
-        sig = inspect.signature(globals()[fname])
-        config = {p: local_variables[p] for p in sig.parameters}
+        fname = inspect.getframeinfo(frame).function if frame is not None else "scrape"
+        if fname in globals():
+            sig = inspect.signature(globals()[fname])
+            config = {p: local_variables[p] for p in sig.parameters}
+        else:
+            config = {}
 
         # Save the config and input
         if chunk is not None:
-            io.save_output_data(f"{output_folder}/config_{chunk}.json", config, aws=aws)
             io.save_output_data(
-                f"{output_folder}/portal_input_{chunk}.csv", data_chunk, aws=aws
+                f"{output_folder}/config_{chunk}.json",
+                results=config,
+                aws=aws,
+            )
+            io.save_output_data(
+                f"{output_folder}/portal_input_{chunk}.csv",
+                results=data_chunk,
+                aws=aws,
             )
         else:
-            io.save_output_data(f"{output_folder}/config.json", config, aws=aws)
             io.save_output_data(
-                f"{output_folder}/portal_input.csv", data_chunk, aws=aws
+                f"{output_folder}/config.json",
+                results=config,
+                aws=aws,
             )
-
+            io.save_output_data(
+                f"{output_folder}/portal_input.csv",
+                results=data_chunk,
+                aws=aws,
+            )
         if debug:
             logger.debug("...done")

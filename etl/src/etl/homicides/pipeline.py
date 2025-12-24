@@ -1,21 +1,25 @@
 """Orchestration for homicide statistics ETL."""
 
+import pandas as pd
 from loguru import logger
 
-from .extract import extract_homicide_stats
-from .load import (
-    read_homicide_database,
+from etl.homicides.extract import extract_homicide_stats
+from etl.homicides.load import (
     write_homicide_database,
     write_processed_totals,
 )
-from .transform import append_daily_total, merge_totals
+from etl.homicides.transform import append_daily_total, merge_totals
+from etl.utils.storage import load_homicide_database, write_meta
 
 __all__ = ["update_homicide_totals"]
 
 
 def update_homicide_totals(
-    *, debug: bool = False, force: bool = False, dry_run: bool = False
-):
+    *,
+    debug: bool = False,
+    force: bool = False,
+    dry_run: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Extract, transform, and load homicide totals.
 
@@ -37,19 +41,22 @@ def update_homicide_totals(
     as_of_date, annual_totals, ytd_totals = extract_homicide_stats(debug=debug)
 
     # Read the homicide database and merge
-    database = read_homicide_database()
+    database = load_homicide_database()
     merged = merge_totals(annual_totals, ytd_totals)
     latest_ytd = ytd_totals.iloc[0]["ytd"]
 
     # If already up to date, log and exit early
-    if not database.empty and as_of_date == database.iloc[-1]["date"]:
-        if database.iloc[-1]["total"] == latest_ytd:
-            logger.info(
-                "Homicide totals already up to date through {} (YTD={}); no changes made.",
-                as_of_date.date(),
-                latest_ytd,
-            )
-            return database, merged
+    if (
+        not database.empty
+        and as_of_date == database.iloc[-1]["date"]
+        and database.iloc[-1]["total"] == latest_ytd
+    ):
+        logger.info(
+            "Homicide totals already up to date through {} (YTD={}); no changes made.",
+            as_of_date.date(),
+            latest_ytd,
+        )
+        return database, merged
 
     # Append the new daily total to the database and write outputs
     updated_database = append_daily_total(
@@ -69,6 +76,7 @@ def update_homicide_totals(
     else:
         write_processed_totals(merged)
         write_homicide_database(updated_database)
+        write_meta("homicides", data_through=as_of_date)
         logger.info(
             "Updated homicide totals through {} (YTD={})",
             as_of_date.date(),
