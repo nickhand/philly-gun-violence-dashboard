@@ -4,7 +4,7 @@ import pandas as pd
 from loguru import logger
 
 from etl.courts.extract import PortalBatchConfig, extract_portal
-from etl.courts.load import read_existing_flags, write_flags
+from etl.courts.load import read_existing_flags, write_flags, write_portal_results
 from etl.courts.transform import results_to_flags
 from etl.utils.paths import get_processed_path
 from etl.utils.storage import load_shootings_database, write_meta
@@ -44,6 +44,10 @@ def update_courts(cfg: PortalBatchConfig | None = None) -> pd.DataFrame:
     # Extract from portal
     portal_results, echoed_input = extract_portal(incident_numbers, cfg)
     flags = results_to_flags(portal_results, echoed_input)
+
+    # Write portal results
+    write_portal_results(portal_results)
+    logger.info(f"Wrote portal results to {get_processed_path('portal_results')}")
 
     # Merge with existing (keep any prior entries)
     out: pd.DataFrame

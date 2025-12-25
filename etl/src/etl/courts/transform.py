@@ -8,13 +8,16 @@ from etl.courts.portal.schema import PortalResult
 __all__ = ["results_to_flags"]
 
 
-def results_to_flags(portal_results: list[PortalResult], input_df: pd.DataFrame) -> pd.DataFrame:
+def results_to_flags(
+    portal_results: dict[str, list[PortalResult] | None],
+    input_df: pd.DataFrame,
+) -> pd.DataFrame:
     """Convert portal results + input echo to a flag table with has_court_case.
 
     Parameters
     ----------
-    portal_results : list[PortalResult]
-        List of portal scraping results.
+    portal_results : dict[str, list[PortalResult] | None]
+        Dictionary mapping incident numbers to lists of portal scraping results (or None).
     input_df : pd.DataFrame
         Original input DataFrame with a 'dc_key' column.
 
@@ -26,8 +29,8 @@ def results_to_flags(portal_results: list[PortalResult], input_df: pd.DataFrame)
     # Get the DC numbers with court cases
     dc_numbers_with_cases = (
         pd.DataFrame(
-            {"dc_key": ["20" + r.dc_number for r in portal_results]},
-            dtype=str,
+            [k for k, v in portal_results.items() if v is not None and len(v) > 0],
+            columns=["dc_key"],
         )
         .drop_duplicates()
         .assign(has_court_case=True)

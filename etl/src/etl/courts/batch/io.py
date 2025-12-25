@@ -84,7 +84,7 @@ def load_input_data(input_filename: str, aws: AWS) -> pd.Series:
 
 def save_output_data(
     outfile: str,
-    results: list[dict[str, Any]] | dict[str, Any] | pd.Series,
+    results: list[str] | dict[str, list[dict[str, Any]] | None] | dict[str, Any] | pd.Series,
     aws: AWS,
 ) -> None:
     """Save the output data for the scraper.
@@ -93,7 +93,7 @@ def save_output_data(
     ----------
     outfile : str
         Output filename (s3:// or local).
-    results : dict[str, Any] | pd.Series
+    results : dict[str, list[dict[str, Any]] | None] | dict[str, Any] | pd.Series
         Results to save (list of dicts for JSON, DataFrame for CSV).
     aws : AWS
         AWS helper instance.

@@ -2,7 +2,7 @@ import json
 import os
 import sys
 from io import BytesIO, StringIO
-from typing import Literal
+from typing import Any, Literal
 
 import pandas as pd
 from etl.config import settings
@@ -337,8 +337,8 @@ class AWS:
             )
 
         # Get the files
-        tags = ["portal_results", "portal_input"]
-        extensions = [".json", ".csv"]
+        tags = ["portal_results", "portal_input", "errors"]
+        extensions = [".json", ".csv", ".json"]
 
         bucket, prefix = self.split_s3_path(output_folder.rstrip("/"))
         parent_prefix = prefix.rsplit("/", 1)[0] if "/" in prefix else ""
@@ -369,8 +369,11 @@ class AWS:
             if i == 0:
                 logger.info(f"Combining {len(files)} files from AWS")
 
+            # Initialize results
+            # -> dict for JSON dicts, list for JSON lists, DataFrame for CSVs
+            results: dict[str, Any] | list[Any] | pd.DataFrame | None = None
+
             # Combine all files
-            results = None
             for key in files:
                 # Get the object and read its body
                 response = self.s3.get_object(Bucket=bucket, Key=key)
@@ -379,14 +382,32 @@ class AWS:
                 ## JSON data
                 if extension == ".json":
                     r = json.loads(body)
+
+                    # Results are either dicts or lists
+                    ## Dict results
                     if isinstance(r, dict):
-                        r = [v for _, v in r.items() if v]
-                    results = r if results is None else results + r
+                        if results is None:
+                            results = {}
+                        if not isinstance(results, dict):
+                            raise TypeError("Expected dict results when combining JSON dicts")
+                        results.update(r)
+                    ## List results
+                    else:
+                        if results is None:
+                            results = []
+                        if not isinstance(results, list):
+                            raise TypeError("Expected list results when combining JSON lists")
+                        results += r
                 ## CSV data
                 else:
                     r = pd.read_csv(BytesIO(body), header=None)
-                    results = r if results is None else pd.concat([results, r])
+                    if results is None:
+                        results = r
+                    else:
+                        assert isinstance(results, pd.DataFrame)
+                        results = pd.concat([results, r])
 
+            # Write the combined results back to S3
             output_key = f"{parent_prefix}/{tag}{extension}".lstrip("/")
             filename = f"s3://{bucket}/{os.path.normpath(output_key)}"
 
@@ -400,9 +421,12 @@ class AWS:
                 logger.info(f"Saving combined results to {filename}")
 
             # Save the combined results
+            ## JSON
             if extension == ".json":
                 payload = json.dumps(results)
+            ## CSV
             else:
+                assert isinstance(results, pd.DataFrame)
                 buf = StringIO()
                 results.to_csv(buf, header=False, index=False)
                 payload = buf.getvalue()

@@ -27,19 +27,21 @@ def write_flags(df: pd.DataFrame) -> None:
     mirror_to_s3(data_path)
 
 
-def write_portal_results(portal_results: list[PortalResult]) -> None:
+def write_portal_results(portal_results: dict[str, list[PortalResult] | None]) -> None:
     """Write portal results to processed data folder.
 
     Parameters
     ----------
-    portal_results : list[PortalResult]
-        List of portal result objects.
+    portal_results : dict[str, list[PortalResult] | None]
+        Dictionary mapping incident numbers to lists of portal result objects (or None).
     """
     data_path = get_processed_path("portal_results")
     data_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Save to a JSON file locally
-    result_dicts = [r.model_dump() for r in portal_results]
+    result_dicts = {
+        k: [r.model_dump() for r in v] if v is not None else None for k, v in portal_results.items()
+    }
     json.dump(result_dicts, data_path.open("w"))
 
     # Mirror to s3 too

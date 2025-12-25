@@ -101,7 +101,9 @@ def _upload_inputs_to_s3(
     return f"s3://{bucket}/{input_key}", output_prefix
 
 
-def _download_results(output_prefix: str) -> tuple[list[PortalResult], pd.DataFrame]:
+def _download_results(
+    output_prefix: str,
+) -> tuple[dict[str, list[PortalResult] | None], pd.DataFrame]:
     """Download scraping results from S3.
 
     This function downloads:
@@ -116,8 +118,8 @@ def _download_results(output_prefix: str) -> tuple[list[PortalResult], pd.DataFr
     Returns
     -------
     tuple
-        ``(results, input_df)`` where ``results`` is the list of result dicts and ``input_df``
-        is the echoed input DataFrame.
+        ``(parsed_results, input_df)`` where ``parsed_results`` is the dict of
+        result lists and ``input_df`` is the echoed input DataFrame.
     """
     # Create the S3 client
     s3 = get_s3_client()
@@ -127,8 +129,17 @@ def _download_results(output_prefix: str) -> tuple[list[PortalResult], pd.DataFr
     bucket, _, key_prefix = suffix.partition("/")
 
     # Get the results object
+    # NOTE: this is a dict mapping dc_key to list of PortalResult dicts or None
     results_obj = s3.get_object(Bucket=bucket, Key=f"{key_prefix}/portal_results.json")
-    results = [PortalResult.model_validate(r) for r in json.loads(results_obj["Body"].read())]
+    results = json.loads(results_obj["Body"].read())
+
+    # Validate the results
+    parsed_results: dict[str, list[PortalResult] | None] = {}
+    for k, v in results.items():
+        if v is None:
+            parsed_results[k] = None
+        else:
+            parsed_results[k] = [PortalResult.model_validate(r) for r in v]
 
     # Get the echoed input CSV
     with open_csv_from_s3(s3, bucket=bucket, key=f"{key_prefix}/portal_input.csv") as f:
@@ -139,13 +150,19 @@ def _download_results(output_prefix: str) -> tuple[list[PortalResult], pd.DataFr
             dtype={"dc_key": "str"},
         )
 
-    return results, input_df
+    if len(input_df) != len(parsed_results):
+        raise ValueError(
+            "Number of echoed input rows does not match number of results "
+            f"({len(input_df)} vs {len(parsed_results)})"
+        )
+
+    return parsed_results, input_df
 
 
 def extract_portal(
     incident_numbers: pd.DataFrame,
     cfg: PortalBatchConfig,
-) -> tuple[list[PortalResult], pd.DataFrame]:
+) -> tuple[dict[str, list[PortalResult] | None], pd.DataFrame]:
     """Run the portal scraper in batch and return results.
 
     Parameters
@@ -157,9 +174,9 @@ def extract_portal(
 
     Returns
     -------
-    tuple[list[PortalResult], pd.DataFrame]
-        ``(results, echoed_input)`` where ``results`` is the list of result dicts and
-        ``echoed_input`` is the echoed input DataFrame.
+    tuple[dict[str, list[PortalResult] | None], pd.DataFrame]
+        ``(results, echoed_input)`` where ``results`` is a dictionary mapping incident numbers to
+        lists of PortalResult objects (or None) and ``echoed_input`` is the echoed input DataFrame.
     """
     # Optional sample
     if cfg.sample is not None:

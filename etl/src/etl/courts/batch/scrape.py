@@ -17,13 +17,13 @@ def _scrape(
     log_freq: int = 50,
     errors: Literal["ignore", "raise"] = "ignore",
     debug: bool = False,
-) -> list[PortalResult]:
+) -> tuple[dict[str, list[PortalResult] | None], list[str]]:
     """Scrape incident/docket info from the UJS portal.
 
     Returns
     -------
-    list[PortalResult]
-        List of portal results.
+    dict[str, list[PortalResult] | None]
+        Dictionary mapping input values to their scraped results (or None)
     """
     if debug:
         logger.debug(
@@ -43,11 +43,11 @@ def _scrape(
     # Scrape the data
     if debug:
         logger.debug(f"Scraping portal data for {len(data)} rows")
-    results: list[PortalResult] = scraper.scrape_portal_data(data.tolist())
+    results, errors_list = scraper.scrape_portal_data(data.tolist())
     if debug:
         logger.debug("...done")
 
-    return results
+    return results, errors_list
 
 
 def scrape(
@@ -132,7 +132,7 @@ def scrape(
     # Run the scraper
     if debug:
         logger.debug("Starting to scrape the data")
-    results = _scrape(
+    results, errors_list = _scrape(
         data_chunk,
         search_by=search_by,
         sleep=sleep,
@@ -154,8 +154,12 @@ def scrape(
         if debug:
             logger.debug(f"Saving results to {outfile}")
 
+        # Serialize the PortalResult objects to dicts
+        results_dict = {
+            k: [r.model_dump() for r in v] if v is not None else None for k, v in results.items()
+        }
         # Save the results to portal_results[_chunk].json
-        io.save_output_data(outfile, results=[r.model_dump() for r in results], aws=aws)
+        io.save_output_data(outfile, results=results_dict, aws=aws)
 
         # Get the input config
         local_variables = locals()
@@ -179,6 +183,11 @@ def scrape(
                 results=data_chunk,
                 aws=aws,
             )
+            io.save_output_data(
+                f"{output_folder}/errors_{chunk}.json",
+                results=errors_list,
+                aws=aws,
+            )
         else:
             io.save_output_data(
                 f"{output_folder}/config.json",
@@ -188,6 +197,11 @@ def scrape(
             io.save_output_data(
                 f"{output_folder}/portal_input.csv",
                 results=data_chunk,
+                aws=aws,
+            )
+            io.save_output_data(
+                f"{output_folder}/errors.json",
+                results=errors_list,
                 aws=aws,
             )
         if debug:

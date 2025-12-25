@@ -326,7 +326,10 @@ class UJSPortalScraper:
 
         return None
 
-    def scrape_portal_data(self, input_values: list[str]) -> list[PortalResult]:
+    def scrape_portal_data(
+        self,
+        input_values: list[str],
+    ) -> tuple[dict[str, list[PortalResult] | None], list[str]]:
         """
         Scrape portal data for a list of input values.
 
@@ -337,30 +340,42 @@ class UJSPortalScraper:
 
         Returns
         -------
-        list[PortalResult]
-            Flattened list of result dictionaries.
+        dict[str, list[PortalResult] | None]
+            Dictionary mapping input values to their scraped results (or None)
         """
-        results: list[PortalResult] = []
+        results: dict[str, list[PortalResult] | None] = {}
         N = len(input_values)
         logger.info(f"Scraping info for {N} values")
 
-        try:
-            for i, val in enumerate(input_values):
-                if i % self.log_freq == 0:
-                    logger.debug(f"Scraping index {i}")
-                portal_results = self(val)
-                if portal_results is None:
-                    continue
-                results.extend(portal_results)
-                time.sleep(self.sleep)
-        except Exception as exc:
-            if self.errors == "ignore":
-                logger.warning(f"Ignoring exception for value {val}: {exc}")
-            else:
-                logger.exception(f"Exception raised for value {val}: {exc}")
-                raise
-        finally:
-            logger.debug(f"Done scraping: {N} values processed")
-            self.close()
+        # Errors
+        errors = []
 
-        return results
+        # Loop over input values and scrape
+        for i, val in enumerate(input_values):
+            # Log progress
+            if i % self.log_freq == 0:
+                logger.debug(f"Scraping index {i}")
+
+            # Try to scrape the value, with retry/error handling
+            try:
+                portal_results = self(val)
+                results[val] = portal_results
+            except Exception as exc:
+                # If ignoring errors, log a warning and continue
+                if self.errors == "ignore":
+                    logger.warning(f"Ignoring exception for value {val}: {exc}")
+                    results[val] = None
+                    errors.append(val)
+                # Otherwise, re-raise the exception
+                else:
+                    logger.exception(f"Exception raised for value {val}: {exc}")
+                    raise
+
+            # Sleep between requests
+            time.sleep(self.sleep)
+
+        # We are all done
+        logger.debug(f"Done scraping: {N} values processed")
+        self.close()
+
+        return results, errors
