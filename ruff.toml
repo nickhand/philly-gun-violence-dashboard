@@ -29,3 +29,7 @@ ignore = [
 
 [lint.pydocstyle]
 convention = "numpy"
+
+
+[lint.isort]
+known-first-party = ["dashboard_utils"]

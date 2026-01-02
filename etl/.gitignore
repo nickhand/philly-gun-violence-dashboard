@@ -1,7 +1,0 @@
-.DS_Store
-
-data/
-notebooks/
-build/
-.vscode
-.env

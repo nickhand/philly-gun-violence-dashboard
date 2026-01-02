@@ -2,22 +2,25 @@
 
 import pandas as pd
 from loguru import logger
+from mypy_boto3_s3.client import S3Client
 
+from dashboard_utils.paths import get_processed_path
 from etl.courts.extract import PortalBatchConfig, extract_portal
 from etl.courts.load import read_existing_flags, write_flags, write_portal_results
 from etl.courts.transform import results_to_flags
-from etl.utils.paths import get_processed_path
 from etl.utils.storage import load_shootings_database, write_meta
 
 __all__ = ["update_courts"]
 
 
-def update_courts(cfg: PortalBatchConfig | None = None) -> pd.DataFrame:
+def update_courts(s3: S3Client, cfg: PortalBatchConfig | None = None) -> pd.DataFrame:
     """
     Run the courts portal scraper and update local flags.
 
     Parameters
     ----------
+    s3 : S3Client
+        The S3 client to use for uploading metadata.
     cfg : PortalBatchConfig, optional
         Batch scraping configuration. If None, uses defaults.
 
@@ -42,11 +45,11 @@ def update_courts(cfg: PortalBatchConfig | None = None) -> pd.DataFrame:
             incident_numbers = incident_numbers[~incident_numbers["dc_key"].isin(known_true)]
 
     # Extract from portal
-    portal_results, echoed_input = extract_portal(incident_numbers, cfg)
+    portal_results, echoed_input = extract_portal(s3, incident_numbers, cfg)
     flags = results_to_flags(portal_results, echoed_input)
 
     # Write portal results
-    write_portal_results(portal_results)
+    write_portal_results(s3, portal_results)
     logger.info(f"Wrote portal results to {get_processed_path('portal_results')}")
 
     # Merge with existing (keep any prior entries)
@@ -60,8 +63,8 @@ def update_courts(cfg: PortalBatchConfig | None = None) -> pd.DataFrame:
     out = out.sort_values("dc_key", ascending=True).reset_index(drop=True)
 
     # Save updated flags
-    write_flags(out)
+    write_flags(s3, out)
     logger.info(f"Saved courts flags to {get_processed_path('courts_flags')}")
-    write_meta("courts")
+    write_meta(s3, subfolder="courts")
 
     return out

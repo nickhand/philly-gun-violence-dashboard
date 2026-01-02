@@ -1,6 +1,6 @@
 import geopandas as gpd
 
-from etl.config import settings
+from etl.config import REFERENCE_CRS
 from etl.utils.query import query_carto
 
 
@@ -14,7 +14,7 @@ def fetch_shootings() -> gpd.GeoDataFrame:
     return query_carto(
         table_name="shootings",
         method="GET",
-    ).to_crs(settings.REFERENCE_CRS)
+    ).to_crs(REFERENCE_CRS)
 
 
 def fetch_criminal_incidents(
@@ -33,4 +33,4 @@ def fetch_criminal_incidents(
         method="POST",
         fields=fields,
         where=where,
-    ).to_crs(settings.REFERENCE_CRS)
+    ).to_crs(REFERENCE_CRS)

@@ -6,7 +6,11 @@ from etl.homicides.cli import app as homicides_app
 from etl.shootings.cli import app as shootings_app
 from etl.streets.cli import app as streets_app
 
-app = typer.Typer(help="ETL CLI for the Philadelphia Gun Violence Dashboard")
+app = typer.Typer(
+    help="ETL CLI for the Philadelphia Gun Violence Dashboard",
+    no_args_is_help=True,
+    add_completion=False,
+)
 app.add_typer(boundaries_app, name="boundaries")
 app.add_typer(courts_app, name="courts")
 app.add_typer(homicides_app, name="homicides")

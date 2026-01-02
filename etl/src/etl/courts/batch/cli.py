@@ -1,6 +1,7 @@
 from typing import Annotated, Literal
 
 import typer
+
 from etl.courts.batch.scrape import scrape
 
 app = typer.Typer(name="courts-batch", help="Batch courts portal scraper.")

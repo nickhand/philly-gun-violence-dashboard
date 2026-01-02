@@ -1,34 +1,27 @@
 from functools import lru_cache
 from pathlib import Path
 
-
-def get_repo_root() -> Path:
-    """
-    Find the root directory of the repository.
-
-    Assumes this file is located at etl/src/etl/utils/paths.py
-    """
-    p = Path(__file__).resolve()
-    for parent in p.parents:
-        if (parent / ".git").exists():
-            return parent
-
-    raise FileNotFoundError("Repository root not found.")
+from dashboard_utils.env import get_repo_root, is_prod_runtime, settings
 
 
-def data_dir() -> Path:
+def data_dir() -> str:
     """Return the path to the data directory located at the root of the repository."""
-    return get_repo_root() / "data"
+    # In production, data dir is an S3 bucket
+    if is_prod_runtime():
+        return f"s3://{settings.AWS_BUCKET_NAME}"
+    # In local/dev, data dir is a local folder at the repo root
+    else:
+        return str(get_repo_root() / "data")
 
 
 def reference_data_dir() -> Path:
     """Return the path to the reference data directory in the data directory."""
-    return data_dir() / "reference"
+    return Path(data_dir()) / "reference"
 
 
 def processed_data_dir() -> Path:
     """Return the path to the processed data directory in the data directory."""
-    return data_dir() / "processed"
+    return Path(data_dir()) / "processed"
 
 
 # -----------------------------------------------------------------------------
@@ -46,7 +39,7 @@ _PROCESSED_PATHS = {
 
 
 @lru_cache(maxsize=1)
-def processed_inventory() -> dict[str, Path]:
+def processed_data_inventory() -> dict[str, Path]:
     """
     Lazily build an inventory of processed dataset paths.
 
@@ -55,7 +48,7 @@ def processed_inventory() -> dict[str, Path]:
     dict
         Mapping from dataset key to full Path under ``data/processed``.
     """
-    base = processed_data_dir()
+    base = Path(processed_data_dir())
     return {key: base.joinpath(*parts) for key, parts in _PROCESSED_PATHS.items()}
 
 
@@ -78,7 +71,7 @@ def get_processed_path(key: str) -> Path:
     KeyError
         If the key is not recognized.
     """
-    inventory = processed_inventory()
+    inventory = processed_data_inventory()
     try:
         return inventory[key]
     except KeyError as exc:

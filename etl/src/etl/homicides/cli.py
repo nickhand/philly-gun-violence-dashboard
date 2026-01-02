@@ -3,6 +3,7 @@ from typing import Annotated
 import typer
 from loguru import logger
 
+from dashboard_utils.aws import make_s3_client
 from etl.homicides.pipeline import update_homicide_totals
 
 app = typer.Typer(name="homicides", help="Homicide statistics ETL.")
@@ -23,7 +24,13 @@ def update(
     ] = False,
 ) -> None:
     """Update homicide totals by scraping PPD crime stats and refreshing local data."""
-    update_homicide_totals(debug=debug, force=force, dry_run=dry_run)
+    # Create S3 client
+    s3 = make_s3_client()
+
+    # Run update
+    update_homicide_totals(s3, debug=debug, force=force, dry_run=dry_run)
+
+    # Log completion
     if dry_run:
         logger.info("Dry run complete; no files written.")
     else:

@@ -1,0 +1,33 @@
+[project]
+name = "dashboard-utils"
+version = "0.1.0"
+description = "Python utilities for the Philadelphia Gun Violence Dashboard"
+readme = "README.md"
+authors = [{ name = "Nick Hand", email = "nicholas.adam.hand@gmail.com" }]
+requires-python = ">=3.13"
+dependencies = [
+    "boto3>=1.42.4",
+    "boto3-stubs[s3]>=1.42.19",
+    "botocore[crt]>=1.42.17",
+    "geopandas>=1.1.1",
+    "loguru>=0.7.3",
+    "pandas>=2.3.3",
+    "pandas-stubs>=2.3.3.251219",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
+]
+
+
+[build-system]
+requires = ["uv_build>=0.9.16,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipython>=9.8.0",
+    "mypy>=1.19.0",
+    "pandas-stubs>=2.3.3.251201",
+    "ruff>=0.14.8",
+    "types-boto3[essential]>=1.42.15",
+    "types-geopandas>=1.1.1.20250829",
+]

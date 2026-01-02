@@ -5,17 +5,10 @@ from io import BytesIO, StringIO
 from typing import Any, Literal
 
 import pandas as pd
-from etl.config import settings
-from etl.utils.aws import ensure_bucket, get_session
 from loguru import logger
 
-
-def parse_aws_path(path: str) -> tuple[str, str]:
-    """Split a path on AWS into bucket and key."""
-    path = str(path)
-    bucket = path.split("/")[2]
-    key = "/".join(path.split("/")[3:])
-    return bucket, key
+from dashboard_utils.aws import ensure_bucket, exists_on_s3, make_boto3_session, parse_s3_uri
+from dashboard_utils.env import settings
 
 
 def is_ec2_instance() -> bool:
@@ -51,7 +44,7 @@ class AWS:
         self.debug = debug
 
         # Set up the AWS session
-        self.session = get_session()
+        self.session = make_boto3_session()
 
         # Set up clients
         self.ecs = self.session.client("ecs")
@@ -60,7 +53,7 @@ class AWS:
 
         # Set up the output s3 bucket (and create it if we need to)
         self.bucket_name = settings.AWS_BUCKET_NAME
-        ensure_bucket(self.bucket_name)
+        ensure_bucket(self.s3, self.bucket_name)
 
         # Are we running on AWS
         self.on_aws = is_ec2_instance()
@@ -94,44 +87,6 @@ class AWS:
 
         if self.debug:
             logger.info(f"Task definition: {self.task_definition}")
-
-    def split_s3_path(self, path: str) -> tuple[str, str]:
-        """Return bucket and key for an s3:// path.
-
-        Parameters
-        ----------
-        path : str
-            S3 path (s3://bucket/key).
-
-        Returns
-        -------
-        tuple[str, str]
-            Bucket and key.
-        """
-        if not path.startswith("s3://"):
-            raise ValueError(f"Expected s3 path, got {path}")
-        bucket, key = parse_aws_path(path)
-        if not key:
-            raise ValueError(f"Missing key in s3 path {path}")
-        return bucket, key
-
-    def exists_on_s3(self, path: str) -> bool:
-        """Return True if the given S3 object exists.
-
-        Parameters
-        ----------
-        path : str
-            S3 path (s3://bucket/key).
-
-        Returns
-        -------
-        bool
-            True if the S3 object exists.
-        """
-        bucket, key = self.split_s3_path(path)
-        response = self.s3.list_objects_v2(Bucket=bucket, Prefix=key, MaxKeys=1)
-        keycount: int = response.get("KeyCount", 0)
-        return keycount > 0
 
     def submit_jobs(
         self,
@@ -328,10 +283,7 @@ class AWS:
         str | None
             S3 path to the combined output file or None if not waiting.
         """
-        # Make sure it exists
-        if not output_folder.startswith("s3://") or not self.exists_on_s3(
-            output_folder.rstrip("/")
-        ):
+        if not exists_on_s3(self.s3, output_folder.rstrip("/")):
             raise FileNotFoundError(
                 f"Output folder does not exist for parallel results: '{output_folder}'"
             )
@@ -340,7 +292,7 @@ class AWS:
         tags = ["portal_results", "portal_input", "errors"]
         extensions = [".json", ".csv", ".json"]
 
-        bucket, prefix = self.split_s3_path(output_folder.rstrip("/"))
+        bucket, prefix = parse_s3_uri(output_folder.rstrip("/"))
         parent_prefix = prefix.rsplit("/", 1)[0] if "/" in prefix else ""
 
         # Combine files for each tag

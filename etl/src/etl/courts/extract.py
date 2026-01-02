@@ -4,18 +4,18 @@ Extraction helpers for courts portal scraping.
 Uploads incident numbers to S3, triggers batch scraping, and fetches results.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
 import pandas as pd
 from loguru import logger
+from mypy_boto3_s3.client import S3Client
 
-from etl.config import settings
+from dashboard_utils.aws import parse_s3_uri, read_csv_df, read_json, write_csv_df
+from dashboard_utils.env import settings
 from etl.courts.batch.aws import AWS
 from etl.courts.portal.schema import PortalResult
-from etl.utils.aws import get_s3_client, open_csv_from_s3
 
 
 @dataclass
@@ -45,7 +45,7 @@ class PortalBatchConfig:
     bucket : str
         The S3 bucket to use; defaults to the configured AWS bucket name.
     subfolder_prefix : str
-        The S3 subfolder prefix to use; defaults to "courts/batch".
+        The S3 subfolder prefix to use; defaults to "courts-scraper".
     exclude_known_cases : bool
         If ``True``, exclude incident numbers already known to have court cases.
     """
@@ -60,19 +60,22 @@ class PortalBatchConfig:
     sample: int | None = None
     debug: bool = False
     bucket: str = settings.AWS_BUCKET_NAME
-    subfolder_prefix: str = "courts/batch"
+    subfolder_prefix: str = "courts-scraper"
     exclude_known_cases: bool = False
 
 
 def _upload_inputs_to_s3(
+    s3: S3Client,
     df: pd.DataFrame,
     bucket: str,
     subfolder: str,
-) -> tuple[str, str]:
+) -> str:
     """Write input values to S3 and return (input_key, output_prefix).
 
     Parameters
     ----------
+    s3 : S3Client
+        The S3 client to use for uploading.
     df : pd.DataFrame
         DataFrame of incident numbers to upload.
     bucket : str
@@ -82,26 +85,28 @@ def _upload_inputs_to_s3(
 
     Returns
     -------
-    tuple
-        ``(input_key, output_prefix)`` where ``input_key`` is the S3 key of the uploaded CSV
-        and ``output_prefix`` is the S3 prefix where results will be stored.
+    str
+        The S3 key of the uploaded CSV.
     """
-    # The S3 client
-    s3 = get_s3_client()
-
     # The input key and output prefix
     input_key = f"{subfolder}/incident_numbers.csv"
-    output_prefix = f"s3://{bucket}/{subfolder}/results"
 
-    # Upload CSV
-    csv_bytes = df.to_csv(index=False, header=False).encode()
-    s3.put_object(Bucket=bucket, Key=input_key, Body=csv_bytes)
+    # Upload csv
+    write_csv_df(
+        s3,
+        bucket=bucket,
+        key=input_key,
+        df=df,
+        index=False,
+        header=False,
+    )
 
-    # Return S3 paths
-    return f"s3://{bucket}/{input_key}", output_prefix
+    # Return S3 path for input file
+    return f"s3://{bucket}/{input_key}"
 
 
 def _download_results(
+    s3: S3Client,
     output_prefix: str,
 ) -> tuple[dict[str, list[PortalResult] | None], pd.DataFrame]:
     """Download scraping results from S3.
@@ -112,6 +117,8 @@ def _download_results(
 
     Parameters
     ----------
+    s3 : S3Client
+        The S3 client to use for downloading.
     output_prefix : str
         The S3 prefix where the results are stored.
 
@@ -121,17 +128,12 @@ def _download_results(
         ``(parsed_results, input_df)`` where ``parsed_results`` is the dict of
         result lists and ``input_df`` is the echoed input DataFrame.
     """
-    # Create the S3 client
-    s3 = get_s3_client()
-
     # Strip s3://bucket/ from prefix
-    _, _, suffix = output_prefix.partition("s3://")
-    bucket, _, key_prefix = suffix.partition("/")
+    bucket, key_prefix = parse_s3_uri(output_prefix)
 
-    # Get the results object
+    # Get the results JSON
     # NOTE: this is a dict mapping dc_key to list of PortalResult dicts or None
-    results_obj = s3.get_object(Bucket=bucket, Key=f"{key_prefix}/portal_results.json")
-    results = json.loads(results_obj["Body"].read())
+    results = read_json(s3, bucket=bucket, key=f"{key_prefix}/portal_results.json")
 
     # Validate the results
     parsed_results: dict[str, list[PortalResult] | None] = {}
@@ -142,14 +144,16 @@ def _download_results(
             parsed_results[k] = [PortalResult.model_validate(r) for r in v]
 
     # Get the echoed input CSV
-    with open_csv_from_s3(s3, bucket=bucket, key=f"{key_prefix}/portal_input.csv") as f:
-        input_df = pd.read_csv(
-            f,
-            header=None,
-            names=["dc_key"],
-            dtype={"dc_key": "str"},
-        )
+    input_df = read_csv_df(
+        s3,
+        bucket=bucket,
+        key=f"{key_prefix}/portal_input.csv",
+        header=None,
+        names=["dc_key"],
+        dtype={"dc_key": "str"},
+    )
 
+    # Validate lengths match
     if len(input_df) != len(parsed_results):
         raise ValueError(
             "Number of echoed input rows does not match number of results "
@@ -160,6 +164,7 @@ def _download_results(
 
 
 def extract_portal(
+    s3: S3Client,
     incident_numbers: pd.DataFrame,
     cfg: PortalBatchConfig,
 ) -> tuple[dict[str, list[PortalResult] | None], pd.DataFrame]:
@@ -167,6 +172,8 @@ def extract_portal(
 
     Parameters
     ----------
+    s3 : S3Client
+        The S3 client to use for uploading inputs and downloading results.
     incident_numbers : pd.DataFrame
         DataFrame with a column ``dc_key`` of incident numbers to scrape.
     cfg : PortalBatchConfig
@@ -182,12 +189,21 @@ def extract_portal(
     if cfg.sample is not None:
         incident_numbers = incident_numbers.sample(cfg.sample, random_state=cfg.seed)
 
+    # Log how many to scrape
     logger.info(f"Scraping {len(incident_numbers)} incident numbers")
 
     # Upload the inputs to S3
     date_string = datetime.now(UTC).strftime("%Y-%m-%dT%H%M%SZ")
     s3_subfolder = f"{cfg.subfolder_prefix}/{date_string}"
-    input_filename, output_folder = _upload_inputs_to_s3(incident_numbers, cfg.bucket, s3_subfolder)
+    input_filename = _upload_inputs_to_s3(
+        s3,
+        incident_numbers,
+        cfg.bucket,
+        s3_subfolder,
+    )
+
+    # The output folder where results will be stored
+    output_folder = f"s3://{cfg.bucket}/{s3_subfolder}/results"
 
     # Log it
     logger.info(f"Uploaded incident numbers to {input_filename}")
@@ -210,5 +226,5 @@ def extract_portal(
     )
 
     # Download the results from S3 and return them
-    results, echoed_input = _download_results(output_folder)
+    results, echoed_input = _download_results(s3, output_folder)
     return results, echoed_input

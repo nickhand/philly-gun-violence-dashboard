@@ -1,4 +1,4 @@
-"""Helpers for S3 mirroring and processed dataset loading."""
+"""Utilities for reading and writing processed data and metadata."""
 
 import json
 from datetime import UTC, datetime
@@ -7,9 +7,11 @@ from typing import Any
 
 import geopandas as gpd
 import pandas as pd
+from mypy_boto3_s3.client import S3Client
 
-from etl.utils.aws import mirror_to_s3
-from etl.utils.paths import get_processed_path, processed_data_dir
+from dashboard_utils.aws import upload_file
+from dashboard_utils.env import settings
+from dashboard_utils.paths import get_processed_path, processed_data_dir
 
 __all__ = [
     "write_meta",
@@ -21,11 +23,13 @@ __all__ = [
 ]
 
 
-def write_meta(subfolder: str, data_through: Any = None) -> None:
+def write_meta(s3: S3Client, *, subfolder: str, data_through: Any = None) -> None:
     """Write data/processed/<subfolder>/meta.json with last_updated and data_through.
 
     Parameters
     ----------
+    s3 : S3Client
+        The S3 client to use for uploading the meta.json file.
     subfolder : str
         The subfolder under data/processed/ to write the meta.json file to.
     data_through : Any, optional
@@ -44,10 +48,18 @@ def write_meta(subfolder: str, data_through: Any = None) -> None:
     folder = processed_data_dir() / subfolder
     folder.mkdir(parents=True, exist_ok=True)
 
-    # Write the meta.json file locally and mirror to S3
+    # Write the meta.json file locally
     path = folder / "meta.json"
     path.write_text(json.dumps(meta, indent=2))
-    mirror_to_s3(path)
+
+    # Upload it to s3
+    upload_file(
+        s3,
+        path,
+        bucket=settings.AWS_BUCKET_NAME,
+        key=f"processed/{subfolder}/meta.json",
+        content_type="application/json",
+    )
 
 
 # -----------------------------------------------------------------------------

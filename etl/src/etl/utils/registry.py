@@ -7,8 +7,9 @@ from typing import Any
 
 import geopandas as gpd
 
-from etl.utils.aws import mirror_to_s3
-from etl.utils.paths import reference_data_dir
+from dashboard_utils.aws import make_s3_client, upload_file
+from dashboard_utils.env import settings
+from dashboard_utils.paths import data_dir, reference_data_dir
 
 # Track a registry of geographic datasets
 REGISTRY: dict[str, Callable[..., gpd.GeoDataFrame]] = {}
@@ -58,6 +59,10 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
             If True, recompute and overwrite the cache.
             If False (default), load from cache if present.
         """
+        # Create S3 client
+        s3 = make_s3_client()
+
+        # Determine cache path
         cache_path = reference_data_dir().joinpath(filepath)
 
         if not refresh and cache_path.exists():
@@ -67,8 +72,17 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
         gdf = func(*args, **kwargs)
         gdf.to_file(cache_path, driver="GeoJSON")
 
-        # Mirror to S3
-        mirror_to_s3(cache_path)
+        # Key in s3 is relative to data_dir
+        key = str(cache_path.relative_to(data_dir()))
+
+        # Mirror to s3
+        upload_file(
+            s3,
+            cache_path,
+            bucket=settings.AWS_BUCKET_NAME,
+            key=key,
+            content_type="application/geo+json",
+        )
 
         # Return the GeoDataFrame
         return gdf

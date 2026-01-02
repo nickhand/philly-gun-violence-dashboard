@@ -7,7 +7,6 @@ authors = [{ name = "Nick Hand", email = "nicholas.adam.hand@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
     "arcgis2geojson>=3.1.1",
-    "boto3>=1.42.4",
     "geopandas>=1.1.1",
     "httpx>=0.28.1",
     "justhtml>=0.16.0",
@@ -16,10 +15,13 @@ dependencies = [
     "pandas>=2.3.3",
     "playwright>=1.56.0",
     "pydantic>=2.12.5",
-    "pydantic-settings>=2.12.0",
     "typer>=0.20.0",
     "tenacity>=8.2.3",
+    "dashboard-utils",
 ]
+
+[tool.uv.sources]
+dashboard-utils = { path = "../dashboard-utils", editable = true }
 
 [project.scripts]
 gv-dashboard-etl = "etl.cli:app"
@@ -30,14 +32,10 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "boto3-stubs>=1.42.14",
     "ipython>=9.8.0",
-    "jupyterlab>=4.5.0",
-    "matplotlib>=3.10.7",
-    "mypy>=1.19.0",
+    "mypy>=1.19.1",
     "pandas-stubs>=2.3.3.251201",
-    "ruff>=0.14.8",
-    "types-boto3[essential]>=1.42.15",
+    "ruff>=0.14.10",
     "types-geopandas>=1.1.1.20250829",
     "types-networkx>=3.6.1.20251212",
 ]

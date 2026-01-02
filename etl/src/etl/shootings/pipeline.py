@@ -3,6 +3,7 @@
 import geopandas as gpd
 import pandas as pd
 from loguru import logger
+from mypy_boto3_s3.client import S3Client
 
 from etl.shootings.extract import fetch_shootings
 from etl.shootings.load import write_shootings_dataset
@@ -13,6 +14,7 @@ __all__ = ["update_shootings"]
 
 
 def update_shootings(
+    s3: S3Client,
     *,
     ignore_checks: bool = False,
     dry_run: bool = False,
@@ -53,13 +55,13 @@ def update_shootings(
         return cleaned
 
     # Write the cleaned shootings dataset
-    write_shootings_dataset(cleaned)
+    write_shootings_dataset(s3, cleaned)
 
     # The dates are stored as strings; convert to datetime to find latest
     latest_date = pd.to_datetime(cleaned["date"]).max() if not cleaned.empty else None
 
     # Save metadata about the update
-    write_meta("shootings", data_through=latest_date)
+    write_meta(s3, subfolder="shootings", data_through=latest_date)
     logger.info(f"Updated shootings dataset with {len(cleaned):,d} records")
 
     # Return the cleaned dataset

@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 import typer
 from loguru import logger
 
+from dashboard_utils.aws import make_s3_client
 from etl.courts.batch.scrape import scrape as batch_scrape
 from etl.courts.extract import PortalBatchConfig
 from etl.courts.pipeline import update_courts
@@ -42,6 +43,10 @@ def update(
     ] = False,
 ) -> None:
     """Run the courts portal scraper in batch and update local flags."""
+    # Create S3 client
+    s3 = make_s3_client()
+
+    # Build config
     cfg = PortalBatchConfig(
         dry_run=dry_run,
         sample=sample,
@@ -51,7 +56,9 @@ def update(
         ntasks=ntasks,
         debug=debug,
     )
-    update_courts(cfg=cfg)
+
+    # Run update
+    update_courts(s3, cfg=cfg)
     logger.info("Courts flags updated using shootings processed geojson.")
 
 

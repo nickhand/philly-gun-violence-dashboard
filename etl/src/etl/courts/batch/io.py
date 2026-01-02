@@ -1,11 +1,11 @@
-import json
-from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from mypy_boto3_s3.client import S3Client
+
+from dashboard_utils.aws import exists_on_s3, parse_s3_uri, read_csv_df, write_csv_df, write_json
 from etl.courts.batch.aws import AWS
-from etl.utils.aws import open_csv_from_s3
 
 
 def get_output_paths(output_folder: str, chunk: int | None) -> tuple[str, str]:
@@ -33,16 +33,18 @@ def get_output_paths(output_folder: str, chunk: int | None) -> tuple[str, str]:
     return output_folder, outfile
 
 
-def _s3_exists(aws: AWS, path: str) -> bool:
+def _path_exists(s3: S3Client, path: str) -> bool:
     """Check if a path exists (s3:// or local)."""
-    return aws.exists_on_s3(path) if path.startswith("s3://") else Path(path).exists()
+    return exists_on_s3(s3, path) if path.startswith("s3://") else Path(path).exists()
 
 
-def load_input_data(input_filename: str, aws: AWS) -> pd.Series:
+def load_input_data(s3: S3Client, input_filename: str, aws: AWS) -> pd.Series:
     """Load the input data for the portal scraper (CSV of values).
 
     Parameters
     ----------
+    s3: S3Client
+        The S3 client to use.
     input_filename : str
         Input CSV filename (s3:// or local).
     aws : AWS
@@ -53,7 +55,7 @@ def load_input_data(input_filename: str, aws: AWS) -> pd.Series:
     pandas.Series
         Series of input values to scrape.
     """
-    if not _s3_exists(aws, input_filename):
+    if not _path_exists(s3, input_filename):
         raise ValueError(f"Input filename '{input_filename}' does not exist.")
 
     if not input_filename.endswith(".csv"):
@@ -61,14 +63,15 @@ def load_input_data(input_filename: str, aws: AWS) -> pd.Series:
 
     # Load from s3
     if input_filename.startswith("s3://"):
-        bucket, key = aws.split_s3_path(input_filename)
-        with open_csv_from_s3(aws.s3, bucket=bucket, key=key) as f:
-            out = pd.read_csv(
-                f,
-                header=None,
-                names=["value"],
-                dtype={"value": str},
-            )
+        bucket, key = parse_s3_uri(input_filename)
+        out = read_csv_df(
+            s3,
+            bucket=bucket,
+            key=key,
+            header=None,
+            names=["value"],
+            dtype={"value": str},
+        )
     # Local
     else:
         with open(input_filename, "rb") as ff:
@@ -83,14 +86,17 @@ def load_input_data(input_filename: str, aws: AWS) -> pd.Series:
 
 
 def save_output_data(
+    aws: AWS,
+    *,
     outfile: str,
     results: list[str] | dict[str, list[dict[str, Any]] | None] | dict[str, Any] | pd.Series,
-    aws: AWS,
 ) -> None:
-    """Save the output data for the scraper.
+    """Save the output data for the scraper to s3.
 
     Parameters
     ----------
+    s3: S3Client
+        The S3 client to use.
     outfile : str
         Output filename (s3:// or local).
     results : dict[str, list[dict[str, Any]] | None] | dict[str, Any] | pd.Series
@@ -100,36 +106,27 @@ def save_output_data(
     """
     # Save to S3
     if outfile.startswith("s3://"):
-        bucket, key = aws.split_s3_path(outfile)
+        assert aws is not None, "AWS instance must be provided for S3 saving"
+        bucket, key = parse_s3_uri(outfile)
 
         ## JSON
         if outfile.endswith(".json"):
-            payload = json.dumps(results)
-            aws.s3.put_object(Bucket=bucket, Key=key, Body=payload.encode())
+            write_json(aws.s3, bucket=bucket, key=key, data=results)
         ## CSV
         elif outfile.endswith(".csv"):
             # The results need to be a pandas Series in this case
             assert isinstance(results, pd.Series)
 
-            # Write CSV
-            buf = StringIO()
-            results.to_csv(buf, index=False, header=False)
-            aws.s3.put_object(Bucket=bucket, Key=key, Body=buf.getvalue().encode())
+            # Write as DataFrame for CSV
+            write_csv_df(
+                aws.s3,
+                bucket=bucket,
+                key=key,
+                df=results.to_frame(name="value"),
+                index=False,
+                header=False,
+            )
         else:
             raise ValueError("Output file should end in .json or .csv")
     else:
-        # Local
-        p = Path(outfile)
-        p.parent.mkdir(parents=True, exist_ok=True)
-
-        ## JSON
-        if outfile.endswith(".json"):
-            p.write_text(json.dumps(results))
-
-        ## CSV
-        elif outfile.endswith(".csv"):
-            # The results need to be a pandas Series in this case
-            assert isinstance(results, pd.Series)
-            results.to_csv(p, index=False, header=False)
-        else:
-            raise ValueError("Output file should end in .json or .csv")
+        raise ValueError("To save output files to s3, provide an S3 path starting with 's3://'")

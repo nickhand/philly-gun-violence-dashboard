@@ -2,12 +2,10 @@
 
 import pandas as pd
 from loguru import logger
+from mypy_boto3_s3.client import S3Client
 
 from etl.homicides.extract import extract_homicide_stats
-from etl.homicides.load import (
-    write_homicide_database,
-    write_processed_totals,
-)
+from etl.homicides.load import write_homicide_database, write_processed_totals
 from etl.homicides.transform import append_daily_total, merge_totals
 from etl.utils.storage import load_homicide_database, write_meta
 
@@ -15,6 +13,7 @@ __all__ = ["update_homicide_totals"]
 
 
 def update_homicide_totals(
+    s3: S3Client,
     *,
     debug: bool = False,
     force: bool = False,
@@ -25,6 +24,8 @@ def update_homicide_totals(
 
     Parameters
     ----------
+    s3 : S3Client
+        The S3 client to use for uploading metadata.
     debug : bool, optional
         Whether to run Playwright with a visible (non-headless) browser.
     force : bool, optional
@@ -74,9 +75,9 @@ def update_homicide_totals(
             ytd_totals.iloc[0]["ytd"],
         )
     else:
-        write_processed_totals(merged)
-        write_homicide_database(updated_database)
-        write_meta("homicides", data_through=as_of_date)
+        write_processed_totals(s3, merged)
+        write_homicide_database(s3, updated_database)
+        write_meta(s3, subfolder="homicides", data_through=as_of_date)
         logger.info(
             "Updated homicide totals through {} (YTD={})",
             as_of_date.date(),

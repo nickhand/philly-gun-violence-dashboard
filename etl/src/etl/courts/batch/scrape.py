@@ -3,11 +3,12 @@ from typing import Literal, cast
 
 import numpy as np
 import pandas as pd
+from loguru import logger
+
 from etl.courts.batch import io
 from etl.courts.batch.aws import AWS
 from etl.courts.portal.core import UJSPortalScraper
 from etl.courts.portal.schema import PortalResult
-from loguru import logger
 
 
 def _scrape(
@@ -100,7 +101,7 @@ def scrape(
     # Load input data
     if debug:
         logger.debug("Loading input data")
-    data = io.load_input_data(input_filename=input_filename, aws=aws)
+    data = io.load_input_data(aws.s3, input_filename=input_filename, aws=aws)
     if debug:
         logger.debug("...done")
 
@@ -146,10 +147,7 @@ def scrape(
     # Save!
     if not dry_run:
         # Get output folder and output path for results
-        output_folder, outfile = io.get_output_paths(
-            output_folder=output_folder,
-            chunk=chunk,
-        )
+        output_folder, outfile = io.get_output_paths(output_folder=output_folder, chunk=chunk)
 
         if debug:
             logger.debug(f"Saving results to {outfile}")
@@ -159,7 +157,7 @@ def scrape(
             k: [r.model_dump() for r in v] if v is not None else None for k, v in results.items()
         }
         # Save the results to portal_results[_chunk].json
-        io.save_output_data(outfile, results=results_dict, aws=aws)
+        io.save_output_data(aws, outfile=outfile, results=results_dict)
 
         # Get the input config
         local_variables = locals()
@@ -174,35 +172,35 @@ def scrape(
         # Save the config and input
         if chunk is not None:
             io.save_output_data(
-                f"{output_folder}/config_{chunk}.json",
+                aws,
+                outfile=f"{output_folder}/config_{chunk}.json",
                 results=config,
-                aws=aws,
             )
             io.save_output_data(
-                f"{output_folder}/portal_input_{chunk}.csv",
+                aws,
+                outfile=f"{output_folder}/portal_input_{chunk}.csv",
                 results=data_chunk,
-                aws=aws,
             )
             io.save_output_data(
-                f"{output_folder}/errors_{chunk}.json",
+                aws,
+                outfile=f"{output_folder}/errors_{chunk}.json",
                 results=errors_list,
-                aws=aws,
             )
         else:
             io.save_output_data(
-                f"{output_folder}/config.json",
+                aws,
+                outfile=f"{output_folder}/config.json",
                 results=config,
-                aws=aws,
             )
             io.save_output_data(
-                f"{output_folder}/portal_input.csv",
+                aws,
+                outfile=f"{output_folder}/portal_input.csv",
                 results=data_chunk,
-                aws=aws,
             )
             io.save_output_data(
-                f"{output_folder}/errors.json",
+                aws,
+                outfile=f"{output_folder}/errors.json",
                 results=errors_list,
-                aws=aws,
             )
         if debug:
             logger.debug("...done")
