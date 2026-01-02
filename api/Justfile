@@ -1,0 +1,33 @@
+# justfile
+
+
+
+
+api-dev:
+    uv run uvicorn app.main:app --reload
+
+api-run:
+    uv run uvicorn app.main:app --host 0.0.0.0 --port 8080
+
+api-check:
+    curl -s http://localhost:8000/health | jq .
+
+# ------------------------
+# Tooling
+# ------------------------
+
+# Lint the codebase
+[group: "lint"]
+lint:
+	uv run ruff check --fix api
+
+# Format the codebase
+[group: "lint"]
+format:
+	uv run ruff format api
+
+# Run mypy type checks
+[group: "lint"]
+type-check:
+	uv run mypy api
+
