@@ -1,4 +1,5 @@
 name: Daily Shootings ETL
+
 on:
   schedule:
     - cron: "30 11 * * 1-5"
