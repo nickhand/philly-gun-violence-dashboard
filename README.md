@@ -1,7 +1,7 @@
 # Philadelphia Gun Violence Dashboard
 
 A full-stack data pipeline and API that power my public Gun Violence Dashboard.
-Visit the live map: http://nickhand.dev/philly-gun-violence-map
+Visit the live map: https://nickhand.dev/philly-gun-violence-map
 
 ## What this repo contains
 - **FastAPI service** for geospatial endpoints and dashboard data.
@@ -79,7 +79,7 @@ just fly-deploy-api
 
 ## Portfolio
 If this project is useful or you want to collaborate, check out:
-http://nickhand.dev
+https://nickhand.dev
 
 ## Feedback
 Please open an issue: https://github.com/nickhand/philly-gun-violence-dashboard/issues
