@@ -1,4 +1,4 @@
-name: Daily Shootings Data Sync
+name: Daily Shootings ETL
 
 on:
   schedule:

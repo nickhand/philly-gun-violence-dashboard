@@ -1,4 +1,4 @@
-name: Daily Homicide Data Sync
+name: Daily Homicide ETL
 on:
   schedule:
     - cron: "15 15 * * 1-5"

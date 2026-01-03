@@ -1,4 +1,4 @@
-name: Batch Courts Scraper
+name: Batch Courts Scraper ETL
 
 on:
   schedule:
