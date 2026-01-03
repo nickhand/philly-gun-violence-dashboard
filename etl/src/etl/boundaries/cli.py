@@ -2,7 +2,7 @@ import typer
 from loguru import logger
 
 from dashboard_utils.aws import make_s3_client, write_json
-from dashboard_utils.env import settings
+from dashboard_utils.env import s3_settings
 from dashboard_utils.registry import get_geographic_data, iter_datasets, register_datasets
 
 app = typer.Typer(
@@ -21,7 +21,7 @@ def _write_manifest(datasets: list[str]) -> None:
     s3 = make_s3_client()
     write_json(
         s3,
-        settings.AWS_BUCKET_NAME,
+        s3_settings.AWS_BUCKET_NAME,
         "reference/boundaries_manifest.json",
         manifest,
         indent=2,

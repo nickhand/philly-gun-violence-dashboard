@@ -12,7 +12,7 @@ from botocore.exceptions import ClientError
 from mypy_boto3_s3.client import S3Client
 from mypy_boto3_s3.literals import BucketLocationConstraintType
 
-from dashboard_utils.env import settings
+from dashboard_utils.env import s3_settings
 
 
 # ----------------------------
@@ -40,8 +40,10 @@ def make_boto3_session(*, region_name: str | None = None) -> boto3.Session:
 
     # Resolve aws_access_key_id and aws_secret_access_key from settings
     # NOTE: this shouldn't necessary but is included for completeness.
-    resolved_aws_access_key_id = settings.AWS_ACCESS_KEY_ID or os.environ.get("AWS_ACCESS_KEY_ID")
-    resolved_aws_secret_access_key = settings.AWS_SECRET_ACCESS_KEY or os.environ.get(
+    resolved_aws_access_key_id = s3_settings.AWS_ACCESS_KEY_ID or os.environ.get(
+        "AWS_ACCESS_KEY_ID"
+    )
+    resolved_aws_secret_access_key = s3_settings.AWS_SECRET_ACCESS_KEY or os.environ.get(
         "AWS_SECRET_ACCESS_KEY"
     )
 

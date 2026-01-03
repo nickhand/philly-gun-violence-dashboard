@@ -8,7 +8,7 @@ import pandas as pd
 from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.aws import make_s3_client, write_json
-from dashboard_utils.env import settings
+from dashboard_utils.env import s3_settings
 from dashboard_utils.processed import (
     read_processed_csv,
     read_processed_geojson,
@@ -49,7 +49,7 @@ def write_meta(*, subfolder: str, data_through: Any = None) -> None:
     s3 = make_s3_client()
     write_json(
         s3,
-        settings.AWS_BUCKET_NAME,
+        s3_settings.AWS_BUCKET_NAME,
         f"processed/{subfolder}/meta.json",
         meta,
         indent=2,

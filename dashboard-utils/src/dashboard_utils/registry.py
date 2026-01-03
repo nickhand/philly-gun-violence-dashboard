@@ -8,7 +8,7 @@ from typing import Any
 import geopandas as gpd
 
 from dashboard_utils.aws import make_s3_client, read_geojson_gdf, write_geojson_gdf
-from dashboard_utils.env import settings
+from dashboard_utils.env import s3_settings
 from dashboard_utils.paths import get_reference_key
 
 # Track a registry of geographic datasets
@@ -65,14 +65,14 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
         key = get_reference_key(filepath)
 
         if not refresh:
-            return read_geojson_gdf(s3, bucket=settings.AWS_BUCKET_NAME, key=key)
+            return read_geojson_gdf(s3, bucket=s3_settings.AWS_BUCKET_NAME, key=key)
 
         # Compute fresh result
         gdf = func(*args, **kwargs)
         # Key in s3 is relative to the reference folder
 
         # Mirror to s3
-        write_geojson_gdf(s3, settings.AWS_BUCKET_NAME, key, gdf)
+        write_geojson_gdf(s3, s3_settings.AWS_BUCKET_NAME, key, gdf)
 
         # Return the GeoDataFrame
         return gdf

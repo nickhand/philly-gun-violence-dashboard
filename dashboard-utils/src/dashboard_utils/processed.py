@@ -15,7 +15,7 @@ from dashboard_utils.aws import (
     write_geojson_gdf,
     write_json,
 )
-from dashboard_utils.env import settings
+from dashboard_utils.env import s3_settings
 from dashboard_utils.paths import get_processed_key, get_reference_key
 
 
@@ -26,13 +26,13 @@ def _client(s3: S3Client | None) -> S3Client:
 def read_processed_geojson(name: str, *, s3: S3Client | None = None) -> gpd.GeoDataFrame:
     """Read a processed GeoJSON dataset from S3."""
     key = get_processed_key(name)
-    return read_geojson_gdf(_client(s3), settings.AWS_BUCKET_NAME, key)
+    return read_geojson_gdf(_client(s3), s3_settings.AWS_BUCKET_NAME, key)
 
 
 def read_processed_geojson_json(name: str, *, s3: S3Client | None = None) -> Any:
     """Read a processed GeoJSON dataset from S3 as JSON."""
     key = get_processed_key(name)
-    return read_json(_client(s3), settings.AWS_BUCKET_NAME, key)
+    return read_json(_client(s3), s3_settings.AWS_BUCKET_NAME, key)
 
 
 def read_processed_csv(
@@ -43,19 +43,19 @@ def read_processed_csv(
 ) -> pd.DataFrame:
     """Read a processed CSV dataset from S3."""
     key = get_processed_key(name)
-    return read_csv_df(_client(s3), settings.AWS_BUCKET_NAME, key, **read_csv_kwargs)
+    return read_csv_df(_client(s3), s3_settings.AWS_BUCKET_NAME, key, **read_csv_kwargs)
 
 
 def read_processed_json(name: str, *, s3: S3Client | None = None) -> Any:
     """Read a processed JSON dataset from S3."""
     key = get_processed_key(name)
-    return read_json(_client(s3), settings.AWS_BUCKET_NAME, key)
+    return read_json(_client(s3), s3_settings.AWS_BUCKET_NAME, key)
 
 
 def read_reference_json(name: str, *, s3: S3Client | None = None) -> Any:
     """Read a reference JSON dataset from S3."""
     key = get_reference_key(name)
-    return read_json(_client(s3), settings.AWS_BUCKET_NAME, key)
+    return read_json(_client(s3), s3_settings.AWS_BUCKET_NAME, key)
 
 
 def write_processed_geojson(
@@ -66,7 +66,7 @@ def write_processed_geojson(
 ) -> None:
     """Write a processed GeoJSON dataset to S3."""
     key = get_processed_key(name)
-    write_geojson_gdf(_client(s3), settings.AWS_BUCKET_NAME, key, gdf)
+    write_geojson_gdf(_client(s3), s3_settings.AWS_BUCKET_NAME, key, gdf)
 
 
 def write_processed_csv(
@@ -78,10 +78,10 @@ def write_processed_csv(
 ) -> None:
     """Write a processed CSV dataset to S3."""
     key = get_processed_key(name)
-    write_csv_df(_client(s3), settings.AWS_BUCKET_NAME, key, df, **write_csv_kwargs)
+    write_csv_df(_client(s3), s3_settings.AWS_BUCKET_NAME, key, df, **write_csv_kwargs)
 
 
 def write_processed_json(name: str, data: Any, *, s3: S3Client | None = None) -> None:
     """Write a processed JSON dataset to S3."""
     key = get_processed_key(name)
-    write_json(_client(s3), settings.AWS_BUCKET_NAME, key, data)
+    write_json(_client(s3), s3_settings.AWS_BUCKET_NAME, key, data)

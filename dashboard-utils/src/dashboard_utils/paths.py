@@ -1,12 +1,12 @@
 from functools import lru_cache
 from pathlib import Path
 
-from dashboard_utils.env import settings
+from dashboard_utils.env import s3_settings
 
 
 def data_dir() -> str:
     """Return the S3 path for the data directory."""
-    return f"s3://{settings.AWS_BUCKET_NAME}"
+    return f"s3://{s3_settings.AWS_BUCKET_NAME}"
 
 
 def reference_data_dir() -> Path:

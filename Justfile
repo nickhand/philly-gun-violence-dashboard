@@ -90,7 +90,11 @@ fly-deploy-api:
 # Import .env as Fly secrets for the API app
 [group: "api-fly"]
 fly-secrets-api:
-	fly secrets import < .env
+	fly secrets set \
+		AWS_ACCESS_KEY_ID="{{ env('AWS_ACCESS_KEY_ID') }}" \
+		AWS_SECRET_ACCESS_KEY="{{ env('AWS_SECRET_ACCESS_KEY') }}" \
+		AWS_REGION="{{ env('AWS_REGION') }}" \
+		AWS_BUCKET_NAME="{{ env('AWS_BUCKET_NAME') }}";
 
 # Fly.io authentication
 [group: "api-fly"]

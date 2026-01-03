@@ -13,7 +13,7 @@ from loguru import logger
 from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.aws import parse_s3_uri, read_csv_df, read_json, write_csv_df
-from dashboard_utils.env import settings
+from dashboard_utils.env import s3_settings
 from etl.courts.batch.aws import AWS
 from etl.courts.portal.schema import PortalResult
 
@@ -59,7 +59,7 @@ class PortalBatchConfig:
     dry_run: bool = False
     sample: int | None = None
     debug: bool = False
-    bucket: str = settings.AWS_BUCKET_NAME
+    bucket: str = s3_settings.AWS_BUCKET_NAME
     subfolder_prefix: str = "courts-scraper"
     exclude_known_cases: bool = False
 

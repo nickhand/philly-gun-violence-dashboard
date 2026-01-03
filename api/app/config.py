@@ -1,14 +1,14 @@
 from pydantic_settings import SettingsConfigDict
 
-from dashboard_utils.env import AWSConfig, get_env_file
+from dashboard_utils.env import S3Config, get_env_file
 
 
-class APIConfig(AWSConfig):
+class APIConfig(S3Config):
     """Shared application configuration settings.
 
     Attributes
     ----------
-    S3_BUCKET_NAME : str
+    AWS_BUCKET_NAME : str
         Name of the S3 bucket used for storing application data.
     """
 

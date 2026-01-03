@@ -8,7 +8,7 @@ import pandas as pd
 from loguru import logger
 
 from dashboard_utils.aws import ensure_bucket, exists_on_s3, make_boto3_session, parse_s3_uri
-from dashboard_utils.env import settings
+from dashboard_utils.env import get_ecs_settings, s3_settings
 
 
 def is_ec2_instance() -> bool:
@@ -42,6 +42,7 @@ class AWS:
     def __init__(self, debug: bool = False) -> None:
         """Initialize the connection to AWS."""
         self.debug = debug
+        ecs_settings = get_ecs_settings()
 
         # Set up the AWS session
         self.session = make_boto3_session()
@@ -52,14 +53,15 @@ class AWS:
         self.s3 = self.session.client("s3")
 
         # Set up the output s3 bucket (and create it if we need to)
-        self.bucket_name = settings.AWS_BUCKET_NAME
+        self.bucket_name = s3_settings.AWS_BUCKET_NAME
         ensure_bucket(self.s3, self.bucket_name)
 
         # Are we running on AWS
         self.on_aws = is_ec2_instance()
 
         # Set up cluster if we're not on AWS
-        self.cluster_name = settings.ECS_CLUSTER_NAME
+        self.cluster_name = ecs_settings.ECS_CLUSTER_NAME
+        self._ecs_settings = ecs_settings
 
     def _init_cluster(self) -> None:
         """Initialize the ECS cluster."
@@ -81,7 +83,7 @@ class AWS:
             logger.info(f"Subnets: {self.subnets}")
 
         # Get the latest task definition
-        prefix = settings.ECS_CLUSTER_NAME.rsplit("-", 1)[0]
+        prefix = self._ecs_settings.ECS_CLUSTER_NAME.rsplit("-", 1)[0]
         tasks = self.ecs.list_task_definitions(familyPrefix=prefix, sort="ASC")
         self.task_definition = tasks["taskDefinitionArns"][-1]
 
@@ -187,7 +189,9 @@ class AWS:
         # NOTE: skip AWS credentials since those are handled by the ECS task role
         skipfields = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
         env_vars = [
-            {"name": k, "value": v} for k, v in settings.model_dump().items() if k not in skipfields
+            {"name": k, "value": v}
+            for k, v in s3_settings.model_dump().items()
+            if k not in skipfields
         ]
 
         # Run in parallel
@@ -208,7 +212,7 @@ class AWS:
                 overrides={
                     "containerOverrides": [
                         {
-                            "name": settings.CONTAINER_NAME,
+                            "name": self._ecs_settings.CONTAINER_NAME,
                             "command": command,
                             "environment": [{"name": "ENV", "value": "prod"}] + env_vars,
                         }

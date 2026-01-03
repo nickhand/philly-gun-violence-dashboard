@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -51,8 +52,8 @@ def get_env_file() -> str | None:
         return None
 
 
-class AWSConfig(BaseSettings):
-    """Shared AWS environment variables.
+class S3Config(BaseSettings):
+    """AWS environment variables for S3 access.
 
     Attributes
     ----------
@@ -64,12 +65,6 @@ class AWSConfig(BaseSettings):
         The AWS region where the services are hosted.
     AWS_BUCKET_NAME : str
         The name of the AWS S3 bucket used for storing data.
-    AWS_ACCOUNT_ID : str
-        The AWS account ID associated with the services.
-    CONTAINER_NAME : str
-        The name of the container used in AWS ECR.
-    ECS_CLUSTER_NAME : str
-        The name of the ECS cluster used for running batch jobs.
     """
 
     model_config = SettingsConfigDict(
@@ -86,10 +81,31 @@ class AWSConfig(BaseSettings):
     AWS_REGION: Literal["us-east-1"] | BucketLocationConstraintType = "us-east-1"
     AWS_BUCKET_NAME: str
 
-    # ECR/ECS Configurations
+
+class ECSConfig(BaseSettings):
+    """AWS environment variables for ECS/ECR batch jobs."""
+
+    model_config = SettingsConfigDict(
+        env_file=get_env_file(),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     AWS_ACCOUNT_ID: str
     CONTAINER_NAME: str
     ECS_CLUSTER_NAME: str
 
 
-settings = AWSConfig()
+@lru_cache
+def get_s3_settings() -> S3Config:
+    """Load S3 settings once per process."""
+    return S3Config()
+
+
+@lru_cache
+def get_ecs_settings() -> ECSConfig:
+    """Load ECS/ECR settings only when needed."""
+    return ECSConfig()
+
+
+s3_settings = get_s3_settings()
