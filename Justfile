@@ -32,8 +32,8 @@ etl-streets:
 
 # ETL courts data
 [group: "etl"]
-etl-courts:
-	cd etl; uv run gv-dashboard-etl courts update
+etl-courts ntasks=10:
+	cd etl; uv run gv-dashboard-etl courts update --ntasks {{ntasks}}
 
 # -----------------------------------------------------------------------------
 # ETL Courts Scraper

@@ -20,7 +20,7 @@ jobs:
       - name: Install Playwright Chromium
         run: uv run --project etl playwright install chromium --with-deps
       - name: Run courts ETL
-        run: just etl-courts
+        run: just etl-courts 50
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
