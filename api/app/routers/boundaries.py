@@ -2,12 +2,12 @@
 
 from typing import cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.data_loader import refresh_if_stale
+from app.data_loader import make_refresh_dependency
 from dashboard_utils.models.boundaries import BoundaryFeatureCollection
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(make_refresh_dependency(["boundaries_manifest"]))])
 
 
 @router.get("/boundaries")
@@ -24,7 +24,6 @@ def list_boundaries(request: Request) -> dict[str, list[str]]:
     dict[str, list[str]]
         The list of dataset names under the "datasets" key.
     """
-    refresh_if_stale(request.app, ["boundaries_manifest"])
     return {"datasets": sorted(request.app.state.boundaries)}
 
 
@@ -47,7 +46,6 @@ def get_boundary(
     BoundaryFeatureCollection
         The GeoJSON FeatureCollection for the boundary dataset.
     """
-    refresh_if_stale(request.app, ["boundaries_manifest"])
     boundaries = request.app.state.boundaries
     if dataset not in boundaries:
         raise HTTPException(status_code=404, detail="Boundary dataset not found.")

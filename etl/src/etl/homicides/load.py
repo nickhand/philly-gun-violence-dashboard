@@ -3,9 +3,7 @@
 import pandas as pd
 from mypy_boto3_s3.client import S3Client
 
-from dashboard_utils.aws import write_csv_df, write_json
-from dashboard_utils.env import settings
-from dashboard_utils.paths import get_processed_key
+from dashboard_utils.processed import write_processed_csv, write_processed_json
 
 __all__ = ["write_homicide_database", "write_processed_totals"]
 
@@ -24,8 +22,7 @@ def write_homicide_database(s3: S3Client, database: pd.DataFrame) -> None:
         Output CSV path; defaults to the raw homicide totals path.
     """
     cleaned = database.drop_duplicates(subset=["date"], keep="last")
-    key = get_processed_key("homicides_daily")
-    write_csv_df(s3, settings.AWS_BUCKET_NAME, key, cleaned)
+    write_processed_csv("homicides_daily", cleaned, s3=s3)
 
 
 def write_processed_totals(s3: S3Client, merged_totals: pd.DataFrame) -> None:
@@ -41,6 +38,5 @@ def write_processed_totals(s3: S3Client, merged_totals: pd.DataFrame) -> None:
     path : pathlib.Path or str, optional
         Output JSON path; defaults to the processed homicide totals path.
     """
-    key = get_processed_key("homicides_totals")
     payload = merged_totals.set_index("year").to_dict(orient="index")
-    write_json(s3, settings.AWS_BUCKET_NAME, key, payload)
+    write_processed_json("homicides_totals", payload, s3=s3)

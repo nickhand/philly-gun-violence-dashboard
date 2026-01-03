@@ -3,13 +3,13 @@
 import functools
 import importlib
 from collections.abc import Callable, Generator
-from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
 
 from dashboard_utils.aws import make_s3_client, read_geojson_gdf, write_geojson_gdf
 from dashboard_utils.env import settings
+from dashboard_utils.paths import get_reference_key
 
 # Track a registry of geographic datasets
 REGISTRY: dict[str, Callable[..., gpd.GeoDataFrame]] = {}
@@ -62,7 +62,7 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
         # Create S3 client
         s3 = make_s3_client()
 
-        key = str(Path("reference").joinpath(filepath))
+        key = get_reference_key(filepath)
 
         if not refresh:
             return read_geojson_gdf(s3, bucket=settings.AWS_BUCKET_NAME, key=key)

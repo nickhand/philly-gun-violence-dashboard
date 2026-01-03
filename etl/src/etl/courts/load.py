@@ -3,28 +3,23 @@
 import pandas as pd
 from mypy_boto3_s3.client import S3Client
 
-from dashboard_utils.aws import make_s3_client, read_csv_df, write_csv_df, write_json
-from dashboard_utils.env import settings
-from dashboard_utils.paths import get_processed_key
+from dashboard_utils.processed import read_processed_csv, write_processed_csv, write_processed_json
 from etl.courts.portal.schema import PortalResult
 
-__all__ = ["read_existing_flags", "write_flags"]
+__all__ = ["read_existing_flags", "write_flags", "write_portal_results"]
 
 
 def read_existing_flags() -> pd.DataFrame:
     """Read existing dc_key/has_court_case flags if present."""
-    s3 = make_s3_client()
-    key = get_processed_key("courts_flags")
     try:
-        return read_csv_df(s3, bucket=settings.AWS_BUCKET_NAME, key=key, dtype={"dc_key": str})
+        return read_processed_csv("courts_flags", dtype={"dc_key": str})
     except FileNotFoundError:
         return pd.DataFrame(columns=["dc_key", "has_court_case"])
 
 
 def write_flags(s3: S3Client, df: pd.DataFrame) -> None:
     """Persist flags to CSV."""
-    key = get_processed_key("courts_flags")
-    write_csv_df(s3, settings.AWS_BUCKET_NAME, key, df)
+    write_processed_csv("courts_flags", df, s3=s3)
 
 
 def write_portal_results(
@@ -43,5 +38,4 @@ def write_portal_results(
     result_dicts = {
         k: [r.model_dump() for r in v] if v is not None else None for k, v in portal_results.items()
     }
-    key = get_processed_key("portal_results")
-    write_json(s3, settings.AWS_BUCKET_NAME, key, result_dicts)
+    write_processed_json("portal_results", result_dicts, s3=s3)

@@ -1,15 +1,15 @@
-name: Parallel Courts Scraper
+name: Batch Courts Scraper
 
 on:
   schedule:
-    - cron: "15 2 * * 4"
+    - cron: "15 2 * * 0,2,4"
   push:
     paths:
       - .github/workflows/courts-scrape.yml
 
 jobs:
-  parallel-scraper:
-    name: Parallel Courts Scraper
+  batch-courts-scraper:
+    name: Batch Courts Scraper
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -16,10 +16,10 @@ from etl.utils.storage import load_courts_flags, load_shootings_database
 __all__ = ["clean_shootings"]
 
 
-def _run_checks(df_new: gpd.GeoDataFrame) -> None:
+def _run_checks(df_new: gpd.GeoDataFrame, *, s3: S3Client | None = None) -> None:
     """Validate shooting victims data."""
     # Get the existing data
-    df_old = load_shootings_database()
+    df_old = load_shootings_database(s3=s3)
 
     # Check for too many rows
     TOLERANCE = 100
@@ -184,7 +184,7 @@ def clean_shootings(
 
     # CHECKS
     if not ignore_checks:
-        _run_checks(df)
+        _run_checks(df, s3=s3)
 
     # Join with boundary datasets
     df = join_with_boundary_datasets(df)
@@ -201,7 +201,7 @@ def clean_shootings(
 
     # Join with courts data
     logger.info("Joining with courts flags dataset")
-    courts_df = load_courts_flags()[["dc_key", "has_court_case"]]
+    courts_df = load_courts_flags(s3=s3)[["dc_key", "has_court_case"]]
     df = df.merge(courts_df, on="dc_key", how="left")
 
     # Fill missing court case flags with False

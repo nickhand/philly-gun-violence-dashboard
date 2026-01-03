@@ -4,9 +4,7 @@ import geopandas as gpd
 from loguru import logger
 from mypy_boto3_s3.client import S3Client
 
-from dashboard_utils.aws import write_geojson_gdf
-from dashboard_utils.env import settings
-from dashboard_utils.paths import get_processed_key
+from dashboard_utils.processed import write_processed_geojson
 
 __all__ = ["write_shootings_dataset"]
 
@@ -22,6 +20,5 @@ def write_shootings_dataset(s3: S3Client, df: gpd.GeoDataFrame) -> None:
     df : geopandas.GeoDataFrame
         Cleaned shootings data to save.
     """
-    key = get_processed_key("shootings")
-    write_geojson_gdf(s3, settings.AWS_BUCKET_NAME, key, df)
-    logger.info(f"Wrote shootings dataset to s3://{settings.AWS_BUCKET_NAME}/{key}")
+    write_processed_geojson("shootings", df, s3=s3)
+    logger.info("Wrote shootings dataset to S3")

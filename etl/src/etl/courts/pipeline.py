@@ -33,7 +33,7 @@ def update_courts(s3: S3Client, cfg: PortalBatchConfig | None = None) -> pd.Data
         cfg = PortalBatchConfig()
 
     # Get unique incident numbers from shootings database
-    gdf = load_shootings_database()
+    gdf = load_shootings_database(s3=s3)
     data = pd.DataFrame({"dc_key": gdf["dc_key"].astype(str).unique()})
     incident_numbers = data[["dc_key"]].drop_duplicates()
 

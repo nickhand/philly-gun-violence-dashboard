@@ -1,9 +1,8 @@
 import typer
 from loguru import logger
 
-from dashboard_utils.aws import make_s3_client, write_geojson_gdf
-from dashboard_utils.env import settings
-from dashboard_utils.paths import get_processed_key
+from dashboard_utils.aws import make_s3_client
+from dashboard_utils.processed import write_processed_geojson
 from dashboard_utils.registry import get_geographic_data, iter_datasets, register_datasets
 from etl.streets.transform import centerlines_to_blocks
 
@@ -38,6 +37,5 @@ def load() -> None:
     blocks = centerlines_to_blocks(centerlines)
     logger.info(f"Deduplicated street blocks: {len(centerlines):,d} -> {len(blocks):,d}")
 
-    key = get_processed_key("street_blocks")
-    write_geojson_gdf(s3, settings.AWS_BUCKET_NAME, key, blocks)
-    logger.info(f"Wrote street blocks to s3://{settings.AWS_BUCKET_NAME}/{key}")
+    write_processed_geojson("street_blocks", blocks, s3=s3)
+    logger.info("Wrote street blocks to S3")

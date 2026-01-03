@@ -124,7 +124,7 @@ fly-restart:
 # Sync the S3 data bucket to the local data/ folder
 [group: "data"]
 data-sync:
-	aws s3 sync s3://{{env("AWS_BUCKET_NAME")}} data/
+	aws s3 sync s3://{{env("AWS_BUCKET_NAME")}} data/ --delete
 
 # -----------------------------------------------------------------------------
 # Python tools: Linting, Formatting, Type Checking

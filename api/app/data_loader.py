@@ -1,35 +1,20 @@
 """Data loading utilities for API startup and refresh."""
 
 import time
+from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from mypy_boto3_s3.client import S3Client
 
 from app.config import settings
-from dashboard_utils.aws import read_json
 from dashboard_utils.constants import DATE_FORMAT
-from dashboard_utils.paths import data_dir, get_processed_path
-
-
-def _s3_key_from_path(path: str) -> str:
-    """Convert a local or s3:// path into an S3 object key.
-
-    Parameters
-    ----------
-    path : str
-        A local filesystem path under the data directory or an s3:// URI.
-
-    Returns
-    -------
-    str
-        The S3 key relative to the bucket root.
-    """
-    candidate = Path(path)
-    if candidate.parts and candidate.parts[0] == "s3:":
-        return "/".join(candidate.parts[2:])
-    return str(candidate.relative_to(Path(data_dir())))
+from dashboard_utils.paths import get_processed_key
+from dashboard_utils.processed import (
+    read_processed_geojson_json,
+    read_processed_json,
+    read_reference_json,
+)
 
 
 def _extract_year(value: str | None) -> int | None:
@@ -53,11 +38,6 @@ def _extract_year(value: str | None) -> int | None:
         return None
 
 
-def _get_processed_key(name: str) -> str:
-    """Return the S3 key for a processed dataset name."""
-    return _s3_key_from_path(str(get_processed_path(name)))
-
-
 def _get_s3_etag(s3: S3Client, key: str) -> str:
     """Return the ETag for an S3 object key."""
     response = s3.head_object(Bucket=settings.AWS_BUCKET_NAME, Key=key)
@@ -68,9 +48,9 @@ def init_dataset_keys(app: FastAPI) -> None:
     """Initialize dataset keys for refresh checks."""
     # Keep dataset names centralized so refresh logic stays consistent.
     app.state.dataset_keys = {
-        "shootings": _get_processed_key("shootings"),
-        "streets": _get_processed_key("street_blocks"),
-        "homicides": _get_processed_key("homicides_totals"),
+        "shootings": get_processed_key("shootings"),
+        "streets": get_processed_key("street_blocks"),
+        "homicides": get_processed_key("homicides_totals"),
         "boundaries_manifest": "reference/boundaries_manifest.json",
     }
     # Track the last-seen ETag to detect upstream changes cheaply.
@@ -88,11 +68,7 @@ def load_shootings_data(app: FastAPI) -> None:
     """
     s3 = app.state.s3
     shootings_key = app.state.dataset_keys["shootings"]
-    shootings_geojson = read_json(
-        s3,
-        settings.AWS_BUCKET_NAME,
-        shootings_key,
-    )
+    shootings_geojson = read_processed_geojson_json("shootings", s3=s3)
     # Keep a stable list of features and build an index for fast year filtering.
     shootings_features = list(shootings_geojson.get("features", []))
     shootings_year_index: dict[int, list[int]] = {}
@@ -119,15 +95,9 @@ def load_boundary_data(app: FastAPI) -> None:
     """
     s3 = app.state.s3
     manifest_key = app.state.dataset_keys["boundaries_manifest"]
-    manifest = read_json(
-        s3,
-        settings.AWS_BUCKET_NAME,
-        manifest_key,
-    )
+    manifest = read_reference_json("boundaries_manifest.json", s3=s3)
     datasets = manifest.get("datasets", {})
-    boundaries = {
-        dataset: read_json(s3, settings.AWS_BUCKET_NAME, key) for dataset, key in datasets.items()
-    }
+    boundaries = {dataset: read_reference_json(key, s3=s3) for dataset, key in datasets.items()}
     app.state.boundaries = boundaries
     app.state.dataset_etags["boundaries_manifest"] = _get_s3_etag(s3, manifest_key)
 
@@ -142,11 +112,7 @@ def load_streets_data(app: FastAPI) -> None:
     """
     s3 = app.state.s3
     streets_key = app.state.dataset_keys["streets"]
-    streets_geojson = read_json(
-        s3,
-        settings.AWS_BUCKET_NAME,
-        streets_key,
-    )
+    streets_geojson = read_processed_geojson_json("street_blocks", s3=s3)
     # Build a lookup to avoid scanning the full feature list per request.
     streets_by_segment_id = {}
     for feature in streets_geojson.get("features", []):
@@ -169,12 +135,7 @@ def load_homicides_data(app: FastAPI) -> None:
     """
     s3 = app.state.s3
     homicides_key = app.state.dataset_keys["homicides"]
-    homicides_totals = read_json(
-        s3,
-        settings.AWS_BUCKET_NAME,
-        homicides_key,
-    )
-    app.state.homicides_totals = homicides_totals
+    app.state.homicides_totals = read_processed_json("homicides_totals", s3=s3)
     app.state.dataset_etags["homicides"] = _get_s3_etag(s3, homicides_key)
 
 
@@ -204,3 +165,12 @@ def refresh_if_stale(app: FastAPI, names: list[str]) -> None:
             load_homicides_data(app)
         elif name == "boundaries_manifest":
             load_boundary_data(app)
+
+
+def make_refresh_dependency(names: list[str]) -> Callable[[Request], None]:
+    """Create a FastAPI dependency that refreshes datasets lazily."""
+
+    def _refresh(request: Request) -> None:
+        refresh_if_stale(request.app, names)
+
+    return _refresh

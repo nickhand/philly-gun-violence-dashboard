@@ -84,3 +84,8 @@ def get_processed_key(key: str) -> str:
             f"Unknown processed dataset key '{key}'. Known keys: {sorted(_PROCESSED_PATHS)}"
         ) from exc
     return str(Path("processed").joinpath(*parts))
+
+
+def get_reference_key(name: str) -> str:
+    """Return the reference S3 key for a dataset name."""
+    return str(Path("reference").joinpath(name))

@@ -1,11 +1,11 @@
 """Homicide totals endpoints."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.data_loader import refresh_if_stale
+from app.data_loader import make_refresh_dependency
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(make_refresh_dependency(["homicides"]))])
 
 
 class HomicideTotalsResponse(BaseModel):
@@ -41,7 +41,6 @@ def get_homicide_totals(year: int, request: Request) -> HomicideTotalsResponse:
     HomicideTotalsResponse
         The annual and year-to-date totals for the requested year.
     """
-    refresh_if_stale(request.app, ["homicides"])
     totals = request.app.state.homicides_totals
     record = totals.get(str(year))
     if record is None:

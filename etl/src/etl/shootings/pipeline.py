@@ -41,7 +41,7 @@ def update_shootings(
     effective_ignore = ignore_checks
     if not ignore_checks:
         try:
-            _ = load_shootings_database()
+            _ = load_shootings_database(s3=s3)
         except FileNotFoundError:
             logger.info("No existing shootings database found; skipping validation checks.")
             effective_ignore = True

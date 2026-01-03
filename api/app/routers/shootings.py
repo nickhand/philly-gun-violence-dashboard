@@ -2,13 +2,14 @@
 
 from typing import Literal, cast
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
-from app.data_loader import refresh_if_stale
+from app.data_loader import make_refresh_dependency
 from app.models.page import Page
+from app.utils.pagination import build_page, paginate_features
 from dashboard_utils.models.shootings import ShootingFeature
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(make_refresh_dependency(["shootings"]))])
 
 
 class ShootingsPage(Page):
@@ -43,31 +44,31 @@ def get_shootings(
     ShootingsPage
         Paginated GeoJSON FeatureCollection with pagination metadata.
     """
-    refresh_if_stale(request.app, ["shootings"])
     limit = max(limit, 0)
     if year is None:
-        features_source = request.app.state.shootings_features
-        total = len(features_source)
-        page_features = features_source[offset : offset + limit]
+        page_features, count, next_offset, total = paginate_features(
+            request.app.state.shootings_features,
+            limit=limit,
+            offset=offset,
+        )
     else:
         indices = request.app.state.shootings_year_index.get(year, [])
-        total = len(indices)
-        page_features = [
-            request.app.state.shootings_features[idx] for idx in indices[offset : offset + limit]
-        ]
-    count = len(page_features)
-    next_offset = offset + count if offset + count < total else None
+        page_indices, count, next_offset, total = paginate_features(
+            indices,
+            limit=limit,
+            offset=offset,
+        )
+        page_features = [request.app.state.shootings_features[idx] for idx in page_indices]
     return cast(
         ShootingsPage,
-        {
-            "type": "FeatureCollection",
-            "features": page_features,
-            "limit": limit,
-            "offset": offset,
-            "count": count,
-            "total": total,
-            "next_offset": next_offset,
-        },
+        build_page(
+            features=page_features,
+            limit=limit,
+            offset=offset,
+            count=count,
+            total=total,
+            next_offset=next_offset,
+        ),
     )
 
 
@@ -85,5 +86,4 @@ def get_shootings_years(request: Request) -> dict[str, list[int]]:
     dict[str, list[int]]
         The list of available years under the "years" key.
     """
-    refresh_if_stale(request.app, ["shootings"])
     return {"years": request.app.state.shootings_years}

@@ -2,13 +2,14 @@
 
 from typing import Literal, cast
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
-from app.data_loader import refresh_if_stale
+from app.data_loader import make_refresh_dependency
 from app.models.page import Page
+from app.utils.pagination import build_page, paginate_features
 from dashboard_utils.models.streets import StreetBlockFeature
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(make_refresh_dependency(["streets"]))])
 
 
 class StreetsPage(Page):
@@ -43,31 +44,32 @@ def get_streets(
     StreetsPage
         Paginated GeoJSON FeatureCollection with pagination metadata.
     """
-    refresh_if_stale(request.app, ["streets"])
     limit = max(limit, 0)
     if not segment_id:
-        features_source = request.app.state.streets_geojson["features"]
-        total = len(features_source)
-        page_features = features_source[offset : offset + limit]
+        page_features, count, next_offset, total = paginate_features(
+            request.app.state.streets_geojson["features"],
+            limit=limit,
+            offset=offset,
+        )
     else:
         features_source = [
             request.app.state.streets_by_segment_id[sid]
             for sid in segment_id
             if sid in request.app.state.streets_by_segment_id
         ]
-        total = len(features_source)
-        page_features = features_source[offset : offset + limit]
-    count = len(page_features)
-    next_offset = offset + count if offset + count < total else None
+        page_features, count, next_offset, total = paginate_features(
+            features_source,
+            limit=limit,
+            offset=offset,
+        )
     return cast(
         StreetsPage,
-        {
-            "type": "FeatureCollection",
-            "features": page_features,
-            "limit": limit,
-            "offset": offset,
-            "count": count,
-            "total": total,
-            "next_offset": next_offset,
-        },
+        build_page(
+            features=page_features,
+            limit=limit,
+            offset=offset,
+            count=count,
+            total=total,
+            next_offset=next_offset,
+        ),
     )

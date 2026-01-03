@@ -5,10 +5,15 @@ from typing import Any
 
 import geopandas as gpd
 import pandas as pd
+from mypy_boto3_s3.client import S3Client
 
-from dashboard_utils.aws import make_s3_client, read_csv_df, read_geojson_gdf, read_json, write_json
+from dashboard_utils.aws import make_s3_client, write_json
 from dashboard_utils.env import settings
-from dashboard_utils.paths import get_processed_key
+from dashboard_utils.processed import (
+    read_processed_csv,
+    read_processed_geojson,
+    read_processed_json,
+)
 
 __all__ = [
     "write_meta",
@@ -56,40 +61,34 @@ def write_meta(*, subfolder: str, data_through: Any = None) -> None:
 # -----------------------------------------------------------------------------
 
 
-def load_shootings_database() -> gpd.GeoDataFrame:
+def _client(s3: S3Client | None) -> S3Client:
+    return s3 or make_s3_client()
+
+
+def load_shootings_database(*, s3: S3Client | None = None) -> gpd.GeoDataFrame:
     """Load the shootings database GeoDataFrame from s3."""
-    s3 = make_s3_client()
-    key = get_processed_key("shootings")
-    return read_geojson_gdf(s3, bucket=settings.AWS_BUCKET_NAME, key=key)
+    return read_processed_geojson("shootings", s3=_client(s3))
 
 
-def load_street_blocks() -> gpd.GeoDataFrame:
+def load_street_blocks(*, s3: S3Client | None = None) -> gpd.GeoDataFrame:
     """Load the street blocks GeoDataFrame."""
-    s3 = make_s3_client()
-    key = get_processed_key("street_blocks")
-    return read_geojson_gdf(s3, bucket=settings.AWS_BUCKET_NAME, key=key)
+    return read_processed_geojson("street_blocks", s3=_client(s3))
 
 
-def load_homicide_database() -> pd.DataFrame:
+def load_homicide_database(*, s3: S3Client | None = None) -> pd.DataFrame:
     """Load the daily homicide database DataFrame."""
-    s3 = make_s3_client()
-    key = get_processed_key("homicides_daily")
-    df = read_csv_df(s3, bucket=settings.AWS_BUCKET_NAME, key=key, parse_dates=["date"])
+    df = read_processed_csv("homicides_daily", s3=_client(s3), parse_dates=["date"])
     return df.sort_values("date")
 
 
-def load_homicide_totals() -> pd.DataFrame:
+def load_homicide_totals(*, s3: S3Client | None = None) -> pd.DataFrame:
     """Load the yearly homicide totals DataFrame."""
-    s3 = make_s3_client()
-    key = get_processed_key("homicides_totals")
-    data = read_json(s3, bucket=settings.AWS_BUCKET_NAME, key=key)
+    data = read_processed_json("homicides_totals", s3=_client(s3))
     df = pd.DataFrame.from_dict(data, orient="index")
     df.index.name = "year"
     return df.reset_index()
 
 
-def load_courts_flags() -> pd.DataFrame:
+def load_courts_flags(*, s3: S3Client | None = None) -> pd.DataFrame:
     """Load the courts flags DataFrame."""
-    s3 = make_s3_client()
-    key = get_processed_key("courts_flags")
-    return read_csv_df(s3, bucket=settings.AWS_BUCKET_NAME, key=key, dtype={"dc_key": str})
+    return read_processed_csv("courts_flags", s3=_client(s3), dtype={"dc_key": str})
