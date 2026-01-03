@@ -62,6 +62,7 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
         # Create S3 client
         s3 = make_s3_client()
 
+        # Key in s3 is relative to the reference folder
         key = get_reference_key(filepath)
 
         if not refresh:
@@ -69,7 +70,6 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
 
         # Compute fresh result
         gdf = func(*args, **kwargs)
-        # Key in s3 is relative to the reference folder
 
         # Mirror to s3
         write_geojson_gdf(s3, s3_settings.AWS_BUCKET_NAME, key, gdf)

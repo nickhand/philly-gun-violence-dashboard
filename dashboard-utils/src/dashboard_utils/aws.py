@@ -514,7 +514,7 @@ def write_geojson_gdf(s3: S3Client, bucket: str, key: str, gdf: gpd.GeoDataFrame
     gdf : gpd.GeoDataFrame
         The GeoDataFrame to write.
     """
-    write_geojson(s3, bucket, key, json.loads(gdf.to_json()))
+    write_geojson(s3, bucket, key, json.loads(gdf.to_json(drop_id=True)))
 
 
 # ----------------------------
