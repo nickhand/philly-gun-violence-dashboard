@@ -3,6 +3,9 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel, Field, field_validator
 
+from dashboard_utils.constants import DATE_FORMAT
+from dashboard_utils.models.geojson import GeoJSONFeature, GeoJSONFeatureCollection
+
 # Options for categorical fields
 RaceOptions = Literal["B", "H", "W", "A", "Other/Unknown"]
 SexOptions = Literal["M", "F"]
@@ -40,7 +43,7 @@ class ShootingVictimsSchema(BaseModel):
     )
     date: str = Field(
         title="Date",
-        description="The datetime of the incident in the format 'Y/m/d H:M:S'",
+        description=f"The datetime of the incident in the format '{DATE_FORMAT}'.",
     )
     age_group: AgeGroupOptions = Field(
         title="Age group",
@@ -103,3 +106,11 @@ class ShootingVictimsSchema(BaseModel):
         else:
             assert not v.endswith(".0"), "bad string formatting"
         return v
+
+
+class ShootingFeature(GeoJSONFeature[ShootingVictimsSchema]):
+    """GeoJSON Feature wrapper for a shooting victim record."""
+
+
+class ShootingsFeatureCollection(GeoJSONFeatureCollection[ShootingFeature]):
+    """GeoJSON FeatureCollection for shootings."""

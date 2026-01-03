@@ -1,8 +1,8 @@
 import geopandas as gpd
 
-from etl.config import REFERENCE_CRS
+from dashboard_utils.constants import REFERENCE_CRS
+from dashboard_utils.registry import register_geodataset
 from etl.utils.query import query_arcgis
-from etl.utils.registry import register_geodataset
 
 
 @register_geodataset

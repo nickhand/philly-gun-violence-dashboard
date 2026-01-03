@@ -6,26 +6,129 @@ set dotenv-load := true
 default:
 	@just --list
 
+# -----------------------------------------------------------------------------
+# ETL Commands
+# -----------------------------------------------------------------------------
+
+# ETL boundaries data
+[group: "etl"]
+etl-boundaries:
+	cd etl; uv run gv-dashboard-etl boundaries extract
+
+# ETL shootings data
+[group: "etl"]
+etl-shootings:
+	cd etl; uv run gv-dashboard-etl shootings update
+
+# ETL homicides data
+[group: "etl"]
+etl-homicides:
+	cd etl; uv run gv-dashboard-etl homicides update
+
+# ETL streets data
+[group: "etl"]
+etl-streets:
+	cd etl; uv run gv-dashboard-etl streets extract && uv run gv-dashboard-etl streets load
+
+# ETL courts data
+[group: "etl"]
+etl-courts:
+	cd etl; uv run gv-dashboard-etl courts update
+
+# -----------------------------------------------------------------------------
+# ETL Courts Scraper
+# -----------------------------------------------------------------------------
+
 # Log in to ECR
-[group: "docker"]
+[group: "courts-scraper"]
 aws-login:
 	aws ecr get-login-password --region {{env("AWS_REGION")}} | docker login --username AWS --password-stdin {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com
 
-# Build the container image
-[group: "docker"]
+# Build the ETL container image for scraping courts data
+[group: "courts-scraper"]
 build-container:
-	docker buildx build --platform=linux/amd64 -t {{env("CONTAINER_NAME")}} .
+	docker buildx build --platform=linux/amd64 -t {{env("CONTAINER_NAME")}} -f etl/Dockerfile .
 
-# Push the image to ECR
-[group: "docker"]
+# Push the ETL image to ECR
+[group: "courts-scraper"]
 push-container:
 	docker tag {{env("CONTAINER_NAME")}}:latest {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com/{{env("CONTAINER_NAME")}}:latest
 	docker push {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com/{{env("CONTAINER_NAME")}}:latest
 
-# Complete docker workflow: login, build, and push
-[group: "docker"]
-container: aws-login build-container push-container
+# Complete docker workflow for the courts scraper: login, build, and push
+[group: "courts-scraper"]
+courts-scraper: aws-login build-container push-container
 
+# -----------------------------------------------------------------------------
+# API Tasks
+# -----------------------------------------------------------------------------
+
+# Run the API in development mode
+[group: "api"]
+api-dev:
+    cd api; uv run uvicorn app.main:app --reload
+
+# Run the API in production mode
+[group: "api"]
+api-run:
+    cd api; uv run uvicorn app.main:app --host 0.0.0.0 --port 8080
+
+# Check the API health endpoint
+[group: "api"]
+api-check:
+    curl -s http://localhost:8000/health | jq .
+
+# -----------------------------------------------------------------------------
+# API Deployment on Fly.io
+# -----------------------------------------------------------------------------
+
+# Deploy the API to Fly.io using the API Dockerfile
+[group: "api-fly"]
+fly-deploy-api:
+	fly deploy --dockerfile api/Dockerfile
+
+# Import .env as Fly secrets for the API app
+[group: "api-fly"]
+fly-secrets-api:
+	fly secrets import < .env
+
+# Fly.io authentication
+[group: "api-fly"]
+fly-login:
+	fly auth login
+
+# Show app status
+[group: "api-fly"]
+fly-status:
+	fly status
+
+# Open an SSH session to the app
+[group: "api-fly"]
+fly-ssh:
+	fly ssh console
+
+# Show Fly logs
+[group: "api-fly"]
+fly-logs:
+	fly logs
+
+# Restart the Fly app defined in fly.toml
+[group: "api-fly"]
+fly-restart:
+	fly apps restart
+
+# -----------------------------------------------------------------------------
+# Data Tasks
+# -----------------------------------------------------------------------------
+
+# Sync the S3 data bucket to the local data/ folder
+[group: "data"]
+data-sync:
+	aws s3 sync s3://{{env("AWS_BUCKET_NAME")}} data/
+
+# -----------------------------------------------------------------------------
+# Python tools: Linting, Formatting, Type Checking
+# -----------------------------------------------------------------------------
 
 # Lint the codebase
 [group: "lint"]
@@ -38,9 +141,9 @@ lint package="all":
 		cd etl && uv run ruff check --fix src; \
 	elif [ "{{package}}" = "all" ]; then \
 		echo "Linting all packages..."; \
-		cd api && uv run ruff check --fix app; \
-		cd dashboard-utils && uv run ruff check --fix src; \
-		cd etl && uv run ruff check --fix src; \
+		cd api && uv run ruff check --fix app; cd ..; \
+		cd dashboard-utils && uv run ruff check --fix src; cd ..; \
+		cd etl && uv run ruff check --fix src; cd ..; \
 	else \
 		echo "Unknown package: {{package}}" >&2; \
 		exit 1; \
@@ -57,9 +160,9 @@ format package="all":
 		cd etl && uv run ruff format src; \
 	elif [ "{{package}}" = "all" ]; then \
 		echo "Formatting all packages..."; \
-		cd api && uv run ruff format app; \
-		cd dashboard-utils && uv run ruff format src; \
-		cd etl && uv run ruff format src; \
+		cd api && uv run ruff format app; cd ..; \
+		cd dashboard-utils && uv run ruff format src; cd ..; \
+		cd etl && uv run ruff format src; cd ..; \
 	else \
 		echo "Unknown package: {{package}}" >&2; \
 		exit 1; \
@@ -67,18 +170,18 @@ format package="all":
 
 # Run mypy type checks
 [group: "lint"]
-type-check package="all":
+typecheck package="all":
 	@if [ "{{package}}" = "api" ]; then \
-		cd api && uv run mypy app; \
+		cd api && uv run mypy --config-file ../mypy.ini app; \
 	elif [ "{{package}}" = "dashboard-utils" ]; then \
-		cd dashboard-utils && uv run mypy src; \
+		cd dashboard-utils && uv run mypy --config-file ../mypy.ini src; \
 	elif [ "{{package}}" = "etl" ]; then \
-		cd etl && uv run mypy src; \
+		cd etl && uv run mypy --config-file ../mypy.ini src; \
 	elif [ "{{package}}" = "all" ]; then \
 		echo "Type-checking all packages..."; \
-		cd api && uv run mypy app; \
-		cd dashboard-utils && uv run mypy src; \
-		cd etl && uv run mypy src; \
+		cd api && uv run mypy --config-file ../mypy.ini app; cd ..; \
+		cd dashboard-utils && uv run mypy --config-file ../mypy.ini src; cd ..; \
+		cd etl && uv run mypy --config-file ../mypy.ini src; cd ..;\
 	else \
 		echo "Unknown package: {{package}}" >&2; \
 		exit 1; \

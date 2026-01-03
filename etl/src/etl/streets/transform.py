@@ -4,6 +4,7 @@ import geopandas as gpd
 import networkx as nx
 from geopandas import GeoDataFrame
 
+from dashboard_utils.models.streets import StreetBlockSchema
 from etl.utils.misc import number_to_string
 
 
@@ -145,5 +146,10 @@ def centerlines_to_blocks(centerlines: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
     # 6. De-duplicate segments
     blocks = dedupe_streets(blocks, street_col="street_name")
+
+    # 7. Validate each record
+    # NOTE: we don't validate geometry so drop it
+    for record in blocks.drop(columns=["geometry"]).to_dict(orient="records"):
+        StreetBlockSchema.model_validate(record)
 
     return blocks

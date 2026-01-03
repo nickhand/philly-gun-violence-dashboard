@@ -1,11 +1,11 @@
 import typer
 from loguru import logger
 
-from dashboard_utils.aws import make_s3_client, upload_file
+from dashboard_utils.aws import make_s3_client, write_geojson_gdf
 from dashboard_utils.env import settings
-from dashboard_utils.paths import data_dir, processed_data_dir
+from dashboard_utils.paths import get_processed_key
+from dashboard_utils.registry import get_geographic_data, iter_datasets, register_datasets
 from etl.streets.transform import centerlines_to_blocks
-from etl.utils.registry import get_geographic_data, iter_datasets, register_datasets
 
 app = typer.Typer(name="streets", help="Street geographic datasets.")
 
@@ -38,23 +38,6 @@ def load() -> None:
     blocks = centerlines_to_blocks(centerlines)
     logger.info(f"Deduplicated street blocks: {len(centerlines):,d} -> {len(blocks):,d}")
 
-    # Ensure out dir exists
-    out_dir = processed_data_dir() / "streets"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write to file
-    out_path = out_dir.joinpath("street_blocks.geojson")
-    blocks.to_file(out_path, driver="GeoJSON")
-    logger.info(f"Wrote street blocks to: {out_path}")
-
-    # Key in s3 is relative to data_dir
-    key = str(out_path.relative_to(data_dir()))
-
-    # Mirror to s3
-    upload_file(
-        s3,
-        out_path,
-        bucket=settings.AWS_BUCKET_NAME,
-        key=key,
-        content_type="application/geo+json",
-    )
+    key = get_processed_key("street_blocks")
+    write_geojson_gdf(s3, settings.AWS_BUCKET_NAME, key, blocks)
+    logger.info(f"Wrote street blocks to s3://{settings.AWS_BUCKET_NAME}/{key}")

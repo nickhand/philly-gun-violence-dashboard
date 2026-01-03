@@ -1,15 +1,15 @@
-"""Registery utility functions for geographic datasets."""
+"""Registry utility functions for geographic datasets."""
 
 import functools
 import importlib
 from collections.abc import Callable, Generator
+from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
 
-from dashboard_utils.aws import make_s3_client, upload_file
+from dashboard_utils.aws import make_s3_client, read_geojson_gdf, write_geojson_gdf
 from dashboard_utils.env import settings
-from dashboard_utils.paths import data_dir, reference_data_dir
 
 # Track a registry of geographic datasets
 REGISTRY: dict[str, Callable[..., gpd.GeoDataFrame]] = {}
@@ -35,12 +35,12 @@ def get_geographic_data(name: str, refresh: bool = False) -> gpd.GeoDataFrame:
 
 def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., gpd.GeoDataFrame]:
     """
-    Register and cache geographic dataset functions.
+    Register and read geographic dataset functions.
 
     This decorator:
     - Registers the dataset loader function in REGISTRY
-    - Caches the result to data/reference/<name>.geojson
-    - Allows bypassing cache with refresh=True
+    - Reads the dataset from S3 when refresh=False
+    - Recomputes and uploads to S3 when refresh=True
     """
     # Extract dataset name from the function name: assumes "get_<name>"
     name = func.__name__.split("get_")[-1]
@@ -51,7 +51,7 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
     @functools.wraps(func)
     def wrapper(*args: Any, refresh: bool = False, **kwargs: Any) -> gpd.GeoDataFrame:
         """
-        Cache and handle refreshing of geographic dataset.
+        Read and handle refreshing of geographic dataset.
 
         Parameters
         ----------
@@ -62,27 +62,17 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
         # Create S3 client
         s3 = make_s3_client()
 
-        # Determine cache path
-        cache_path = reference_data_dir().joinpath(filepath)
+        key = str(Path("reference").joinpath(filepath))
 
-        if not refresh and cache_path.exists():
-            return gpd.read_file(cache_path)
+        if not refresh:
+            return read_geojson_gdf(s3, bucket=settings.AWS_BUCKET_NAME, key=key)
 
         # Compute fresh result
         gdf = func(*args, **kwargs)
-        gdf.to_file(cache_path, driver="GeoJSON")
-
-        # Key in s3 is relative to data_dir
-        key = str(cache_path.relative_to(data_dir()))
+        # Key in s3 is relative to the reference folder
 
         # Mirror to s3
-        upload_file(
-            s3,
-            cache_path,
-            bucket=settings.AWS_BUCKET_NAME,
-            key=key,
-            content_type="application/geo+json",
-        )
+        write_geojson_gdf(s3, settings.AWS_BUCKET_NAME, key, gdf)
 
         # Return the GeoDataFrame
         return gdf

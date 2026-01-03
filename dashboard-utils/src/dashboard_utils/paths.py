@@ -1,17 +1,12 @@
 from functools import lru_cache
 from pathlib import Path
 
-from dashboard_utils.env import get_repo_root, is_prod_runtime, settings
+from dashboard_utils.env import settings
 
 
 def data_dir() -> str:
-    """Return the path to the data directory located at the root of the repository."""
-    # In production, data dir is an S3 bucket
-    if is_prod_runtime():
-        return f"s3://{settings.AWS_BUCKET_NAME}"
-    # In local/dev, data dir is a local folder at the repo root
-    else:
-        return str(get_repo_root() / "data")
+    """Return the S3 path for the data directory."""
+    return f"s3://{settings.AWS_BUCKET_NAME}"
 
 
 def reference_data_dir() -> Path:
@@ -78,3 +73,14 @@ def get_processed_path(key: str) -> Path:
         raise KeyError(
             f"Unknown processed dataset key '{key}'. Known keys: {sorted(inventory)}"
         ) from exc
+
+
+def get_processed_key(key: str) -> str:
+    """Return the processed S3 key for a dataset identifier."""
+    try:
+        parts = _PROCESSED_PATHS[key]
+    except KeyError as exc:
+        raise KeyError(
+            f"Unknown processed dataset key '{key}'. Known keys: {sorted(_PROCESSED_PATHS)}"
+        ) from exc
+    return str(Path("processed").joinpath(*parts))

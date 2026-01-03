@@ -62,9 +62,10 @@ def query_carto(
             CARTO,
             params=urllib.parse.urlencode(params, quote_via=urllib.parse.quote),
             headers={"Content-Type": "application/json;charset=UTF-8"},
+            timeout=60.0,
         )
     elif method == "POST":
-        r = httpx.post(CARTO, data=params)
+        r = httpx.post(CARTO, data=params, timeout=60.0)
     else:
         raise ValueError(f"Unsupported method: {method}; use 'GET' or 'POST'")
 
@@ -128,6 +129,7 @@ def query_arcgis(
             returnCountOnly="true",
             f="json",
         ),
+        timeout=60.0,
     )
     response.raise_for_status()
     total_size = response.json()["count"]

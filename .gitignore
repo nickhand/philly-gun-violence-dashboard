@@ -5,3 +5,9 @@ notebooks/
 build/
 .vscode
 .env
+.*
+!.env.example
+!.python-version
+__pycache__/
+*.pyc
+.venv/

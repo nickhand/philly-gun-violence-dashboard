@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from ...utils.registry import get_geographic_data, iter_datasets, register_datasets
+from dashboard_utils.registry import get_geographic_data, iter_datasets, register_datasets
+
 from ..extract import fetch_criminal_incidents
 
 __all__ = ["join_with_boundary_datasets"]

@@ -1,7 +1,6 @@
 FROM python:3.13-slim-trixie
 COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /uvx /bin/
 
-# Install the project into `/app`
 WORKDIR /app
 
 # Enable bytecode compilation
@@ -22,30 +21,25 @@ ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 # Copy lockfiles and minimal sources first to maximize cache reuse.
 COPY dashboard-utils/pyproject.toml dashboard-utils/uv.lock dashboard-utils/README.md /app/dashboard-utils/
 COPY dashboard-utils/src/ /app/dashboard-utils/src/
-COPY etl/pyproject.toml etl/uv.lock etl/README.md /app/etl/
+COPY api/pyproject.toml api/uv.lock /app/api/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project /app/dashboard-utils --locked --no-install-project && \
-    uv sync --project /app/etl --locked --no-install-project
+    uv sync --project /app/api --locked --no-install-project
 
 # Copy source code only after dependencies are installed.
 COPY dashboard-utils/ /app/dashboard-utils/
-COPY etl/ /app/etl/
+COPY api/ /app/api/
 
 # Install the source code into the environment.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project /app/dashboard-utils --locked && \
-    uv sync --project /app/etl --locked
+    uv sync --project /app/api --locked 
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Install Playwright browser binaries (chromium) for portal scraping
-RUN uv run --project /app/etl playwright install chromium --with-deps
+WORKDIR /app/api
+EXPOSE 8080
 
-# Reset the entrypoint, don't invoke `uv`
-ENTRYPOINT []
-
-# Runs the courts batch command via the main CLI
-WORKDIR /app/etl
-CMD ["uv", "run", "gv-dashboard-etl", "courts", "batch", "--help"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

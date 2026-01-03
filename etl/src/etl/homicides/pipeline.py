@@ -77,7 +77,7 @@ def update_homicide_totals(
     else:
         write_processed_totals(s3, merged)
         write_homicide_database(s3, updated_database)
-        write_meta(s3, subfolder="homicides", data_through=as_of_date)
+        write_meta(subfolder="homicides", data_through=as_of_date)
         logger.info(
             "Updated homicide totals through {} (YTD={})",
             as_of_date.date(),

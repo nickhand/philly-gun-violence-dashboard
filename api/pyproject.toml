@@ -5,18 +5,20 @@ description = "API for Philadelphia Gun Violence Dashboard"
 readme = "README.md"
 authors = [{ name = "Nick Hand", email = "nicholas.adam.hand@gmail.com" }]
 requires-python = ">=3.13"
-dependencies = [
-    "fastapi>=0.127.0",
-    "uvicorn>=0.40.0",
-]
+dependencies = ["fastapi>=0.127.0", "uvicorn>=0.40.0", "dashboard-utils"]
 
+[tool.uv.sources]
+dashboard-utils = { path = "../dashboard-utils", editable = true }
 
 [build-system]
 requires = ["uv_build>=0.9.16,<0.10.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = ["mypy>=1.19.1", "ruff>=0.14.10"]
+dev = [
+    "mypy>=1.19.1",
+    "ruff>=0.14.10",
+]
 
 [tool.uv.build-backend]
 module-name = "app"

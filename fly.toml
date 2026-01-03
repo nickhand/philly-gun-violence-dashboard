@@ -1,0 +1,25 @@
+app = "philly-gun-violence-dashboard-api"
+primary_region = "iad"
+
+[build]
+dockerfile = "api/Dockerfile"
+
+[env]
+PORT = "8080"
+ENV = "prod"
+
+[http_service]
+internal_port = 8080
+force_https = true
+min_machines_running = 1
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "512mb"
+
+[[http_service.checks]]
+grace_period = "10s"
+interval = "15s"
+method = "GET"
+path = "/health"
+timeout = "5s"

@@ -1,5 +1,6 @@
 import io
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -32,10 +33,22 @@ def make_boto3_session(*, region_name: str | None = None) -> boto3.Session:
     boto3.Session
         The boto3 Session.
     """
+    # Resolve region
+    resolved_region = (
+        region_name or os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+    )
+
+    # Resolve aws_access_key_id and aws_secret_access_key from settings
+    # NOTE: this shouldn't necessary but is included for completeness.
+    resolved_aws_access_key_id = settings.AWS_ACCESS_KEY_ID or os.environ.get("AWS_ACCESS_KEY_ID")
+    resolved_aws_secret_access_key = settings.AWS_SECRET_ACCESS_KEY or os.environ.get(
+        "AWS_SECRET_ACCESS_KEY"
+    )
+
     session = boto3.Session(
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=region_name,
+        aws_access_key_id=resolved_aws_access_key_id,
+        aws_secret_access_key=resolved_aws_secret_access_key,
+        region_name=resolved_region,
     )
 
     # Fail fast if the region isn't configured anywhere.

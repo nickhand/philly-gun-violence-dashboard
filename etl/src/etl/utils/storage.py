@@ -1,17 +1,14 @@
 """Utilities for reading and writing processed data and metadata."""
 
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
 import pandas as pd
-from mypy_boto3_s3.client import S3Client
 
-from dashboard_utils.aws import upload_file
+from dashboard_utils.aws import make_s3_client, read_csv_df, read_geojson_gdf, read_json, write_json
 from dashboard_utils.env import settings
-from dashboard_utils.paths import get_processed_path, processed_data_dir
+from dashboard_utils.paths import get_processed_key
 
 __all__ = [
     "write_meta",
@@ -23,7 +20,7 @@ __all__ = [
 ]
 
 
-def write_meta(s3: S3Client, *, subfolder: str, data_through: Any = None) -> None:
+def write_meta(*, subfolder: str, data_through: Any = None) -> None:
     """Write data/processed/<subfolder>/meta.json with last_updated and data_through.
 
     Parameters
@@ -44,21 +41,13 @@ def write_meta(s3: S3Client, *, subfolder: str, data_through: Any = None) -> Non
     )
     meta = {"last_updated": now.isoformat(), "data_through": data_through_iso}
 
-    # Ensure the folder exists
-    folder = processed_data_dir() / subfolder
-    folder.mkdir(parents=True, exist_ok=True)
-
-    # Write the meta.json file locally
-    path = folder / "meta.json"
-    path.write_text(json.dumps(meta, indent=2))
-
-    # Upload it to s3
-    upload_file(
+    s3 = make_s3_client()
+    write_json(
         s3,
-        path,
-        bucket=settings.AWS_BUCKET_NAME,
-        key=f"processed/{subfolder}/meta.json",
-        content_type="application/json",
+        settings.AWS_BUCKET_NAME,
+        f"processed/{subfolder}/meta.json",
+        meta,
+        indent=2,
     )
 
 
@@ -67,45 +56,40 @@ def write_meta(s3: S3Client, *, subfolder: str, data_through: Any = None) -> Non
 # -----------------------------------------------------------------------------
 
 
-def _ensure_path_exists(path: Path) -> None:
-    """Ensure that the given path exists, raising FileNotFoundError if not."""
-    if not path.exists():
-        raise FileNotFoundError(f"Missing data at {path}")
-
-
 def load_shootings_database() -> gpd.GeoDataFrame:
-    """Load the shootings database GeoDataFrame."""
-    path = get_processed_path("shootings")
-    _ensure_path_exists(path)
-    return gpd.read_file(path)
+    """Load the shootings database GeoDataFrame from s3."""
+    s3 = make_s3_client()
+    key = get_processed_key("shootings")
+    return read_geojson_gdf(s3, bucket=settings.AWS_BUCKET_NAME, key=key)
 
 
 def load_street_blocks() -> gpd.GeoDataFrame:
     """Load the street blocks GeoDataFrame."""
-    path = get_processed_path("street_blocks")
-    _ensure_path_exists(path)
-    return gpd.read_file(path)
+    s3 = make_s3_client()
+    key = get_processed_key("street_blocks")
+    return read_geojson_gdf(s3, bucket=settings.AWS_BUCKET_NAME, key=key)
 
 
 def load_homicide_database() -> pd.DataFrame:
     """Load the daily homicide database DataFrame."""
-    path = get_processed_path("homicides_daily")
-    _ensure_path_exists(path)
-    return pd.read_csv(path, parse_dates=["date"]).sort_values("date")
+    s3 = make_s3_client()
+    key = get_processed_key("homicides_daily")
+    df = read_csv_df(s3, bucket=settings.AWS_BUCKET_NAME, key=key, parse_dates=["date"])
+    return df.sort_values("date")
 
 
 def load_homicide_totals() -> pd.DataFrame:
     """Load the yearly homicide totals DataFrame."""
-    path = get_processed_path("homicides_totals")
-    _ensure_path_exists(path)
-
-    df = pd.read_json(path, orient="index")
+    s3 = make_s3_client()
+    key = get_processed_key("homicides_totals")
+    data = read_json(s3, bucket=settings.AWS_BUCKET_NAME, key=key)
+    df = pd.DataFrame.from_dict(data, orient="index")
     df.index.name = "year"
     return df.reset_index()
 
 
 def load_courts_flags() -> pd.DataFrame:
     """Load the courts flags DataFrame."""
-    path = get_processed_path("courts_flags")
-    _ensure_path_exists(path)
-    return pd.read_csv(path, dtype={"dc_key": str})
+    s3 = make_s3_client()
+    key = get_processed_key("courts_flags")
+    return read_csv_df(s3, bucket=settings.AWS_BUCKET_NAME, key=key, dtype={"dc_key": str})

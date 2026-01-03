@@ -65,6 +65,6 @@ def update_courts(s3: S3Client, cfg: PortalBatchConfig | None = None) -> pd.Data
     # Save updated flags
     write_flags(s3, out)
     logger.info(f"Saved courts flags to {get_processed_path('courts_flags')}")
-    write_meta(s3, subfolder="courts")
+    write_meta(subfolder="courts")
 
     return out

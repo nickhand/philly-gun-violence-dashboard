@@ -47,7 +47,7 @@ def update_shootings(
             effective_ignore = True
 
     # Clean the shootings data
-    cleaned: gpd.GeoDataFrame = clean_shootings(raw, ignore_checks=effective_ignore)
+    cleaned: gpd.GeoDataFrame = clean_shootings(s3, raw, ignore_checks=effective_ignore)
 
     # If dry run, skip writing outputs
     if dry_run:
@@ -61,7 +61,7 @@ def update_shootings(
     latest_date = pd.to_datetime(cleaned["date"]).max() if not cleaned.empty else None
 
     # Save metadata about the update
-    write_meta(s3, subfolder="shootings", data_through=latest_date)
+    write_meta(subfolder="shootings", data_through=latest_date)
     logger.info(f"Updated shootings dataset with {len(cleaned):,d} records")
 
     # Return the cleaned dataset

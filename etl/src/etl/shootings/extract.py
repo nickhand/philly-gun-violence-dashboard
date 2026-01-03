@@ -1,6 +1,6 @@
 import geopandas as gpd
 
-from etl.config import REFERENCE_CRS
+from dashboard_utils.constants import REFERENCE_CRS
 from etl.utils.query import query_carto
 
 

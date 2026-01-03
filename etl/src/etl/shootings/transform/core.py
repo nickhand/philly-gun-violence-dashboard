@@ -4,9 +4,11 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from loguru import logger
+from mypy_boto3_s3.client import S3Client
 from shapely.geometry import Point
 
-from etl.shootings.schema import ShootingVictimsSchema
+from dashboard_utils.constants import DATE_FORMAT
+from dashboard_utils.models.shootings import ShootingVictimsSchema
 from etl.shootings.transform.boundaries import join_with_boundary_datasets
 from etl.shootings.transform.streets import join_with_street_blocks
 from etl.utils.storage import load_courts_flags, load_shootings_database
@@ -98,6 +100,7 @@ def _validate_against_schema(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 def clean_shootings(
+    s3: S3Client,
     df: gpd.GeoDataFrame,
     *,
     ignore_checks: bool = False,
@@ -106,6 +109,8 @@ def clean_shootings(
 
     Parameters
     ----------
+    s3 : S3Client
+        The S3 client to use.
     df : geopandas.GeoDataFrame
         Raw shootings data.
     ignore_checks : bool, optional
@@ -154,7 +159,7 @@ def clean_shootings(
         )
         .sort_values("date", ascending=False)
         .reset_index(drop=True)
-        .assign(date=lambda df: df.date.dt.strftime("%Y/%m/%d %H:%M:%S"))
+        .assign(date=lambda df: df.date.dt.strftime(DATE_FORMAT))
     )
 
     # Handle boolean columns
