@@ -85,41 +85,41 @@ api-check:
 # Deploy the API to Fly.io using the API Dockerfile
 [group: "api-fly"]
 fly-deploy-api:
-	fly deploy --dockerfile api/Dockerfile
+	flyctl deploy --dockerfile api/Dockerfile
 
 # Import .env as Fly secrets for the API app
 [group: "api-fly"]
 fly-secrets-api:
-	fly secrets set \
+	flyctl secrets set \
 		AWS_ACCESS_KEY_ID="{{ env('AWS_ACCESS_KEY_ID') }}" \
 		AWS_SECRET_ACCESS_KEY="{{ env('AWS_SECRET_ACCESS_KEY') }}" \
 		AWS_REGION="{{ env('AWS_REGION') }}" \
-		AWS_BUCKET_NAME="{{ env('AWS_BUCKET_NAME') }}";
+		AWS_BUCKET_NAME="{{ env('AWS_BUCKET_NAME') }}"
 
 # Fly.io authentication
 [group: "api-fly"]
 fly-login:
-	fly auth login
+	flyctl auth login
 
 # Show app status
 [group: "api-fly"]
 fly-status:
-	fly status
+	flyctl status
 
 # Open an SSH session to the app
 [group: "api-fly"]
 fly-ssh:
-	fly ssh console
+	flyctl ssh console
 
 # Show Fly logs
 [group: "api-fly"]
 fly-logs:
-	fly logs
+	flyctl logs
 
 # Restart the Fly app defined in fly.toml
 [group: "api-fly"]
 fly-restart:
-	fly apps restart
+	flyctl apps restart
 
 # -----------------------------------------------------------------------------
 # Data Tasks
