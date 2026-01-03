@@ -15,7 +15,7 @@ class HomicideTotalsResponse(BaseModel):
         title="Year",
         description="Calendar year of the totals.",
     )
-    annual: float = Field(
+    annual: float | None = Field(
         title="Annual total",
         description="Annual total homicide count for the year.",
     )

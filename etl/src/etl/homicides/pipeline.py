@@ -46,26 +46,29 @@ def update_homicide_totals(
     merged = merge_totals(annual_totals, ytd_totals)
     latest_ytd = ytd_totals.iloc[0]["ytd"]
 
-    # If already up to date, log and exit early
-    if (
+    # Determine whether the daily database needs an update
+    needs_daily_update = not (
         not database.empty
         and as_of_date == database.iloc[-1]["date"]
         and database.iloc[-1]["total"] == latest_ytd
-    ):
+    )
+
+    # Append the new daily total only when needed
+    updated_database = database
+    if needs_daily_update:
+        updated_database = append_daily_total(
+            database,
+            as_of_date,
+            latest_ytd,
+            force=force,
+        )
+    else:
         logger.info(
-            "Homicide totals already up to date through {} (YTD={}); no changes made.",
+            "Homicide daily database already up to date through {} (YTD={}); "
+            "skipping daily update.",
             as_of_date.date(),
             latest_ytd,
         )
-        return database, merged
-
-    # Append the new daily total to the database and write outputs
-    updated_database = append_daily_total(
-        database,
-        as_of_date,
-        latest_ytd,
-        force=force,
-    )
 
     # Write outputs (unless dry run)
     if dry_run:
@@ -76,8 +79,9 @@ def update_homicide_totals(
         )
     else:
         write_processed_totals(s3, merged)
-        write_homicide_database(s3, updated_database)
         write_meta(subfolder="homicides", data_through=as_of_date)
+        if needs_daily_update:
+            write_homicide_database(s3, updated_database)
         logger.info(
             "Updated homicide totals through {} (YTD={})",
             as_of_date.date(),

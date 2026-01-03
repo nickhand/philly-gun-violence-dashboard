@@ -1,5 +1,6 @@
 """Load/save helpers for homicide statistics."""
 
+import numpy as np
 import pandas as pd
 from mypy_boto3_s3.client import S3Client
 
@@ -38,5 +39,5 @@ def write_processed_totals(s3: S3Client, merged_totals: pd.DataFrame) -> None:
     path : pathlib.Path or str, optional
         Output JSON path; defaults to the processed homicide totals path.
     """
-    payload = merged_totals.set_index("year").to_dict(orient="index")
+    payload = merged_totals.set_index("year").replace({np.nan: None}).to_dict(orient="index")
     write_processed_json("homicides_totals", payload, s3=s3)

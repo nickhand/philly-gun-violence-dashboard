@@ -370,12 +370,17 @@ def write_json(
     content_type : str, optional
         The content type to set on the object (default is 'application/json').
     """
-    text = json.dumps(data, indent=indent, sort_keys=sort_keys)
+    text = json.dumps(
+        data,
+        indent=indent,
+        sort_keys=sort_keys,
+        allow_nan=False,
+    )
     write_text(s3, bucket, key, text, content_type=content_type)
 
 
 def write_geojson(
-    s3: Any,
+    s3: S3Client,
     bucket: str,
     key: str,
     geojson: Any,

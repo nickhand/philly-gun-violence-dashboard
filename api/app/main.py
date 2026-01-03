@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.data_loader import (
     init_dataset_keys,
@@ -48,6 +49,19 @@ app = FastAPI(
     title="Gun Violence Dashboard API",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://phillygunviolence.netlify.app",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "null",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(shootings_router)

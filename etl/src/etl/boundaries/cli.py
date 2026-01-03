@@ -15,7 +15,7 @@ app = typer.Typer(
 
 def _write_manifest(datasets: list[str]) -> None:
     manifest = {
-        "datasets": {dataset: f"reference/{dataset}.geojson" for dataset in datasets},
+        "datasets": {dataset: f"{dataset}.geojson" for dataset in datasets},
     }
 
     s3 = make_s3_client()
