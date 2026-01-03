@@ -1,5 +1,6 @@
 import json
 import os
+import posixpath
 import sys
 from io import BytesIO, StringIO
 from typing import Any, Literal
@@ -371,7 +372,7 @@ class AWS:
 
             # Write the combined results back to S3
             output_key = f"{parent_prefix}/{tag}{extension}".lstrip("/")
-            filename = f"s3://{bucket}/{os.path.normpath(output_key)}"
+            filename = f"s3://{bucket}/{posixpath.normpath(output_key)}"
 
             # Make sure we have results
             assert results is not None

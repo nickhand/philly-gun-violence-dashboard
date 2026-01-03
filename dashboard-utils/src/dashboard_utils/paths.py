@@ -1,5 +1,5 @@
 from functools import lru_cache
-from pathlib import Path
+from posixpath import join as posix_join
 
 from dashboard_utils.env import s3_settings
 
@@ -9,14 +9,14 @@ def data_dir() -> str:
     return f"s3://{s3_settings.AWS_BUCKET_NAME}"
 
 
-def reference_data_dir() -> Path:
-    """Return the path to the reference data directory in the data directory."""
-    return Path(data_dir()) / "reference"
+def reference_data_dir() -> str:
+    """Return the S3 path to the reference data directory."""
+    return posix_join(data_dir(), "reference")
 
 
-def processed_data_dir() -> Path:
-    """Return the path to the processed data directory in the data directory."""
-    return Path(data_dir()) / "processed"
+def processed_data_dir() -> str:
+    """Return the S3 path to the processed data directory."""
+    return posix_join(data_dir(), "processed")
 
 
 # -----------------------------------------------------------------------------
@@ -34,20 +34,20 @@ _PROCESSED_PATHS = {
 
 
 @lru_cache(maxsize=1)
-def processed_data_inventory() -> dict[str, Path]:
+def processed_data_inventory() -> dict[str, str]:
     """
     Lazily build an inventory of processed dataset paths.
 
     Returns
     -------
     dict
-        Mapping from dataset key to full Path under ``data/processed``.
+        Mapping from dataset key to full S3 path under ``data/processed``.
     """
-    base = Path(processed_data_dir())
-    return {key: base.joinpath(*parts) for key, parts in _PROCESSED_PATHS.items()}
+    base = processed_data_dir()
+    return {key: posix_join(base, *parts) for key, parts in _PROCESSED_PATHS.items()}
 
 
-def get_processed_path(key: str) -> Path:
+def get_processed_path(key: str) -> str:
     """
     Retrieve a processed dataset path by key.
 
@@ -58,7 +58,7 @@ def get_processed_path(key: str) -> Path:
 
     Returns
     -------
-    pathlib.Path
+    str
         The corresponding processed dataset path.
 
     Raises
@@ -83,9 +83,9 @@ def get_processed_key(key: str) -> str:
         raise KeyError(
             f"Unknown processed dataset key '{key}'. Known keys: {sorted(_PROCESSED_PATHS)}"
         ) from exc
-    return str(Path("processed").joinpath(*parts))
+    return posix_join("processed", *parts)
 
 
 def get_reference_key(name: str) -> str:
     """Return the reference S3 key for a dataset name."""
-    return str(Path("reference").joinpath(name))
+    return posix_join("reference", name)
