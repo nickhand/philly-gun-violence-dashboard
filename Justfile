@@ -57,7 +57,7 @@ push-container:
 
 # Complete docker workflow for the courts scraper: login, build, and push
 [group: "courts-scraper"]
-courts-scraper: aws-login build-container push-container
+build-and-push-container: aws-login build-container push-container
 
 # -----------------------------------------------------------------------------
 # API Tasks
