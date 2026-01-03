@@ -194,6 +194,12 @@ class AWS:
             if k not in skipfields
         ]
 
+        # Add ECS-specific settings
+        keys = ["ECS_CLUSTER_NAME", "CONTAINER_NAME"]
+        for k in keys:
+            v = getattr(self._ecs_settings, k)
+            env_vars.append({"name": k, "value": v})
+
         # Run in parallel
         tasks = []
         for pid in range(0, ntasks):
