@@ -1,5 +1,4 @@
 name: Batch Courts Scraper ETL
-
 on:
   schedule:
     - cron: "15 2 * * 0,2,4"
