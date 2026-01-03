@@ -91,7 +91,6 @@ class ECSConfig(BaseSettings):
         extra="ignore",
     )
 
-    AWS_ACCOUNT_ID: str
     CONTAINER_NAME: str
     ECS_CLUSTER_NAME: str
 
