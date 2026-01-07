@@ -1,6 +1,6 @@
 # Philadelphia Gun Violence Dashboard
 
-A full-stack data pipeline and API that power my public Gun Violence Dashboard.
+A full-stack data pipeline and API that power a public Gun Violence Dashboard for the City of Philadelphia.
 Visit the live map: https://nickhand.dev/philly-gun-violence-map
 
 ## What this repo contains
