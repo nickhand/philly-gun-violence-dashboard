@@ -14,3 +14,4 @@ __pycache__/
 **/.venv/
 **/.pytest_cache/
 **/node_modules/
+frontend-vue2/

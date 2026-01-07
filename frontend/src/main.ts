@@ -1,50 +1,17 @@
-// Local css first
-import "@/assets/css/style.min.css";
-import "@/assets/css/bootstrap.min.css";
+import { createApp } from "vue";
+import App from "@/app/App.vue";
+import { createAppRouter } from "@/app/router";
+import { createAppPinia } from "@/app/pinia";
+import { vuetify } from "@/app/vuetify";
 
-// External
-import Vue from "vue";
+// Styles
+import "@/app/styles/main.css";
 
-// App and router
-import App from "@/App.vue";
-import { getRouter } from "@/plugins/router";
-import vuetify from "@/plugins/vuetify";
-import store from "@/store";
-import "@/main.css";
+const app = createApp(App);
 
-// Fontawesome
-import { library } from "@fortawesome/fontawesome-svg-core";
-import {
-  faInfo,
-  faArrowLeft,
-  faDownload,
-  faUndo,
-  faExternalLinkAlt,
-} from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
+// Register core app services once.
+app.use(createAppPinia());
+app.use(createAppRouter());
+app.use(vuetify);
 
-// Set up fontawesome
-library.add(faInfo, faArrowLeft, faDownload, faUndo, faExternalLinkAlt);
-Vue.component("font-awesome-icon", FontAwesomeIcon);
-
-// Don't show tip
-Vue.config.productionTip = false;
-
-// Initialize
-getRouter().then((router) => {
-  new Vue({
-    router,
-    vuetify,
-    store,
-    render: (h) => h(App),
-  }).$mount("#app");
-});
-
-// Turn off FA
-// $(document).ready(function () {
-//   const FA = window.FontAwesome;
-//   if (FA) {
-//     FA.config.observeMutations = false;
-//     FA.config.searchPseudoElements = false;
-//   }
-// });
+app.mount("#app");

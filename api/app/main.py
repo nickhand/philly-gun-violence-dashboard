@@ -57,6 +57,8 @@ app.add_middleware(
         "https://phillygunviolence.netlify.app",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
         "null",
     ],
     allow_credentials=True,
