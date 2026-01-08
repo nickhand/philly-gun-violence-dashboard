@@ -508,6 +508,9 @@ def write_geojson_gdf(s3: S3Client, bucket: str, key: str, gdf: gpd.GeoDataFrame
     """
     Write a GeoPandas GeoDataFrame to S3 as GeoJSON.
 
+    The GeoDataFrame is automatically converted to EPSG:4326 (WGS84) before writing,
+    as this is the standard CRS for GeoJSON and web mapping libraries.
+
     Parameters
     ----------
     s3 : S3Client
@@ -519,6 +522,9 @@ def write_geojson_gdf(s3: S3Client, bucket: str, key: str, gdf: gpd.GeoDataFrame
     gdf : gpd.GeoDataFrame
         The GeoDataFrame to write.
     """
+    # Convert to WGS84 (EPSG:4326) for GeoJSON standard compliance
+    if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+        gdf = gdf.to_crs(epsg=4326)
     write_geojson(s3, bucket, key, json.loads(gdf.to_json(drop_id=True)))
 
 

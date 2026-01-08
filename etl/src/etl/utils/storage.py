@@ -8,6 +8,7 @@ import pandas as pd
 from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.aws import make_s3_client, write_json
+from dashboard_utils.constants import REFERENCE_CRS
 from dashboard_utils.env import s3_settings
 from dashboard_utils.processed import (
     read_processed_csv,
@@ -66,13 +67,23 @@ def _client(s3: S3Client | None) -> S3Client:
 
 
 def load_shootings_database(*, s3: S3Client | None = None) -> gpd.GeoDataFrame:
-    """Load the shootings database GeoDataFrame from s3."""
-    return read_processed_geojson("shootings", s3=_client(s3))
+    """Load the shootings database GeoDataFrame from s3.
+
+    Data is stored in S3 as EPSG:4326 (WGS84) for web mapping,
+    but converted to REFERENCE_CRS (EPSG:2272) for ETL spatial operations.
+    """
+    gdf = read_processed_geojson("shootings", s3=_client(s3))
+    return gdf.to_crs(REFERENCE_CRS)
 
 
 def load_street_blocks(*, s3: S3Client | None = None) -> gpd.GeoDataFrame:
-    """Load the street blocks GeoDataFrame."""
-    return read_processed_geojson("street_blocks", s3=_client(s3))
+    """Load the street blocks GeoDataFrame.
+
+    Data is stored in S3 as EPSG:4326 (WGS84) for web mapping,
+    but converted to REFERENCE_CRS (EPSG:2272) for ETL spatial operations.
+    """
+    gdf = read_processed_geojson("street_blocks", s3=_client(s3))
+    return gdf.to_crs(REFERENCE_CRS)
 
 
 def load_homicide_database(*, s3: S3Client | None = None) -> pd.DataFrame:
