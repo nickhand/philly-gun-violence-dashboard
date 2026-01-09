@@ -1,6 +1,6 @@
 """Street blocks endpoints."""
 
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -22,9 +22,9 @@ class StreetsPage(Page):
 @router.get("/streets")
 def get_streets(
     request: Request,
-    segment_id: list[str] | None = None,
-    limit: int = Query(2000, ge=0),
-    offset: int = Query(0, ge=0),
+    segment_id: Annotated[list[str] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=0)] = 2000,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> StreetsPage:
     """Return street block GeoJSON filtered by segment IDs.
 
