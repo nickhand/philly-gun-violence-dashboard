@@ -114,8 +114,31 @@ def dedupe_streets(gdf: GeoDataFrame, street_col: str = "street_name") -> GeoDat
     return cleaned
 
 
-def centerlines_to_blocks(centerlines: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Street centerlines in Philadelphia, aggregated by block."""
+def centerlines_to_blocks(
+    centerlines: gpd.GeoDataFrame,
+    max_length: float = 5200,
+) -> gpd.GeoDataFrame:
+    """Street centerlines in Philadelphia, aggregated by block.
+
+    Parameters
+    ----------
+    centerlines : gpd.GeoDataFrame
+        Input street centerline GeoDataFrame. Must be in a projected CRS.
+    max_length : float, default 5200
+        Maximum segment length to keep (in CRS units). Segments longer than
+        this are filtered out (likely data errors or highways).
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Street blocks with unique segment IDs.
+    """
+    if centerlines.crs is None or centerlines.crs.is_geographic:
+        raise ValueError(
+            "centerlines_to_blocks expects a projected CRS; call .to_crs(...) first "
+            "if you're in EPSG:4326."
+        )
+
     # 1. Normalize street name (case, whitespace)
     gdf = centerlines.copy()
     gdf["street_name"] = gdf["street_name"].str.upper().str.strip()
@@ -128,6 +151,9 @@ def centerlines_to_blocks(centerlines: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         by=["street_name", "block_number"],
         as_index=False,  # keep cols instead of index
     )
+
+    # 3b. Filter out overly long segments (likely data errors or highways)
+    blocks = blocks[blocks.geometry.length < max_length].copy()
 
     # 4. Add a nice label
     blocks["block_label"] = (
