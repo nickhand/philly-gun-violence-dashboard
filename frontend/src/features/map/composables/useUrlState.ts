@@ -4,12 +4,12 @@
  * Syncs map state (year, layers, view) with URL query parameters.
  * Enables shareable links and browser back/forward navigation.
  *
- * URL format: ?year=2025&layers=Point%20locations&map=12.76/39.97240/-75.14142
+ * URL format: ?year=2025&layers=point-locations,heat-map&map=12.76/39.97240/-75.14142
  *
  * @module useUrlState
  */
 
-import { watch, onMounted } from "vue";
+import { watch, onMounted, ref } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import type { Ref } from "vue";
 import type { Map as MapLibreMap } from "maplibre-gl";
@@ -20,10 +20,35 @@ interface MapViewState {
 }
 
 /**
+ * Convert layer name to URL-friendly ID.
+ * Uses lowercase with hyphens instead of spaces.
+ *
+ * @param name - Human-readable layer name (e.g., "Point locations")
+ * @returns URL-friendly ID (e.g., "point-locations")
+ */
+function layerNameToUrlId(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, "-");
+}
+
+/**
+ * Convert URL ID back to layer name.
+ * Converts hyphens to spaces and applies title case.
+ *
+ * @param id - URL-friendly ID (e.g., "point-locations")
+ * @returns Human-readable layer name (e.g., "Point locations")
+ */
+function urlIdToLayerName(id: string): string {
+  // Convert hyphens to spaces
+  const withSpaces = id.replace(/-/g, " ");
+  // Capitalize first letter only (preserve rest as-is for names like "ZIP Code")
+  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+}
+
+/**
  * Composable for syncing map state with URL query parameters.
  *
  * Reads initial state from URL on mount and updates URL when state changes.
- * Enables shareable links like: ?year=2025&layers=Point%20locations&map=12.76/39.97240/-75.14142
+ * Enables shareable links like: ?year=2025&layers=point-locations,heat-map&map=12.76/39.97240/-75.14142
  *
  * @param selectedYear - Reactive ref for selected year
  * @param activeLayers - Reactive ref for active layer names
@@ -45,6 +70,9 @@ export function useUrlState(
 ) {
   const router = useRouter();
   const route = useRoute();
+
+  // Track whether map is ready to avoid premature updates
+  const mapReady = ref(false);
 
   /**
    * Parse map view from URL parameter.
@@ -87,7 +115,8 @@ export function useUrlState(
 
   /**
    * Parse layers from URL parameter.
-   * Handles comma-separated list of layer names.
+   * Handles comma-separated list of layer IDs (e.g., "point-locations,heat-map").
+   * Converts IDs back to human-readable layer names.
    *
    * @param layersParam - Layers parameter string from URL
    * @returns Array of layer names
@@ -95,24 +124,26 @@ export function useUrlState(
   function parseLayersParam(layersParam: string): string[] {
     return layersParam
       .split(",")
-      .map((l) => decodeURIComponent(l.trim()))
-      .filter(Boolean);
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map(urlIdToLayerName);
   }
 
   /**
    * Format layers as URL parameter.
-   * Joins layer names with commas.
+   * Converts layer names to URL-friendly IDs and joins with commas.
    *
    * @param layers - Array of active layer names
-   * @returns Formatted layers parameter string
+   * @returns Formatted layers parameter string (e.g., "point-locations,heat-map")
    */
   function formatLayersParam(layers: string[]): string {
-    return layers.map((l) => encodeURIComponent(l)).join(",");
+    return layers.map(layerNameToUrlId).join(",");
   }
 
   /**
    * Read initial state from URL query parameters.
-   * Applies year, layers, and map view from URL to application state.
+   * Applies year and layers from URL to application state.
+   * Map view is applied separately when map instance becomes available.
    */
   function readUrlState(): void {
     const query = route.query;
@@ -133,16 +164,8 @@ export function useUrlState(
       }
     }
 
-    // Read map view
-    if (query.map && typeof query.map === "string" && mapInstance.value) {
-      const mapView = parseMapParam(query.map);
-      if (mapView) {
-        mapInstance.value.jumpTo({
-          center: mapView.center,
-          zoom: mapView.zoom,
-        });
-      }
-    }
+    // Note: Map view is applied in the mapInstance watcher
+    // when the map becomes available and is fully loaded
   }
 
   /**
@@ -150,7 +173,16 @@ export function useUrlState(
    * Preserves other query params and uses replace to avoid history spam.
    */
   function updateUrl(): void {
-    const query: Record<string, string> = { ...route.query };
+    // Don't update URL until map is ready
+    if (!mapReady.value) return;
+
+    const query: Record<string, string> = {};
+    // Preserve existing query params (filter out null/array values)
+    for (const [key, value] of Object.entries(route.query)) {
+      if (typeof value === "string") {
+        query[key] = value;
+      }
+    }
 
     // Update year
     if (selectedYear.value !== null) {
@@ -166,8 +198,8 @@ export function useUrlState(
       delete query.layers;
     }
 
-    // Update map view
-    if (mapInstance.value) {
+    // Update map view (only if map is loaded)
+    if (mapInstance.value && mapInstance.value.loaded()) {
       const center = mapInstance.value.getCenter();
       const zoom = mapInstance.value.getZoom();
       query.map = formatMapParam(zoom, [center.lng, center.lat]);
@@ -184,34 +216,66 @@ export function useUrlState(
   function setupMapListeners(): void {
     if (!mapInstance.value) return;
 
-    // Debounce to avoid excessive URL updates
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const debouncedUpdate = () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(updateUrl, 500);
+    const map = mapInstance.value;
+
+    const setupListeners = () => {
+      // Debounce to avoid excessive URL updates
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const debouncedUpdate = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(updateUrl, 500);
+      };
+
+      map.on("moveend", debouncedUpdate);
+      map.on("zoomend", debouncedUpdate);
     };
 
-    mapInstance.value.on("moveend", debouncedUpdate);
-    mapInstance.value.on("zoomend", debouncedUpdate);
+    // Wait for map style to load before setting up listeners
+    if (map.loaded()) {
+      setupListeners();
+    } else {
+      map.once("load", setupListeners);
+    }
   }
 
-  // Watch for state changes and update URL
-  watch(selectedYear, updateUrl);
-  watch(activeLayers, updateUrl, { deep: true });
+  // Watch for state changes and update URL (but only after map is ready)
+  watch(selectedYear, () => {
+    if (mapReady.value) updateUrl();
+  });
+  watch(
+    activeLayers,
+    () => {
+      if (mapReady.value) updateUrl();
+    },
+    { deep: true }
+  );
 
   // Watch for map instance initialization
   watch(mapInstance, (newMap) => {
     if (newMap) {
-      // Apply URL state to new map instance
-      const query = route.query;
-      if (query.map && typeof query.map === "string") {
-        const mapView = parseMapParam(query.map);
-        if (mapView) {
-          newMap.jumpTo({
-            center: mapView.center,
-            zoom: mapView.zoom,
-          });
+      // Apply URL state to new map instance after style loads
+      const applyUrlState = () => {
+        const query = route.query;
+        if (query.map && typeof query.map === "string") {
+          const mapView = parseMapParam(query.map);
+          if (mapView) {
+            // Use flyTo for smoother transition, works even if map is still loading
+            newMap.jumpTo({
+              center: mapView.center,
+              zoom: mapView.zoom,
+            });
+          }
         }
+
+        // Mark map as ready for URL updates
+        mapReady.value = true;
+      };
+
+      // Wait for map style to load before applying URL state
+      if (newMap.isStyleLoaded()) {
+        applyUrlState();
+      } else {
+        newMap.once("style.load", applyUrlState);
       }
 
       // Set up listeners for future changes

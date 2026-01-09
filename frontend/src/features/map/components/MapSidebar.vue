@@ -1,129 +1,135 @@
 <template>
   <div class="map-sidebar">
-    <!-- Header -->
+    <!-- Loading overlay -->
+    <v-overlay
+      :model-value="showOverlay"
+      contained
+      persistent
+      class="sidebar-overlay"
+    >
+      <v-progress-circular indeterminate color="primary" />
+    </v-overlay>
+
+    <!-- Sidebar Header -->
     <div class="sidebar-header">
-      <div class="d-flex align-center pa-4">
-        <v-icon icon="mdi-filter-variant" class="mr-2" />
-        <span class="text-h6">Filters</span>
-      </div>
-
-      <v-divider />
-
-      <!-- Statistics Summary -->
-      <div class="pa-4">
-        <div class="stats-summary">
-          <div class="stat-item">
-            <span class="stat-label">Showing:</span>
-            <span class="stat-value">{{ featureCount.toLocaleString() }}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Total:</span>
-            <span class="stat-value">{{ totalCount.toLocaleString() }}</span>
-          </div>
-          <div v-if="filterPercentage < 100" class="stat-item">
-            <span class="stat-label">Filtered:</span>
-            <span class="stat-value">{{ filterPercentage.toFixed(1) }}%</span>
-          </div>
+      <div class="data-size-section">
+        <div class="data-size-message mt-3">
+          Showing locations for
+          <span class="highlight-count">{{ formatNumber(pointsOnMap) }}</span>
+          {{ markerTitle }}<span v-if="pointsOnMap !== 1">s</span>
+        </div>
+        <div v-if="missingPoints > 0" class="sidebar-note">
+          Note: {{ missingPoints }} {{ markerShortTitle
+          }}<span v-if="missingPoints > 1">s</span>
+          not shown due to missing locations
         </div>
       </div>
 
-      <v-divider />
-
-      <!-- Action Buttons -->
-      <div class="pa-4">
+      <div class="buttons-section">
         <v-btn
+          class="action-button"
           variant="outlined"
-          color="secondary"
+          color="white"
           block
-          @click="handleResetAll"
+          @click="$emit('download', 'geojson')"
+        >
+          <v-icon icon="mdi-download" class="mr-2" />
+          Download Data
+        </v-btn>
+
+        <v-btn
+          class="action-button mt-3"
+          variant="outlined"
+          color="white"
+          block
+          :disabled="!filterHelpers.hasAnyActiveFilters()"
+          @click="$emit('reset-all')"
         >
           <v-icon icon="mdi-refresh" class="mr-2" />
-          Reset All
+          Reset All Filters
         </v-btn>
-      </div>
-
-      <v-divider />
-
-      <!-- Download Section -->
-      <div class="pa-4">
-        <label class="filter-label mb-2">Export Data</label>
-        <v-btn-group variant="outlined" divided density="compact" class="w-100">
-          <v-btn @click="handleDownload('geojson')">
-            <v-icon icon="mdi-map" class="mr-1" size="small" />
-            GeoJSON
-          </v-btn>
-          <v-btn @click="handleDownload('csv')">
-            <v-icon icon="mdi-table" class="mr-1" size="small" />
-            CSV
-          </v-btn>
-          <v-btn @click="handleDownload('json')">
-            <v-icon icon="mdi-code-json" class="mr-1" size="small" />
-            JSON
-          </v-btn>
-        </v-btn-group>
       </div>
     </div>
 
-    <!-- Scrollable Filter Controls -->
+    <!-- Scrollable content -->
     <div class="sidebar-inner-content">
-      <div class="pa-4 filter-controls">
-        <div
-          v-for="filter in filters"
-          :key="filter.id"
-          class="filter-group mb-4"
+      <!-- Map Layers Section -->
+      <v-container
+        v-if="toggleableLayerNames.length > 0"
+        class="sidebar-section"
+      >
+        <MapLayersPanel
+          ref="layersPanelRef"
+          :toggleable-layer-names="toggleableLayerNames"
+          :overlay-layer-names="overlayLayerNames"
+          :default-toggled-layer-names="defaultToggledLayerNames"
+          @layer-change="
+            (name, visible) => $emit('layer-change', name, visible)
+          "
+          @overlay-change="(name) => $emit('overlay-change', name)"
+          @opacity-change="
+            (name, opacity) => $emit('opacity-change', name, opacity)
+          "
+        />
+      </v-container>
+
+      <!-- Filters Section -->
+      <v-container class="sidebar-section">
+        <div class="section-title">Filters</div>
+        <v-divider class="section-divider" />
+
+        <v-expansion-panels
+          v-model="expandedPanels"
+          multiple
+          variant="accordion"
+          flat
         >
-          <!-- Range Filter (Slider) -->
-          <div v-if="filter.type === 'range'" class="filter-item">
-            <label class="filter-label">{{ filter.label }}</label>
-            <v-range-slider
-              :model-value="getFilterValue(filter.id, [filter.min, filter.max])"
-              :min="filter.min"
-              :max="filter.max"
-              :step="filter.step || 1"
-              thumb-label="always"
-              class="mt-2"
-              @update:model-value="handleRangeChange(filter.id, $event)"
-            />
-          </div>
+          <!-- Switch Filters -->
+          <SwitchFilter
+            v-for="filter in switchFilters"
+            :key="filter.name"
+            :model-value="filterHelpers.getFilterValue(filter.name) ?? false"
+            :label="filter.label"
+            @update:model-value="$emit('filter-change', filter.name, $event)"
+          />
 
-          <!-- Checkbox Filter -->
-          <div v-else-if="filter.type === 'checkbox'" class="filter-item">
-            <v-checkbox
-              :model-value="getFilterValue(filter.id, filter.defaultValue)"
-              :label="filter.label"
-              @update:model-value="handleCheckboxChange(filter.id, $event)"
-            />
-          </div>
+          <!-- Checkbox Filters -->
+          <CheckboxFilter
+            v-for="filter in checkboxFilters"
+            :key="filter.name"
+            :label="filter.label"
+            :categories="filter.categories ?? []"
+            :selected-values="filterHelpers.getCheckboxValues(filter.name)"
+            :default-values="(filter.default as any[]) ?? []"
+            :ncol="filter.ncol"
+            @change="
+              (value, checked) =>
+                handleCheckboxChange(filter.name, value, checked)
+            "
+            @only="(value) => $emit('filter-change', filter.name, [value])"
+            @reset="$emit('filter-reset', filter.name)"
+          />
 
-          <!-- Select Filter (Dropdown) -->
-          <div v-else-if="filter.type === 'select'" class="filter-item">
-            <label class="filter-label">{{ filter.label }}</label>
-            <v-select
-              :model-value="getFilterValue(filter.id, null)"
-              :items="filter.options"
-              item-title="label"
-              item-value="value"
-              clearable
-              @update:model-value="handleSelectChange(filter.id, $event)"
-            />
-          </div>
-
-          <!-- Multiselect Filter (Chips) -->
-          <div v-else-if="filter.type === 'multiselect'" class="filter-item">
-            <label class="filter-label">{{ filter.label }}</label>
-            <v-select
-              :model-value="getFilterValue(filter.id, [])"
-              :items="filter.options"
-              item-title="label"
-              item-value="value"
-              multiple
-              chips
-              closable-chips
-              @update:model-value="handleMultiselectChange(filter.id, $event)"
-            />
-          </div>
-        </div>
-      </div>
+          <!-- Slider Filters -->
+          <SliderFilter
+            v-for="filter in sliderFilters"
+            :key="filter.name"
+            :label="filter.label"
+            :model-value="filterHelpers.getSliderValue(filter)"
+            :default-value="(filter.default as [number, number]) ?? [0, 100]"
+            :min="filterHelpers.getSliderMin(filter)"
+            :max="filterHelpers.getSliderMax(filter)"
+            :step="1"
+            :show-exclude-missing="filter.excludeMissing ?? false"
+            :exclude-missing="excludeMissingValues[filter.name] ?? false"
+            @update:model-value="$emit('filter-change', filter.name, $event)"
+            @update:exclude-missing="
+              handleExcludeMissingChange(filter.name, $event)
+            "
+            @reset="$emit('filter-reset', filter.name)"
+          />
+        </v-expansion-panels>
+      </v-container>
     </div>
   </div>
 </template>
@@ -132,134 +138,126 @@
 /**
  * MapSidebar Component
  *
- * Sidebar with filter controls, statistics, and data export.
- * Displays filter UI based on FilterConfig type and emits filter changes.
+ * Sidebar with filter controls, layer toggles, and data export.
  *
- * Filter Types Supported:
- * - range: Two-handle slider for numeric ranges (e.g., year, age)
- * - checkbox: Boolean filter (e.g., fatal/non-fatal)
- * - select: Single-select dropdown
- * - multiselect: Multi-select with chips (e.g., time of day, district)
+ * Sections:
+ * 1. Header: Data count, download button, reset all button
+ * 2. Map Layers: Layer toggle checkboxes + aggregation dropdown
+ * 3. Filters: Switch, checkbox, and slider filters
  *
  * @component
  */
 
-import { computed } from "vue";
+import { ref, computed } from "vue";
+import { format } from "d3-format";
 import type { FilterConfig } from "../types";
+import { useFilterHelpers } from "../composables/useFilterHelpers";
+import { SwitchFilter, CheckboxFilter, SliderFilter } from "./filters";
+import MapLayersPanel from "./MapLayersPanel.vue";
 
 // Props
 interface Props {
-  /** Filter configurations to render */
   filters: FilterConfig[];
-  /** Active filter values keyed by filter ID */
   activeFilters: Map<string, any>;
-  /** Number of features after filtering */
   featureCount: number;
-  /** Total number of features (unfiltered) */
   totalCount: number;
+  pointsOnMap?: number;
+  toggleableLayerNames?: string[];
+  overlayLayerNames?: string[];
+  defaultToggledLayerNames?: string[];
+  showOverlay?: boolean;
+  markerTitle?: string;
+  markerShortTitle?: string;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  pointsOnMap: 0,
+  toggleableLayerNames: () => [],
+  overlayLayerNames: () => [],
+  defaultToggledLayerNames: () => [],
+  showOverlay: false,
+  markerTitle: "shooting victim",
+  markerShortTitle: "victim",
+});
 
 // Emits
 const emit = defineEmits<{
-  /** Emitted when a filter value changes */
   "filter-change": [dimensionId: string, value: any];
-  /** Emitted when a single filter is reset */
   "filter-reset": [dimensionId: string];
-  /** Emitted when reset all is clicked */
   "reset-all": [];
-  /** Emitted when download button is clicked */
-  download: [format: "geojson" | "csv" | "json"];
+  download: [format: string];
+  "layer-change": [layerName: string, visible: boolean];
+  "overlay-change": [layerName: string | null];
+  "opacity-change": [layerName: string, opacity: number];
 }>();
 
-// Computed properties
-/**
- * Percentage of features shown after filtering.
- * Used to display filter impact in statistics.
- */
-const filterPercentage = computed(() => {
-  if (props.totalCount === 0) return 100;
-  return (props.featureCount / props.totalCount) * 100;
+// Composable for filter helpers
+const filterHelpers = useFilterHelpers(
+  () => props.filters,
+  () => props.activeFilters
+);
+
+// Local state
+const expandedPanels = ref<number[]>([]);
+const excludeMissingValues = ref<Record<string, boolean>>({});
+const layersPanelRef = ref<InstanceType<typeof MapLayersPanel> | null>(null);
+
+// Initialize exclude missing values
+props.filters.forEach((filter) => {
+  if (filter.excludeMissing) {
+    excludeMissingValues.value[filter.name] = false;
+  }
 });
 
-// Helper methods
-/**
- * Get current filter value or default.
- * Retrieves value from activeFilters map or returns default.
- *
- * @param filterId - Filter dimension ID
- * @param defaultValue - Default value if no active filter
- * @returns Current filter value or default
- */
-function getFilterValue(filterId: string, defaultValue: any): any {
-  return props.activeFilters.get(filterId) ?? defaultValue;
-}
+// Computed
+const formatNumber = (n: number) => format(",.0f")(n);
+const missingPoints = computed(() => props.featureCount - props.pointsOnMap);
+
+const switchFilters = computed(() =>
+  props.filters.filter((f) => f.kind === "switch")
+);
+const checkboxFilters = computed(() =>
+  props.filters.filter((f) => f.kind === "checkbox")
+);
+const sliderFilters = computed(() =>
+  props.filters.filter((f) => f.kind === "slider")
+);
 
 // Event handlers
-/**
- * Handle range slider change.
- * Emits filter-change with [min, max] tuple.
- *
- * @param filterId - Filter dimension ID
- * @param value - New range value [min, max]
- */
-function handleRangeChange(filterId: string, value: [number, number]): void {
-  emit("filter-change", filterId, value);
+function handleCheckboxChange(
+  filterId: string,
+  value: any,
+  checked: boolean
+): void {
+  const newValue = filterHelpers.computeCheckboxChange(
+    filterId,
+    value,
+    checked
+  );
+  emit("filter-change", filterId, newValue);
 }
 
-/**
- * Handle checkbox change.
- * Emits filter-change with boolean value.
- * Clears filter if unchecked (null value).
- *
- * @param filterId - Filter dimension ID
- * @param value - New checkbox value
- */
-function handleCheckboxChange(filterId: string, value: boolean): void {
-  // Emit null if unchecked to clear filter
-  emit("filter-change", filterId, value === false ? null : value);
+function handleExcludeMissingChange(
+  filterId: string,
+  value: boolean | null
+): void {
+  excludeMissingValues.value[filterId] = value ?? false;
+  const currentValue = props.activeFilters.get(filterId);
+  emit("filter-change", filterId, {
+    value: currentValue,
+    excludeMissing: value ?? false,
+  });
 }
 
-/**
- * Handle select dropdown change.
- * Emits filter-change with selected value.
- *
- * @param filterId - Filter dimension ID
- * @param value - Selected value
- */
-function handleSelectChange(filterId: string, value: any): void {
-  emit("filter-change", filterId, value);
+/** Reset layers panel to defaults */
+function resetLayers(): void {
+  layersPanelRef.value?.resetToDefaults();
 }
 
-/**
- * Handle multiselect change.
- * Emits filter-change with array of selected values.
- *
- * @param filterId - Filter dimension ID
- * @param value - Array of selected values
- */
-function handleMultiselectChange(filterId: string, value: any[]): void {
-  emit("filter-change", filterId, value);
-}
-
-/**
- * Handle reset all filters.
- * Emits reset-all event to parent.
- */
-function handleResetAll(): void {
-  emit("reset-all");
-}
-
-/**
- * Handle data download.
- * Emits download event with selected format.
- *
- * @param format - Export format (geojson, csv, json)
- */
-function handleDownload(format: "geojson" | "csv" | "json"): void {
-  emit("download", format);
-}
+// Expose methods for parent components
+defineExpose({
+  resetLayers,
+});
 </script>
 
 <style scoped>
@@ -272,6 +270,7 @@ function handleDownload(format: "geojson" | "csv" | "json"): void {
   border-left: 5px solid #868b8e;
   background-color: #353d42;
   position: relative;
+  color: #fff;
 }
 
 @media only screen and (max-width: 767px) {
@@ -283,56 +282,108 @@ function handleDownload(format: "geojson" | "csv" | "json"): void {
   }
 }
 
+.sidebar-overlay {
+  background-color: rgba(53, 61, 66, 0.5);
+}
+
 .sidebar-header {
   text-align: center;
   padding: 5px;
-  background-color: #353d42;
+  border-bottom: 5px solid #868b8e;
+}
+
+.data-size-section {
+  padding: 0 16px;
+}
+
+.data-size-message {
+  font-style: italic;
+  padding-bottom: 5px;
+}
+
+.highlight-count {
+  color: #7ab5e5;
+  font-weight: 500;
+}
+
+.sidebar-note {
+  font-size: 0.8rem;
+  font-style: italic;
+  padding-top: 0.25rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.buttons-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 24px;
+}
+
+.action-button {
+  width: 100%;
+  max-width: 300px;
 }
 
 .sidebar-inner-content {
   background-color: #353d42;
-  overflow-y: scroll;
+  overflow-y: auto;
   flex: 1;
 }
 
-.stats-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.sidebar-section {
+  padding: 16px 24px !important;
 }
 
-.stat-item {
-  display: flex;
-  justify-content: space-between;
-}
-
-.stat-label {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.875rem;
-}
-
-.stat-value {
+.section-title {
+  font-size: 1.6rem;
   font-weight: 500;
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.section-divider {
+  border-top: 2px solid #7ab5e5 !important;
+  opacity: 1 !important;
+  max-width: 150px;
+  margin: 0 auto 16px auto !important;
+}
+
+/* Vuetify overrides - Expansion panels */
+:deep(.v-expansion-panels) {
+  --v-expansion-panel-elevation: 0;
+}
+
+:deep(.v-expansion-panel) {
+  background-color: #353d42 !important;
+  margin-top: 0 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+:deep(.v-expansion-panel:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+:deep(.v-expansion-panel-title) {
+  font-size: 1.1rem !important;
+  min-height: 48px !important;
+}
+
+:deep(.v-expansion-panel-title__overlay) {
+  display: none !important;
+}
+
+/* Vuetify overrides - Form controls */
+:deep(.v-checkbox .v-label),
+:deep(.v-switch .v-label) {
   color: #fff;
 }
 
-.filter-label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 500;
-  font-size: 0.875rem;
+:deep(.v-select .v-field__input) {
+  color: #fff;
 }
 
-.filter-item {
-  margin-bottom: 16px;
-}
-
-/* Vuetify component overrides */
-:deep(.v-btn-group) {
-  width: 100%;
-}
-
-:deep(.v-btn-group .v-btn) {
-  flex: 1;
+:deep(.v-slider-thumb__label) {
+  font-size: 1rem;
 }
 </style>

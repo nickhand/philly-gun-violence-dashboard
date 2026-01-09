@@ -26,6 +26,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
+import { useRoute } from "vue-router";
 import { useShootingsStore } from "@/shared/stores/shootings";
 import DashboardNavbar from "@/features/dashboard/components/DashboardNavbar.vue";
 import HeaderMessage from "@/features/dashboard/components/HeaderMessage.vue";
@@ -35,6 +36,9 @@ import MappingDashboard from "@/features/map/components/MappingDashboard.vue";
 const shootingsStore = useShootingsStore();
 const { dataYears, selectedYear, currentData, isLoadingData } =
   storeToRefs(shootingsStore);
+
+// Access route for URL query params
+const route = useRoute();
 
 // Local selected year state for the dropdown.
 const selectedYearLocal = ref<number | null | undefined>(selectedYear.value);
@@ -64,6 +68,16 @@ const nonfatalCount = computed(() => {
 });
 
 onMounted(async () => {
+  // Read year from URL BEFORE fetching data years (which sets default year)
+  const urlYear = route.query.year;
+  if (urlYear && typeof urlYear === "string") {
+    const parsedYear = parseInt(urlYear, 10);
+    if (!isNaN(parsedYear)) {
+      // Set year in store before fetchDataYears to prevent default override
+      shootingsStore.setSelectedYear(parsedYear);
+    }
+  }
+
   await shootingsStore.fetchDataYears();
   // Fetch initial data for the selected year
   if (selectedYear.value !== undefined) {

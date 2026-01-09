@@ -77,6 +77,13 @@ export function useCrossfilter(): UseCrossfilterReturn {
   );
   const activeFilters = ref<Map<string, any>>(new Map());
 
+  // Store filter configs to access getFilter transformations
+  const filterConfigsMap = ref<Map<string, FilterConfig>>(new Map());
+
+  // Version counter to trigger reactivity when filters change
+  // Increment this whenever the crossfilter state changes to make computed properties update
+  const filterVersion = ref(0);
+
   /**
    * Initialize crossfilter with GeoJSON features and create dimensions.
    * Must be called before any filter operations.
@@ -100,12 +107,15 @@ export function useCrossfilter(): UseCrossfilterReturn {
     // Create new crossfilter instance with features
     crossfilterInstance.value = crossfilter(features);
 
-    // Clear existing dimensions
+    // Clear existing dimensions and configs
     dimensions.value.clear();
     activeFilters.value.clear();
+    filterConfigsMap.value.clear();
 
     // Create dimension for each filter configuration
     filterConfigs.forEach((config) => {
+      // Store the config for later use in getFilter transformation
+      filterConfigsMap.value.set(config.name, config);
       const dimension = crossfilterInstance.value!.dimension(
         (d: GeoJSON.Feature) => {
           // Access property from feature.properties using config.name
@@ -114,6 +124,9 @@ export function useCrossfilter(): UseCrossfilterReturn {
       );
       dimensions.value.set(config.name, dimension);
     });
+
+    // Trigger reactivity
+    filterVersion.value++;
   }
 
   /**
@@ -141,30 +154,47 @@ export function useCrossfilter(): UseCrossfilterReturn {
       return;
     }
 
-    // Store active filter value
+    // Get the filter config to use its getFilter transformation
+    const filterConfig = filterConfigsMap.value.get(dimensionId);
+
+    // Store the UI value (not the transformed value)
     activeFilters.value.set(dimensionId, value);
 
-    // Apply filter based on value type
-    if (Array.isArray(value)) {
+    // Transform the value using the filter's getFilter function if available
+    const transformedValue = filterConfig?.getFilter
+      ? filterConfig.getFilter(value)
+      : value;
+
+    // Apply filter based on transformed value
+    if (transformedValue === null || transformedValue === undefined) {
+      // Clear filter if transformed value is null/undefined
+      dimension.filterAll();
+      activeFilters.value.delete(dimensionId);
+    } else if (typeof transformedValue === "function") {
+      // Custom filter function returned by getFilter
+      dimension.filterFunction(transformedValue);
+    } else if (Array.isArray(transformedValue)) {
       // Range filter: [min, max]
-      if (value.length === 2 && typeof value[0] === "number") {
-        dimension.filterRange(value as [number, number]);
+      if (
+        transformedValue.length === 2 &&
+        typeof transformedValue[0] === "number"
+      ) {
+        dimension.filterRange(transformedValue as [number, number]);
       }
       // Multiselect filter: array of values
       else {
-        dimension.filterFunction((d) => value.includes(d));
+        dimension.filterFunction((d) => transformedValue.includes(d));
       }
-    } else if (typeof value === "boolean") {
+    } else if (typeof transformedValue === "boolean") {
       // Checkbox filter
-      dimension.filterExact(value);
-    } else if (value !== null && value !== undefined) {
-      // Single value filter
-      dimension.filterExact(value);
+      dimension.filterExact(transformedValue);
     } else {
-      // Clear filter if value is null/undefined
-      dimension.filterAll();
-      activeFilters.value.delete(dimensionId);
+      // Single value filter
+      dimension.filterExact(transformedValue);
     }
+
+    // Trigger reactivity
+    filterVersion.value++;
   }
 
   /**
@@ -183,6 +213,8 @@ export function useCrossfilter(): UseCrossfilterReturn {
     if (dimension) {
       dimension.filterAll();
       activeFilters.value.delete(dimensionId);
+      // Trigger reactivity
+      filterVersion.value++;
     }
   }
 
@@ -200,11 +232,17 @@ export function useCrossfilter(): UseCrossfilterReturn {
       dimension.filterAll();
     });
     activeFilters.value.clear();
+    // Trigger reactivity
+    filterVersion.value++;
   }
 
   /**
    * Get all features that pass current filters.
    * Returns GeoJSON features array respecting all active dimension filters.
+   *
+   * Note: This function reads filterVersion.value to establish a reactive
+   * dependency. When filters change, filterVersion increments, causing
+   * computed properties that call this function to re-evaluate.
    *
    * @returns Array of filtered GeoJSON features
    *
@@ -215,7 +253,13 @@ export function useCrossfilter(): UseCrossfilterReturn {
    * ```
    */
   function getAllFiltered(): GeoJSON.Feature[] {
-    if (!crossfilterInstance.value) return [];
+    // Read filterVersion to establish reactive dependency
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    filterVersion.value;
+
+    if (!crossfilterInstance.value) {
+      return [];
+    }
     return crossfilterInstance.value.allFiltered();
   }
 

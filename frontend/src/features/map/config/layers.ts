@@ -144,7 +144,7 @@ export function getCircleRadiusStyle(selectedYear: number | null): any[] {
 export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
   return [
     {
-      name: "Police District",
+      name: "Police Districts",
       source: "boundary-police-districts",
       type: "fill",
       aggregated: true,
@@ -159,7 +159,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       },
     },
     {
-      name: "Council District",
+      name: "Council Districts",
       source: "boundary-council-districts",
       type: "fill",
       aggregated: true,
@@ -174,7 +174,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       },
     },
     {
-      name: "ZIP Code",
+      name: "ZIP Codes",
       source: "boundary-zip-codes",
       type: "fill",
       aggregated: true,
@@ -187,7 +187,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       },
     },
     {
-      name: "Neighborhood",
+      name: "Neighborhoods",
       source: "boundary-neighborhoods",
       type: "fill",
       aggregated: true,
@@ -200,8 +200,8 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       },
     },
     {
-      name: "PA House District",
-      source: "boundary-house-districts",
+      name: "PA House Districts",
+      source: "boundary-pa-house-districts",
       type: "fill",
       aggregated: true,
       overlay: true,
@@ -215,8 +215,8 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       },
     },
     {
-      name: "PA Senate District",
-      source: "boundary-senate-districts",
+      name: "PA Senate Districts",
+      source: "boundary-pa-senate-districts",
       type: "fill",
       aggregated: true,
       overlay: true,
@@ -230,8 +230,8 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       },
     },
     {
-      name: "Elementary School Catchment",
-      source: "boundary-elementary-schools",
+      name: "School Catchments",
+      source: "boundary-school-catchments",
       type: "fill",
       aggregated: true,
       overlay: true,
@@ -248,7 +248,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       type: "line",
       aggregated: false,
       static: true,
-      paint: { "line-width": 4, "line-color": "#fff" },
+      paint: { "line-width": 4, "line-color": "#ffffff", "line-opacity": 1 },
       showOnStart: true,
     },
     {

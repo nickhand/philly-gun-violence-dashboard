@@ -13,14 +13,22 @@
 
     <!-- Sidebar with filters -->
     <MapSidebar
+      ref="sidebarRef"
       :filters="filters"
       :active-filters="activeFilters"
       :feature-count="filteredFeatures.length"
       :total-count="totalFeatures"
+      :points-on-map="pointsOnMap"
+      :toggleable-layer-names="toggleableLayerNames"
+      :overlay-layer-names="overlayLayerNames"
+      :default-toggled-layer-names="defaultToggledLayerNames"
       @filter-change="handleFilterChange"
       @filter-reset="handleFilterReset"
       @reset-all="handleResetAll"
       @download="handleDownload"
+      @layer-change="handleLayerChange"
+      @overlay-change="handleOverlayChange"
+      @opacity-change="handleOpacityChange"
     />
   </div>
 </template>
@@ -41,14 +49,18 @@
  * @component
  */
 
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, watch } from "vue";
 import { storeToRefs } from "pinia";
+import { useRoute } from "vue-router";
 import FilterableMap from "./FilterableMap.vue";
 import MapSidebar from "./MapSidebar.vue";
 import { useCrossfilter } from "../composables/useCrossfilter";
 import { useMapConfig } from "../composables/useMapConfig";
 import { useUrlState } from "../composables/useUrlState";
 import { useShootingsStore } from "@/shared/stores/shootings";
+
+// Access route for URL query params
+const route = useRoute();
 
 // Store access
 const shootingsStore = useShootingsStore();
@@ -58,7 +70,13 @@ const { currentData, selectedYear } = storeToRefs(shootingsStore);
 const normalizedYear = computed(() => selectedYear.value ?? null);
 
 // Map configuration (filters and layers)
-const { filters, layers } = useMapConfig(normalizedYear);
+const {
+  filters,
+  layers,
+  toggleableLayerNames,
+  overlayLayerNames,
+  defaultToggledLayerNames,
+} = useMapConfig(normalizedYear);
 
 // Crossfilter composable for filtering
 const {
@@ -70,16 +88,41 @@ const {
   getAllFiltered,
 } = useCrossfilter();
 
+/**
+ * Parse initial layers from URL query parameter.
+ * Converts URL IDs (e.g., "point-locations") to layer names (e.g., "Point locations").
+ */
+function getInitialLayersFromUrl(): string[] {
+  const layersParam = route.query.layers;
+  if (layersParam && typeof layersParam === "string") {
+    const layers = layersParam
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map((id) => {
+        // Convert URL ID to layer name (e.g., "point-locations" → "Point locations")
+        const withSpaces = id.replace(/-/g, " ");
+        return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+      });
+    if (layers.length > 0) {
+      return layers;
+    }
+  }
+  // Default to Point locations if no URL param
+  return ["Point locations"];
+}
+
 // Active layers (names of layers to display on the map)
-// TODO: Make this user-controllable via layer toggle UI
-const activeLayers = ref<string[]>(["Point locations"]);
+// Initialize from URL query param or default to Point locations
+const activeLayers = ref<string[]>(getInitialLayersFromUrl());
 
 // Map instance ref for URL state sync
 const mapRef = ref<any>(null);
+const sidebarRef = ref<InstanceType<typeof MapSidebar> | null>(null);
 const mapInstance = computed(() => mapRef.value?.mapInstance ?? null);
 
 // Sync state with URL (year, layers, map view)
-useUrlState(selectedYear, activeLayers, mapInstance);
+useUrlState(normalizedYear, activeLayers, mapInstance);
 
 // Computed properties
 /**
@@ -93,6 +136,26 @@ const filteredFeatures = computed(() => getAllFiltered());
  * Used for statistics display in sidebar.
  */
 const totalFeatures = computed(() => currentData.value?.features.length ?? 0);
+
+/**
+ * Number of features with valid coordinates.
+ * Used to show missing location note in sidebar.
+ */
+const pointsOnMap = computed(() => {
+  return filteredFeatures.value.filter((f) => {
+    const geom = f.geometry;
+    if (!geom || geom.type !== "Point") return false;
+    const coords = (geom as GeoJSON.Point).coordinates;
+    return (
+      coords &&
+      coords.length >= 2 &&
+      typeof coords[0] === "number" &&
+      typeof coords[1] === "number" &&
+      !isNaN(coords[0]) &&
+      !isNaN(coords[1])
+    );
+  }).length;
+});
 
 // Event handlers
 /**
@@ -130,7 +193,7 @@ function handleResetAll(): void {
  *
  * @param format - Export format ('geojson' | 'csv' | 'json')
  */
-function handleDownload(format: "geojson" | "csv" | "json"): void {
+function handleDownload(format: string): void {
   const features = filteredFeatures.value;
 
   if (format === "geojson") {
@@ -159,7 +222,89 @@ function handleDownload(format: "geojson" | "csv" | "json"): void {
  * Called when MapLibre GL map is initialized.
  */
 function handleMapReady(): void {
-  console.log("Map initialized and ready");
+  // Map is ready - no action needed currently
+}
+
+/**
+ * Handle layer visibility change from sidebar.
+ * Toggles layer visibility on the map.
+ *
+ * @param layerName - Layer name to toggle
+ * @param visible - Whether layer should be visible
+ */
+function handleLayerChange(layerName: string, visible: boolean): void {
+  if (visible) {
+    if (!activeLayers.value.includes(layerName)) {
+      activeLayers.value = [...activeLayers.value, layerName];
+    }
+  } else {
+    activeLayers.value = activeLayers.value.filter((l) => l !== layerName);
+  }
+}
+
+// Track currently selected overlay layer
+const currentOverlay = ref<string | null>(null);
+
+// Track saved toggleable layers (to restore when overlay is cleared)
+const savedToggleableLayers = ref<string[]>([]);
+
+/**
+ * Handle overlay layer change from sidebar.
+ * Shows/hides choropleth overlay layers.
+ * Only one overlay can be visible at a time.
+ * When an overlay is selected, toggleable layers are hidden and saved.
+ * When overlay is cleared, toggleable layers are restored.
+ *
+ * @param layerName - Overlay layer name or null to clear
+ */
+function handleOverlayChange(layerName: string | null): void {
+  // Remove current overlay from active layers (if any)
+  if (currentOverlay.value) {
+    activeLayers.value = activeLayers.value.filter(
+      (l) => l !== currentOverlay.value
+    );
+  }
+
+  if (layerName) {
+    // Selecting an overlay - save current toggleable layers and remove them
+    const currentToggleable = activeLayers.value.filter((l) =>
+      toggleableLayerNames.value.includes(l)
+    );
+    if (currentToggleable.length > 0) {
+      savedToggleableLayers.value = currentToggleable;
+    }
+    // Remove toggleable layers, add overlay
+    activeLayers.value = [layerName];
+  } else {
+    // Clearing overlay - restore saved toggleable layers
+    if (savedToggleableLayers.value.length > 0) {
+      activeLayers.value = [...savedToggleableLayers.value];
+      savedToggleableLayers.value = [];
+    } else {
+      // Fallback to defaults if nothing was saved
+      activeLayers.value = [...defaultToggledLayerNames.value];
+    }
+  }
+
+  // Update current overlay
+  currentOverlay.value = layerName;
+}
+
+/**
+ * Handle overlay opacity change from sidebar.
+ *
+ * @param layerName - Overlay layer name
+ * @param opacity - Opacity value (0-1, already normalized by MapLayersPanel)
+ */
+function handleOpacityChange(layerName: string, opacity: number): void {
+  const map = mapRef.value?.mapInstance;
+  if (map && map.getLayer) {
+    // Convert layer name to layer ID (matches FilterableMap's layerNameToId)
+    const layerId = layerName.toLowerCase().replace(/\s+/g, "-");
+    if (map.getLayer(layerId)) {
+      map.setPaintProperty(layerId, "fill-opacity", opacity);
+    }
+  }
 }
 
 /**
@@ -182,6 +327,20 @@ function downloadBlob(blob: Blob, filename: string): void {
 
 // Lifecycle hooks
 /**
+ * Reset active layers to defaults when year changes.
+ * This matches the legacy behavior where changing years resets the layer selection.
+ */
+watch(selectedYear, () => {
+  activeLayers.value = [...defaultToggledLayerNames.value];
+  // Also clear any overlay selection
+  currentOverlay.value = null;
+  // Reset sidebar layer panel UI
+  sidebarRef.value?.resetLayers();
+  // Hide the legend
+  mapRef.value?.hideLegend();
+});
+
+/**
  * Initialize crossfilter when data loads.
  * Watches currentData from store and reinitializes on change.
  */
@@ -197,16 +356,6 @@ watch(
   },
   { immediate: true }
 );
-
-/**
- * Fetch shootings data on mount.
- * Loads initial dataset from API using the selected year from the store.
- */
-onMounted(async () => {
-  if (!currentData.value || currentData.value.features.length === 0) {
-    await shootingsStore.fetchShootingsData(selectedYear.value);
-  }
-});
 </script>
 
 <style scoped>
