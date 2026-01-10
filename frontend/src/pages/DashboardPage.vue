@@ -40,6 +40,29 @@
     <!-- Chart dashboard showing breakdowns by category -->
     <chart-dashboard id="charts" :features="filteredFeatures" />
 
+    <!-- Error modal -->
+    <v-dialog v-model="showErrorDialog" max-width="500" persistent>
+      <v-card class="error-modal">
+        <v-card-title class="error-title">
+          <v-icon icon="mdi-alert-circle-outline" class="mr-2" />
+          Unable to Load Data
+        </v-card-title>
+        <v-card-text class="error-body">
+          {{ currentError || defaultErrorMessage }}
+        </v-card-text>
+        <v-card-actions class="error-actions">
+          <router-link to="/about" class="about-link">
+            Learn more about this project
+          </router-link>
+          <v-spacer />
+          <v-btn variant="flat" color="primary" @click="retryLoad">
+            <v-icon icon="mdi-refresh" class="mr-1" size="small" />
+            Retry
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Footer -->
     <app-footer />
   </section>
@@ -112,6 +135,31 @@ const filteredFeatures = ref<Feature[]>([]);
 
 // Previous count for announcement comparison
 const previousCount = ref<number | null>(null);
+
+// Error handling
+const showErrorDialog = ref(false);
+const defaultErrorMessage =
+  "We couldn't load the shootings data right now. Please retry or try again later.";
+
+/**
+ * Current error message to display.
+ */
+const currentError = computed(
+  () =>
+    dataLoadError.value || (dataYearsError.value ? defaultErrorMessage : null)
+);
+
+/**
+ * Watch for errors and show the dialog.
+ * Use immediate: true so dialog shows if error exists on mount (e.g., navigating back).
+ */
+watch(
+  currentError,
+  (error) => {
+    showErrorDialog.value = !!error;
+  },
+  { immediate: true }
+);
 
 /**
  * Announcement text for screen readers when filters change.
@@ -220,6 +268,25 @@ function handleFilteredFeatures(features: Feature[]) {
   previousCount.value = filteredFeatures.value.length;
   filteredFeatures.value = features;
 }
+
+/**
+ * Retry loading data after an error.
+ */
+async function retryLoad() {
+  showErrorDialog.value = false;
+  shootingsStore.$patch({
+    dataLoadError: null,
+    dataYearsError: false,
+  });
+
+  // Retry fetching data years first
+  const years = await shootingsStore.fetchDataYears();
+
+  // If years were fetched successfully and we have a selected year, fetch that data
+  if (years && years.length > 0 && selectedYear.value !== undefined) {
+    await shootingsStore.fetchShootingsData(selectedYear.value);
+  }
+}
 </script>
 
 <style scoped>
@@ -267,5 +334,47 @@ function handleFilteredFeatures(features: Feature[]) {
   text-align: center;
   padding-top: 48px;
   padding-bottom: 2rem;
+}
+
+/* Error Modal */
+.error-modal {
+  background-color: rgb(var(--v-theme-surface));
+}
+
+.error-title {
+  font-family: var(--heading-font-family);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.95);
+  display: flex;
+  align-items: center;
+}
+
+.error-title :deep(.v-icon) {
+  color: #ff6b6b;
+}
+
+.error-body {
+  color: rgba(var(--v-theme-on-surface), 0.87);
+  font-size: 1rem;
+  line-height: 1.5;
+  padding: 16px 24px;
+}
+
+.error-actions {
+  padding: 8px 16px 16px;
+  align-items: center;
+}
+
+.about-link {
+  font-size: 0.875rem;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.about-link:hover {
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
 }
 </style>

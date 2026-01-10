@@ -104,6 +104,68 @@
         </div>
       </section>
 
+      <!-- Data Freshness -->
+      <section class="content-section">
+        <div class="section-header">
+          <div class="section-icon">
+            <v-icon icon="mdi-update" size="24" />
+          </div>
+          <h2 class="section-title">Data Freshness</h2>
+        </div>
+        <div class="section-content">
+          <p>
+            Data is automatically updated via scheduled ETL pipelines. The dates
+            below indicate the most recent data included in each dataset:
+          </p>
+          <div v-if="metaLoading" class="freshness-loading">
+            <v-progress-circular indeterminate size="20" width="2" />
+            <span>Loading data freshness...</span>
+          </div>
+          <div v-else-if="metaError" class="freshness-error">
+            <v-icon icon="mdi-alert-circle-outline" size="18" />
+            <span>Unable to load data freshness information</span>
+          </div>
+          <div v-else class="freshness-grid">
+            <div class="freshness-item">
+              <div class="freshness-label">Shooting Victims</div>
+              <div class="freshness-value">
+                <span class="freshness-date">{{
+                  formatDate(meta?.shootings?.data_through)
+                }}</span>
+                <span class="freshness-updated"
+                  >Updated
+                  {{ formatRelativeTime(meta?.shootings?.last_updated) }}</span
+                >
+              </div>
+            </div>
+            <div class="freshness-item">
+              <div class="freshness-label">Homicide Statistics</div>
+              <div class="freshness-value">
+                <span class="freshness-date">{{
+                  formatDate(meta?.homicides?.data_through)
+                }}</span>
+                <span class="freshness-updated"
+                  >Updated
+                  {{ formatRelativeTime(meta?.homicides?.last_updated) }}</span
+                >
+              </div>
+            </div>
+            <div class="freshness-item">
+              <div class="freshness-label">Court Records</div>
+              <div class="freshness-value">
+                <span class="freshness-date">{{
+                  formatDate(meta?.courts?.data_through)
+                }}</span>
+                <span class="freshness-updated"
+                  >Updated
+                  {{ formatRelativeTime(meta?.courts?.last_updated) }}</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Methodology -->
       <section class="content-section">
         <div class="section-header">
@@ -151,51 +213,6 @@
         </div>
       </section>
 
-      <!-- Tech Stack -->
-      <section class="content-section">
-        <div class="section-header">
-          <div class="section-icon">
-            <v-icon icon="mdi-code-tags" size="24" />
-          </div>
-          <h2 class="section-title">Technology Stack</h2>
-        </div>
-        <div class="section-content">
-          <div class="tech-grid">
-            <div class="tech-category">
-              <h3>Frontend</h3>
-              <ul>
-                <li>Vue 3 + Composition API</li>
-                <li>TypeScript</li>
-                <li>Vuetify 3</li>
-                <li>MapLibre GL</li>
-                <li>D3.js</li>
-                <li>Crossfilter2</li>
-                <li>Pinia</li>
-              </ul>
-            </div>
-            <div class="tech-category">
-              <h3>Backend</h3>
-              <ul>
-                <li>FastAPI (Python)</li>
-                <li>Pydantic</li>
-                <li>AWS S3</li>
-                <li>Fly.io</li>
-              </ul>
-            </div>
-            <div class="tech-category">
-              <h3>Data Pipeline</h3>
-              <ul>
-                <li>Python ETL</li>
-                <li>GeoPandas for geospatial data processing</li>
-                <li>Web scraping via Playwright</li>
-                <li>Typer CLI</li>
-                <li>GitHub Actions</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- Open Source -->
       <section class="content-section">
         <div class="section-header">
@@ -206,9 +223,10 @@
         </div>
         <div class="section-content">
           <p>
-            The complete source code for this project is publicly available on
-            GitHub. The repository includes the Vue 3 frontend, FastAPI backend,
-            ETL pipelines, and infrastructure configuration.
+            This project is fully open source. Built with Vue 3, TypeScript, and
+            MapLibre GL on the frontend, with a FastAPI backend and automated
+            Python ETL pipelines, the complete codebase is available for anyone
+            to explore, learn from, or contribute to.
           </p>
           <a
             href="https://github.com/nickhand/philly-gun-violence-dashboard"
@@ -253,17 +271,71 @@
           </div>
         </div>
       </section>
-
-      <!-- Footer -->
-      <app-footer />
     </main>
+
+    <!-- Footer -->
+    <app-footer />
   </div>
 </template>
 
 <script setup lang="ts">
+import { onMounted, ref } from "vue";
 import { useHead } from "@unhead/vue";
 import AppNavbar from "@/app/components/AppNavbar.vue";
 import AppFooter from "@/app/components/AppFooter.vue";
+import { fetchAllMeta, type AllDatasetsMeta } from "@/shared/api/meta";
+
+// Data freshness state
+const meta = ref<AllDatasetsMeta | null>(null);
+const metaLoading = ref(true);
+const metaError = ref(false);
+
+/**
+ * Format a date string (YYYY-MM-DD) to a human-readable format.
+ */
+function formatDate(dateStr: string | undefined): string {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr + "T00:00:00");
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/**
+ * Format an ISO timestamp to a relative time string (e.g., "2 hours ago").
+ */
+function formatRelativeTime(isoStr: string | undefined): string {
+  if (!isoStr) return "—";
+  const date = new Date(isoStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60)
+    return `${diffMins} minute${diffMins !== 1 ? "s" : ""} ago`;
+  if (diffHours < 24)
+    return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`;
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// Fetch metadata on mount
+onMounted(async () => {
+  try {
+    meta.value = await fetchAllMeta();
+  } catch (err) {
+    console.error("Failed to fetch data freshness metadata:", err);
+    metaError.value = true;
+  } finally {
+    metaLoading.value = false;
+  }
+});
 
 // SEO Meta Tags for About Page
 useHead({
@@ -288,12 +360,16 @@ useHead({
 .about-page-wrapper {
   background-color: #2a3136;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .about-page {
+  flex: 1;
   max-width: 900px;
+  width: 100%;
   margin: 0 auto;
-  padding: 0 24px 60px;
+  padding: 0 24px 40px;
 }
 
 /* Hero Section */
@@ -411,48 +487,6 @@ useHead({
   margin-top: 2px;
 }
 
-/* Tech Grid */
-.tech-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 24px;
-  margin-top: 8px;
-}
-
-.tech-category {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 24px;
-}
-
-.tech-category h3 {
-  font-family: var(--heading-font-family);
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #7ab5e5;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 16px;
-}
-
-.tech-category ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.tech-category li {
-  color: rgba(255, 255, 255, 0.8);
-  padding: 6px 0;
-  font-size: 0.95rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-.tech-category li:last-child {
-  border-bottom: none;
-}
-
 /* Data Sources */
 .data-sources {
   display: grid;
@@ -511,6 +545,63 @@ useHead({
   color: #ffffff !important;
 }
 
+/* Data Freshness */
+.freshness-loading,
+.freshness-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.9rem;
+}
+
+.freshness-error {
+  color: rgba(255, 150, 150, 0.8);
+}
+
+.freshness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.freshness-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+
+.freshness-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 8px;
+}
+
+.freshness-value {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.freshness-date {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #7ab5e5;
+}
+
+.freshness-updated {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
 /* Methodology Grid */
 .methodology-grid {
   display: grid;
@@ -565,9 +656,10 @@ useHead({
 /* Contact Section */
 .contact-section {
   text-align: center;
-  padding: 48px 0;
+  padding: 48px 0 0;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   margin-top: 48px;
+  margin-bottom: 0;
 }
 
 .contact-section .section-content p {

@@ -16,6 +16,7 @@ from app.data_loader import (
 from app.routers.boundaries import router as boundaries_router
 from app.routers.health import router as health_router
 from app.routers.homicides import router as homicides_router
+from app.routers.meta import router as meta_router
 from app.routers.shootings import router as shootings_router
 from app.routers.streets import router as streets_router
 from dashboard_utils.aws import make_s3_client
@@ -72,4 +73,5 @@ app.include_router(shootings_router)
 app.include_router(boundaries_router)
 app.include_router(streets_router)
 app.include_router(homicides_router)
+app.include_router(meta_router)
 app.include_router(health_router)

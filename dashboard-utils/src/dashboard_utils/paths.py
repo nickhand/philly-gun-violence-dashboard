@@ -25,10 +25,13 @@ def processed_data_dir() -> str:
 
 _PROCESSED_PATHS = {
     "shootings": ("shootings", "shootings.geojson"),
+    "shootings_meta": ("shootings", "meta.json"),
     "street_blocks": ("streets", "street_blocks.geojson"),
     "homicides_daily": ("homicides", "homicide_totals_daily.csv"),
     "homicides_totals": ("homicides", "homicide_totals.json"),
+    "homicides_meta": ("homicides", "meta.json"),
     "courts_flags": ("courts", "scraped_courts_data.csv"),
+    "courts_meta": ("courts", "meta.json"),
     "portal_results": ("courts", "portal_results.json"),
 }
 
