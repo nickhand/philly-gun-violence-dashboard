@@ -55,6 +55,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://phillygunviolence.netlify.app",
+        "https://www.nickhand.dev",
+        "https://nickhand.dev",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://localhost:5173",

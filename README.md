@@ -4,17 +4,19 @@ A full-stack data pipeline and API that power a public Gun Violence Dashboard fo
 Visit the live map: https://nickhand.dev/philly-gun-violence-map
 
 ## What this repo contains
+- **Vue 3 dashboard** with interactive maps and data visualizations.
 - **FastAPI service** for geospatial endpoints and dashboard data.
 - **ETL pipelines** that ingest, clean, and enrich shootings, homicides, courts, and boundaries data.
 - **Shared utilities** for AWS/S3 access and shared data models.
-- **Automation** via GitHub Actions and Fly.io deployment.
+- **Automation** via GitHub Actions, Fly.io, and Netlify deployment.
 
 ## Highlights
 - End-to-end geospatial data platform powering a public dashboard used by civic audiences.
+- Vue 3 frontend with MapLibre GL maps, D3.js charts, and Vuetify components.
 - Automated ETL pipelines with scheduled refreshes, validation, and S3-backed storage.
 - FastAPI service optimized for large GeoJSON payloads with pagination and caching.
 - Shared, typed data models across ETL and API for consistent contracts.
-- Production deployment on Fly.io with health checks and rolling updates.
+- Production deployment on Fly.io (API) and Netlify (frontend) with CI/CD automation.
 
 ## Background and data sources
 This application was originally developed by Nick Hand for the Philadelphia City Controller’s Office and later migrated to his personal website as a rebuilt, improved version.
@@ -65,8 +67,43 @@ just data-sync
 api/               FastAPI service
 etl/               ETL pipelines and CLI
 dashboard-utils/   Shared AWS + data utilities + models
-frontend/          UI code (if applicable)
+frontend/          Vue 3 frontend application
+frontend-vue2/     Legacy Vue 2 frontend (deprecated)
 ```
+
+## Frontend
+
+The dashboard UI is a Vue 3 single-page application with interactive maps and charts.
+
+**Tech stack:**
+- **Vue 3** with Composition API
+- **Vuetify 3** for Material Design components
+- **MapLibre GL** for interactive mapping
+- **D3.js** for data visualizations and charts
+- **Pinia** for state management
+- **Vite** for build tooling
+
+**Project structure:**
+```
+frontend/src/
+├── app/           App shell and layout
+├── features/      Feature modules (map, charts, filters)
+├── pages/         Route-level page components
+├── shared/        Shared utilities, API client, stores
+├── types/         TypeScript type definitions
+└── main.ts        Application entry point
+```
+
+**Development:**
+```bash
+cd frontend
+npm install
+npm run dev        # Start dev server at http://localhost:5173
+npm run build      # Production build to dist/
+```
+
+**Deployment:**
+The frontend is deployed to Netlify. Pushes to `main` trigger automatic builds.
 
 ## Deployment (Fly.io)
 - `fly.toml` defines app config.
