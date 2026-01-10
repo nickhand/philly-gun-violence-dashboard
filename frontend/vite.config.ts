@@ -7,7 +7,6 @@ import { fileURLToPath, URL } from "node:url";
 export default defineConfig(() => ({
   base: "/",
   plugins: [vue(), vueDevTools(), vuetify({ autoImport: true })],
-  ],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
