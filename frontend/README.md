@@ -1,0 +1,121 @@
+# Philadelphia Gun Violence Dashboard - Frontend
+
+Interactive Vue 3 dashboard visualizing gun violence data in Philadelphia with maps, charts, and filtering capabilities.
+
+## Tech Stack
+
+- **Framework:** Vue 3 + Composition API
+- **Language:** TypeScript
+- **UI Library:** Vuetify 3
+- **Mapping:** MapLibre GL
+- **Charts:** D3.js
+- **Data Filtering:** Crossfilter2
+- **State Management:** Pinia
+- **Build Tool:** Vite
+
+## Prerequisites
+
+- Node.js 18+
+- npm 9+
+
+## Getting Started
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+```
+
+The development server runs at `http://localhost:5173`.
+
+## Project Structure
+
+```
+src/
+├── app/                    # Application setup
+│   ├── components/         # Shared layout components (AppNavbar, AppFooter)
+│   ├── router.ts           # Vue Router configuration
+│   └── vuetify.ts          # Vuetify theme and plugin setup
+├── features/               # Feature modules
+│   ├── charts/             # D3-based chart components
+│   │   └── components/     # ChartDashboard, BarChart, etc.
+│   └── map/                # MapLibre-based mapping
+│       ├── components/     # MappingDashboard, FilterableMap, etc.
+│       └── composables/    # Map-related hooks (useAggregation, etc.)
+├── pages/                  # Page components
+│   ├── AboutPage.vue       # About page (lazy-loaded)
+│   ├── DashboardPage.vue   # Main dashboard
+│   └── components/         # Page-specific components
+├── shared/                 # Shared utilities
+│   ├── api/                # API client functions
+│   └── stores/             # Pinia stores (shootings, etc.)
+├── types/                  # TypeScript type definitions
+└── main.ts                 # Application entry point
+```
+
+## Key Features
+
+### Interactive Map
+- Point locations of shooting incidents
+- Heat map visualization
+- Aggregated views by district, neighborhood, ZIP code, etc.
+- Street-level hot spot analysis
+
+### Filtering
+- Filter by date range, time of day, age
+- Filter by victim demographics (race, gender)
+- Filter by incident type (fatal/nonfatal)
+- Filter by court case status
+
+### Charts
+- Breakdowns by time, location, and demographics
+- Synchronized filtering across map and charts
+
+## Environment Variables
+
+Create a `.env` file for local development:
+
+```env
+VITE_API_URL=http://localhost:8000
+```
+
+For production, this points to the Fly.io API deployment.
+
+## API Integration
+
+The frontend consumes a FastAPI backend. Key endpoints:
+
+- `GET /shootings/{year}` - Shooting victims GeoJSON by year
+- `GET /boundaries/{type}` - Boundary polygons (districts, neighborhoods, etc.)
+- `GET /streets` - Street segments for hot spot analysis
+- `GET /meta` - Data freshness metadata
+
+## Build Output
+
+Production builds are optimized with:
+- Code splitting (About page lazy-loaded)
+- CSS extraction
+- Asset hashing for cache busting
+
+Output is in the `dist/` directory, deployed to Netlify.
+
+## Browser Support
+
+Modern browsers with ES2020+ support:
+- Chrome/Edge 88+
+- Firefox 78+
+- Safari 14+
+
+## Related
+
+- [API Documentation](../api/README.md)
+- [ETL Pipeline](../etl/README.md)
+- [Project Root](../README.md)
