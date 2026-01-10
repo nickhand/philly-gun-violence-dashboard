@@ -1,114 +1,9 @@
 import type { LayerConfig } from "../types";
-import { format } from "d3-format";
-
-/**
- * Formatter function for aggregated layer tooltips.
- *
- * @param titleFunc - Function that returns the tooltip title from feature properties
- * @returns Function that generates HTML tooltip string
- */
-export function createAggregatedLayerTooltip(
-  titleFunc: (data: Record<string, any>) => string
-): (data: Record<string, any>) => string {
-  return (data) => {
-    // Get the total count
-    const count = data["count"];
-    const formatted = format(",")(count);
-
-    // The title
-    const title = titleFunc(data);
-
-    const text = `<div class='map-tooltip'>
-                  <div class="map-tooltip__title">${title}</div>
-                    <table class="w-100">
-                      <tr class="map-tooltip__line">
-                        <td>Total shooting victims:</td>
-                        <td class="text-right">${formatted}</td>
-                      </tr>
-                    </table>
-                  </div>`;
-    return text;
-  };
-}
-
-/**
- * Formatter function for the shootings points layer tooltip.
- *
- * @param data - Feature properties from the shooting victim
- * @returns HTML string for the tooltip
- */
-export function createPointsLayerTooltip(data: Record<string, any>): string {
-  const aliases: Record<string, string> = {
-    W: "White (Non-Hispanic)",
-    B: "Black (Non-Hispanic)",
-    H: "Hispanic (Black or White)",
-    M: "Male",
-    F: "Female",
-    A: "Asian",
-  };
-
-  const fatal = data.fatal ? "Fatal" : "Nonfatal";
-  const arrest = data.has_court_case ? "Yes" : "No";
-
-  let text = `<div class='map-tooltip'>
-            <div class="map-tooltip__title">${fatal} Shooting</div>
-            <table class="w-100">
-              <tbody>
-                <tr class="map-tooltip__line">
-                  <td>Court case:</td>
-                  <td class="text-right">${arrest}</td>
-                </tr>
-                <tr class="map-tooltip__line">
-                  <td>Location:</td>
-                  <td class="text-right">${data.location || "Unknown"}</td>
-                </tr>
-                <tr class="map-tooltip__line">
-                  <td>Inside/Outside:</td>
-                  <td class="text-right">${
-                    data.inside ? "Inside" : "Outside"
-                  }</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="map-tooltip__title mt-2">Victim Info</div>
-            <table class="w-100">
-              <tbody>`;
-
-  if (data.age) {
-    text += `<tr class="map-tooltip__line">
-              <td>${data.age} years old</td>
-            </tr>`;
-  }
-
-  if (data.race !== "Other/Unknown") {
-    text += `<tr class="map-tooltip__line">
-              <td>${aliases[data.race]}</td>
-            </tr>`;
-  }
-
-  text += `<tr class="map-tooltip__line">
-              <td>${aliases[data.sex]}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="map-tooltip__title mt-2">Incident Info</div>
-        <table class="w-100">
-          <tbody>
-            <tr class="map-tooltip__line">
-              <td>Date/Time:</td>
-              <td class="text-right">${data.date || "Unknown"}</td>
-            </tr>
-            <tr class="map-tooltip__line">
-              <td>Officer Involved:</td>
-              <td class="text-right">${
-                data.officer_involved ? "Yes" : "No"
-              }</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>`;
-  return text;
-}
+import {
+  createAggregatedLayerTooltip,
+  createPointsLayerTooltip,
+  createStreetBlockTooltip,
+} from "./tooltips";
 
 /**
  * Get the circle radius style based on selected year.
@@ -364,9 +259,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
         ],
       },
       tooltip: {
-        formatter: createAggregatedLayerTooltip(
-          (d) => `${d.block_number} ${d.street_name}`
-        ),
+        formatter: createStreetBlockTooltip,
         on: "mousemove",
       },
     },

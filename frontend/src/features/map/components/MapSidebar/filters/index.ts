@@ -9,3 +9,4 @@ export { default as SwitchFilter } from "./SwitchFilter.vue";
 export { default as CheckboxFilter } from "./CheckboxFilter.vue";
 export { default as CheckboxGroup } from "./CheckboxGroup.vue";
 export { default as SliderFilter } from "./SliderFilter.vue";
+export { default as SliderHistogramChart } from "./SliderHistogramChart.vue";

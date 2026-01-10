@@ -2,9 +2,13 @@
 :root {
   /* Typography */
   --heading-font-family: Montserrat, sans-serif;
-  /* Loading overlay styles */
-  --overlay-opacity: 0.4;
-  --overlay-color: background;
+
+  /* Colors - can be overridden by high contrast mode */
+  --text-primary: rgba(255, 255, 255, 0.87);
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --bg-surface: #353d42;
+  --border-color: rgba(255, 255, 255, 0.12);
+  --focus-ring-color: #1e88e5;
 }
 
 #app {
@@ -16,5 +20,100 @@
 @media (max-width: 960px) {
   #app {
     padding-top: 1.25rem;
+  }
+}
+
+/* ==========================================================================
+   ACCESSIBILITY: High Contrast Mode
+   Triggered by user's OS/browser "Increase Contrast" setting
+   ========================================================================== */
+@media (prefers-contrast: more) {
+  :root {
+    --text-primary: #ffffff;
+    --text-secondary: #ffffff;
+    --bg-surface: #000000;
+    --border-color: #ffffff;
+    --focus-ring-color: #ffff00;
+  }
+
+  /* Force high contrast borders on all interactive elements */
+  button,
+  [role="button"],
+  input,
+  select,
+  textarea,
+  a {
+    border: 2px solid #ffffff !important;
+  }
+
+  /* Ensure chart bars have visible borders */
+  .histogram-chart__bar {
+    stroke: #ffffff;
+    stroke-width: 1px;
+  }
+
+  /* Force white text on dark backgrounds */
+  .v-btn,
+  .v-card,
+  .v-expansion-panel {
+    color: #ffffff !important;
+    border: 1px solid #ffffff !important;
+  }
+}
+
+/* ==========================================================================
+   ACCESSIBILITY: Keyboard Focus Indicators
+   Visible focus rings for keyboard navigation only
+   ========================================================================== */
+
+/* 
+ * Remove ALL outlines by default - we'll add them back only where needed 
+ * This prevents the unwanted blue focus boxes on click
+ */
+*:focus {
+  outline: none !important;
+}
+
+/* 
+ * Only show focus ring on skip links when using keyboard
+ * Skip links are the primary a11y navigation feature
+ */
+.skip-link:focus {
+  outline: 2px solid var(--focus-ring-color) !important;
+  outline-offset: 2px !important;
+}
+
+/* ==========================================================================
+   ACCESSIBILITY: Screen Reader Only Utility
+   ========================================================================== */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ==========================================================================
+   ACCESSIBILITY: Reduced Motion
+   Respects user preference for reduced motion (vestibular disorders, etc.)
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Disable map fly/zoom animations */
+  .maplibregl-map {
+    scroll-behavior: auto !important;
   }
 }

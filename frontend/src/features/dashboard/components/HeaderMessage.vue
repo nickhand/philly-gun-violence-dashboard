@@ -6,14 +6,14 @@
       <v-overlay
         :model-value="showOverlay"
         :opacity="overlayOpacity"
-        :color="overlayColor"
+        :scrim="overlayColor"
       />
 
       <div style="position: relative">
         <v-overlay
           :model-value="showOverlay"
-          :opacity="overlayOpacity"
-          :color="overlayColor"
+          :opacity="overlayOpacityInner"
+          :scrim="overlayColor"
           absolute
         />
 
@@ -96,19 +96,10 @@ const props = defineProps<{
 
 const homicidesStore = useHomicidesStore();
 
-// Get overlay styles from CSS variables.
-const overlayOpacity = computed(
-  () =>
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--overlay-opacity")
-      .trim() || "0.4"
-);
-const overlayColor = computed(
-  () =>
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--overlay-color")
-      .trim() || "background"
-);
+// Overlay constants (matches Vue 2 legacy)
+const overlayOpacity = 0.3;
+const overlayOpacityInner = 0.9;
+const overlayColor = "#353d42";
 
 /**
  * Format a number with comma separators and zero decimal places.
@@ -146,8 +137,7 @@ async function fetchAllYearsTotals(): Promise<number | null> {
  */
 async function loadHomicideData() {
   if (props.selectedYear === null || props.selectedYear === undefined) {
-    // For "All Years", we'll handle this in computed properties
-    // but pre-fetch all years data
+    // For "All Years", pre-fetch all years data
     await fetchAllYearsTotals();
   } else {
     // Fetch data for selected year
@@ -249,6 +239,17 @@ watch(
   () => props.selectedYear,
   () => {
     loadHomicideData();
+  }
+);
+
+// Reload homicide data when minYear changes (dataYears loaded)
+// This handles the case where "All Years" is selected before dataYears is populated
+watch(
+  () => props.minYear,
+  () => {
+    if (props.selectedYear === null || props.selectedYear === undefined) {
+      loadHomicideData();
+    }
   }
 );
 </script>

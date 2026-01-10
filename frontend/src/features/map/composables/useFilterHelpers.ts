@@ -14,13 +14,15 @@ import type { FilterConfig } from "../types";
  *
  * @param filters - Getter function for filter configurations
  * @param activeFilters - Getter function for active filter values map
+ * @param sliderLimits - Getter function for data-driven slider limits (for autoLimits filters)
  * @returns Object with filter helper functions
  *
  * @example
  * ```typescript
  * const filterHelpers = useFilterHelpers(
  *   () => props.filters,
- *   () => props.activeFilters
+ *   () => props.activeFilters,
+ *   () => props.sliderLimits
  * );
  *
  * const value = filterHelpers.getFilterValue('fatal');
@@ -29,7 +31,8 @@ import type { FilterConfig } from "../types";
  */
 export function useFilterHelpers(
   filters: () => FilterConfig[],
-  activeFilters: () => Map<string, any>
+  activeFilters: () => Map<string, any>,
+  sliderLimits: () => Map<string, [number, number]> = () => new Map()
 ) {
   /**
    * Get a filter config by ID.
@@ -53,20 +56,30 @@ export function useFilterHelpers(
   }
 
   /**
-   * Get slider value as a tuple, with fallback to filter default.
+   * Get slider value as a tuple, with fallback to filter default or data limits.
    */
   function getSliderValue(filter: FilterConfig): [number, number] {
     const value = activeFilters().get(filter.name);
     if (Array.isArray(value) && value.length === 2) {
       return value as [number, number];
     }
+    // For autoLimits filters, use data-driven limits
+    if (filter.autoLimits) {
+      const limits = sliderLimits().get(filter.name);
+      if (limits) return limits;
+    }
     return (filter.default as [number, number]) ?? [0, 100];
   }
 
   /**
-   * Get slider min value from filter default.
+   * Get slider min value from filter default or data-driven limits.
    */
   function getSliderMin(filter: FilterConfig): number {
+    // For autoLimits filters, use data-driven limits
+    if (filter.autoLimits) {
+      const limits = sliderLimits().get(filter.name);
+      if (limits) return limits[0];
+    }
     if (Array.isArray(filter.default)) {
       return filter.default[0] as number;
     }
@@ -74,13 +87,30 @@ export function useFilterHelpers(
   }
 
   /**
-   * Get slider max value from filter default.
+   * Get slider max value from filter default or data-driven limits.
    */
   function getSliderMax(filter: FilterConfig): number {
+    // For autoLimits filters, use data-driven limits
+    if (filter.autoLimits) {
+      const limits = sliderLimits().get(filter.name);
+      if (limits) return limits[1];
+    }
     if (Array.isArray(filter.default)) {
       return filter.default[1] as number;
     }
     return 100;
+  }
+
+  /**
+   * Get the default value for a slider filter (for reset comparison).
+   * For autoLimits filters, the default is the full data range.
+   */
+  function getSliderDefault(filter: FilterConfig): [number, number] {
+    if (filter.autoLimits) {
+      const limits = sliderLimits().get(filter.name);
+      if (limits) return limits;
+    }
+    return (filter.default as [number, number]) ?? [0, 100];
   }
 
   /**
@@ -164,6 +194,7 @@ export function useFilterHelpers(
     getSliderValue,
     getSliderMin,
     getSliderMax,
+    getSliderDefault,
     isFilterModified,
     isCheckboxSelected,
     getCheckboxValues,

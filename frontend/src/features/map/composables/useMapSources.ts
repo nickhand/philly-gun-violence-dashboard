@@ -174,7 +174,7 @@ export function useMapSources(
       const segmentIds = getSegmentIdsFromFeatures(filteredFeatures.value);
       let data =
         segmentIds.length > 0
-          ? await fetchStreetsAllPages({ segment_id: segmentIds })
+          ? await fetchStreetsAllPages({ segment_ids: segmentIds })
           : emptyFeatureCollection();
 
       // Apply aggregation colors if needed
@@ -258,7 +258,7 @@ export function useMapSources(
       const segmentIds = getSegmentIdsFromFeatures(filteredFeatures.value);
       let data =
         segmentIds.length > 0
-          ? await fetchStreetsAllPages({ segment_id: segmentIds })
+          ? await fetchStreetsAllPages({ segment_ids: segmentIds })
           : emptyFeatureCollection();
 
       // Apply aggregation colors

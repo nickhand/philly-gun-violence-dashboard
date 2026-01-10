@@ -28,8 +28,8 @@ interface StreetsResponse extends PageMeta {
  * Parameters for fetching street data.
  */
 interface FetchStreetsParams {
-  /** Array of segment IDs to filter by */
-  segment_id?: string[];
+  /** Array of segment IDs to filter by (sent as comma-separated string) */
+  segment_ids?: string[];
   /** Maximum number of features to return (default: 2000) */
   limit?: number;
   /** Zero-based offset for pagination (default: 0) */
@@ -53,7 +53,7 @@ interface FetchStreetsParams {
  *
  * // Fetch specific segments
  * const filtered = await fetchStreetsPage({
- *   segment_id: ['123', '456'],
+ *   segment_ids: ['123', '456'],
  *   limit: 100,
  * });
  * ```
@@ -63,8 +63,9 @@ export async function fetchStreetsPage(
 ): Promise<StreetsResponse> {
   const queryParams = new URLSearchParams();
 
-  if (params.segment_id) {
-    params.segment_id.forEach((id) => queryParams.append("segment_id", id));
+  // Send segment IDs as comma-separated string
+  if (params.segment_ids && params.segment_ids.length > 0) {
+    queryParams.append("segment_ids", params.segment_ids.join(","));
   }
   queryParams.append("limit", String(params.limit ?? 2000));
   queryParams.append("offset", String(params.offset ?? 0));
@@ -80,7 +81,7 @@ export async function fetchStreetsPage(
  * until all data is retrieved. Use with caution for large datasets.
  *
  * @param params - Query parameters for filtering
- * @param params.segment_id - Optional array of segment IDs to filter by
+ * @param params.segment_ids - Optional array of segment IDs to filter by
  * @param params.pageSize - Number of features to fetch per request (default: 2000)
  * @returns Promise resolving to complete GeoJSON FeatureCollection with all street features
  * @throws Error if any API request fails
@@ -93,7 +94,7 @@ export async function fetchStreetsPage(
  *
  * // Fetch specific segments only
  * const filtered = await fetchStreetsAllPages({
- *   segment_id: ['123', '456', '789']
+ *   segment_ids: ['123', '456', '789']
  * });
  *
  * // Fetch with custom page size
@@ -102,14 +103,14 @@ export async function fetchStreetsPage(
  */
 export async function fetchStreetsAllPages(
   params: {
-    segment_id?: string[];
+    segment_ids?: string[];
     pageSize?: number;
   } = {}
 ): Promise<{ type: "FeatureCollection"; features: StreetFeature[] }> {
   return fetchAllPages(
     (paginationParams) =>
       fetchStreetsPage({
-        segment_id: params.segment_id,
+        segment_ids: params.segment_ids,
         ...paginationParams,
       }),
     {},

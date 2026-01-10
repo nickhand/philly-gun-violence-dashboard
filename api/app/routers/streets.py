@@ -22,7 +22,7 @@ class StreetsPage(Page):
 @router.get("/streets")
 def get_streets(
     request: Request,
-    segment_id: Annotated[list[str] | None, Query()] = None,
+    segment_ids: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=0)] = 2000,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> StreetsPage:
@@ -32,8 +32,8 @@ def get_streets(
     ----------
     request : fastapi.Request
         The current request with access to application state.
-    segment_id : list[str] | None, optional
-        Segment IDs to filter by; if omitted, return all features.
+    segment_ids : str | None, optional
+        Comma-separated segment IDs to filter by; if omitted, return all features.
     limit : int, optional
         Maximum number of features to return.
     offset : int, optional
@@ -45,7 +45,11 @@ def get_streets(
         Paginated GeoJSON FeatureCollection with pagination metadata.
     """
     limit = max(limit, 0)
-    if not segment_id:
+    # Parse comma-separated segment IDs
+    segment_id_list = (
+        [sid.strip() for sid in segment_ids.split(",") if sid.strip()] if segment_ids else None
+    )
+    if not segment_id_list:
         page_features, count, next_offset, total = paginate_features(
             request.app.state.streets_geojson["features"],
             limit=limit,
@@ -54,7 +58,7 @@ def get_streets(
     else:
         features_source = [
             request.app.state.streets_by_segment_id[sid]
-            for sid in segment_id
+            for sid in segment_id_list
             if sid in request.app.state.streets_by_segment_id
         ]
         page_features, count, next_offset, total = paginate_features(

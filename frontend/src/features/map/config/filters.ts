@@ -27,7 +27,7 @@ export function getFilterConfigs(selectedYear: number | null): FilterConfig[] {
     },
     {
       name: "has_court_case",
-      label: "Incidents with court cases",
+      label: "Has public court record",
       getFilter: (value: boolean) => (value ? true : null),
       kind: "switch",
       default: false,

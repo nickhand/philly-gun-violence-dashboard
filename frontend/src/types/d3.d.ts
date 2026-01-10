@@ -10,6 +10,48 @@ declare module "d3-array" {
     iterable: Iterable<T>,
     accessor?: (datum: T) => number | undefined | null
   ): [number, number] | [undefined, undefined];
+
+  /**
+   * Histogram bin interface returned by d3.bin()
+   */
+  export interface Bin<Datum, Value extends number | undefined>
+    extends Array<Datum> {
+    x0: Value;
+    x1: Value;
+  }
+
+  /**
+   * Histogram generator function interface
+   */
+  export interface HistogramGeneratorNumber<
+    Datum,
+    Value extends number | undefined
+  > {
+    (data: ArrayLike<Datum>): Bin<Datum, Value>[];
+    value(): (d: Datum, i: number, data: ArrayLike<Datum>) => Value;
+    value(value: (d: Datum, i: number, data: ArrayLike<Datum>) => Value): this;
+    domain(): (values: ArrayLike<Value>) => [Value, Value];
+    domain(
+      domain: [Value, Value] | ((values: ArrayLike<Value>) => [Value, Value])
+    ): this;
+    thresholds(): number;
+    thresholds(count: number): this;
+    thresholds(thresholds: ArrayLike<Value>): this;
+    thresholds(
+      thresholds: (
+        values: ArrayLike<Value>,
+        min: Value,
+        max: Value
+      ) => ArrayLike<Value>
+    ): this;
+  }
+
+  /**
+   * Creates a histogram generator with uniform thresholds
+   */
+  export function bin<
+    Value extends number | undefined = number
+  >(): HistogramGeneratorNumber<Value, Value>;
 }
 
 declare module "d3-scale" {

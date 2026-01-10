@@ -1,13 +1,7 @@
 <template>
   <v-app theme="dark">
     <v-main>
-      <router-view v-slot="{ Component }">
-        <transition name="fade" mode="out-in">
-          <keep-alive>
-            <component :is="Component" :key="$route.path" />
-          </keep-alive>
-        </transition>
-      </router-view>
+      <router-view></router-view>
     </v-main>
   </v-app>
 </template>

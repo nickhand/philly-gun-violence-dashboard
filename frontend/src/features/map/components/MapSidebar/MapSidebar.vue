@@ -1,5 +1,9 @@
 <template>
-  <div class="map-sidebar">
+  <aside
+    class="map-sidebar"
+    role="complementary"
+    aria-label="Map filters and controls"
+  >
     <!-- Loading overlay -->
     <v-overlay
       :model-value="showOverlay"
@@ -26,16 +30,12 @@
       </div>
 
       <div class="buttons-section">
-        <v-btn
-          class="action-button"
-          variant="outlined"
-          color="white"
-          block
-          @click="$emit('download', 'geojson')"
-        >
-          <v-icon icon="mdi-download" class="mr-2" />
-          Download Data
-        </v-btn>
+        <DownloadDialog
+          :overlay-layer-names="overlayLayerNames"
+          :filtered-count="featureCount"
+          :total-count="totalCount"
+          @download="(options) => $emit('download', options)"
+        />
 
         <v-btn
           class="action-button mt-3"
@@ -116,22 +116,34 @@
             :key="filter.name"
             :label="filter.label"
             :model-value="filterHelpers.getSliderValue(filter)"
-            :default-value="(filter.default as [number, number]) ?? [0, 100]"
+            :default-value="filterHelpers.getSliderDefault(filter)"
             :min="filterHelpers.getSliderMin(filter)"
             :max="filterHelpers.getSliderMax(filter)"
             :step="1"
             :show-exclude-missing="filter.excludeMissing ?? false"
             :exclude-missing="excludeMissingValues[filter.name] ?? false"
-            @update:model-value="$emit('filter-change', filter.name, $event)"
+            :show-histogram="filter.showHistogram ?? false"
+            :histogram-data="histograms?.get(filter.name)"
+            :tooltip-formatter="filter.tooltip?.formatter"
+            @update:model-value="
+              handleSliderValueChange(
+                filter.name,
+                $event,
+                filter.excludeMissing
+              )
+            "
             @update:exclude-missing="
               handleExcludeMissingChange(filter.name, $event)
             "
             @reset="$emit('filter-reset', filter.name)"
           />
         </v-expansion-panels>
+
+        <!-- Spacer below filters -->
+        <div class="filters-bottom-spacer" />
       </v-container>
     </div>
-  </div>
+  </aside>
 </template>
 
 <script setup lang="ts">
@@ -150,15 +162,18 @@
 
 import { ref, computed } from "vue";
 import { format } from "d3-format";
-import type { FilterConfig } from "../types";
-import { useFilterHelpers } from "../composables/useFilterHelpers";
+import type { FilterConfig, HistogramBin } from "../../types";
+import { useFilterHelpers } from "../../composables/useFilterHelpers";
 import { SwitchFilter, CheckboxFilter, SliderFilter } from "./filters";
 import MapLayersPanel from "./MapLayersPanel.vue";
+import DownloadDialog, { type DownloadOptions } from "./DownloadDialog.vue";
 
 // Props
 interface Props {
   filters: FilterConfig[];
   activeFilters: Map<string, any>;
+  /** Data-driven slider limits for autoLimits filters */
+  sliderLimits?: Map<string, [number, number]>;
   featureCount: number;
   totalCount: number;
   pointsOnMap?: number;
@@ -168,16 +183,20 @@ interface Props {
   showOverlay?: boolean;
   markerTitle?: string;
   markerShortTitle?: string;
+  /** Histogram data for slider filters (keyed by filter name) */
+  histograms?: Map<string, HistogramBin[]>;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   pointsOnMap: 0,
+  sliderLimits: () => new Map(),
   toggleableLayerNames: () => [],
   overlayLayerNames: () => [],
   defaultToggledLayerNames: () => [],
   showOverlay: false,
   markerTitle: "shooting victim",
   markerShortTitle: "victim",
+  histograms: () => new Map(),
 });
 
 // Emits
@@ -185,7 +204,7 @@ const emit = defineEmits<{
   "filter-change": [dimensionId: string, value: any];
   "filter-reset": [dimensionId: string];
   "reset-all": [];
-  download: [format: string];
+  download: [options: DownloadOptions];
   "layer-change": [layerName: string, visible: boolean];
   "overlay-change": [layerName: string | null];
   "opacity-change": [layerName: string, opacity: number];
@@ -194,7 +213,8 @@ const emit = defineEmits<{
 // Composable for filter helpers
 const filterHelpers = useFilterHelpers(
   () => props.filters,
-  () => props.activeFilters
+  () => props.activeFilters,
+  () => props.sliderLimits
 );
 
 // Local state
@@ -237,12 +257,32 @@ function handleCheckboxChange(
   emit("filter-change", filterId, newValue);
 }
 
+function handleSliderValueChange(
+  filterId: string,
+  value: [number, number],
+  hasExcludeMissing?: boolean
+): void {
+  // For filters with excludeMissing option, pass the current state
+  if (hasExcludeMissing) {
+    emit("filter-change", filterId, {
+      value,
+      excludeMissing: excludeMissingValues.value[filterId] ?? false,
+    });
+  } else {
+    emit("filter-change", filterId, value);
+  }
+}
+
 function handleExcludeMissingChange(
   filterId: string,
   value: boolean | null
 ): void {
   excludeMissingValues.value[filterId] = value ?? false;
-  const currentValue = props.activeFilters.get(filterId);
+  // Get current slider value, falling back to the filter's default/limits
+  const filter = props.filters.find((f) => f.name === filterId);
+  const currentValue =
+    props.activeFilters.get(filterId) ??
+    (filter ? filterHelpers.getSliderDefault(filter) : [0, 100]);
   emit("filter-change", filterId, {
     value: currentValue,
     excludeMissing: value ?? false,
@@ -385,5 +425,9 @@ defineExpose({
 
 :deep(.v-slider-thumb__label) {
   font-size: 1rem;
+}
+
+.filters-bottom-spacer {
+  height: 24px;
 }
 </style>

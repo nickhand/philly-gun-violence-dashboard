@@ -4,7 +4,7 @@
     <v-overlay
       :model-value="showOverlay"
       :opacity="overlayOpacity"
-      :color="overlayColor"
+      :scrim="overlayColor"
     />
 
     <!-- About button -->
@@ -91,19 +91,9 @@ const yearOptions = computed(() => [
   ...props.dataYears.map((year) => String(year)),
 ]);
 
-// Get overlay styles from CSS variables.
-const overlayOpacity = computed(
-  () =>
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--overlay-opacity")
-      .trim() || "0.5"
-);
-const overlayColor = computed(
-  () =>
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--overlay-color")
-      .trim() || "background"
-);
+// Overlay constants (matches Vue 2 legacy)
+const overlayOpacity = 0.3;
+const overlayColor = "#353d42";
 
 // Local state for the dropdown value.
 const value = ref<string | null>(null);
@@ -150,7 +140,7 @@ function handleInfoClick() {
   justify-content: flex-end;
   align-items: flex-end;
   gap: 6px;
-  padding: 10px 10px 0 0;
+  padding: 10px 10px 10px 0;
   font-size: 1.2rem;
   color: rgb(var(--v-theme-secondary));
   background-color: rgb(var(--v-theme-background));

@@ -339,3 +339,16 @@ export interface DataDownloadParams {
   /** Output filename */
   filename: string;
 }
+
+/**
+ * Histogram bin data for slider filter charts.
+ * Represents a single bin in a histogram distribution.
+ */
+export interface HistogramBin {
+  /** Bin start value (inclusive) */
+  x0: number;
+  /** Bin end value (exclusive) */
+  x1: number;
+  /** Count of values in this bin */
+  length: number;
+}

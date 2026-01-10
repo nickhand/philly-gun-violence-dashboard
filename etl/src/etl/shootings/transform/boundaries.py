@@ -137,10 +137,11 @@ def join_with_boundary_datasets(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         new_columns = set(df.columns) - original_columns
         if len(new_columns) != 1:
             raise ValueError(f"Expected one new column from merging {dataset}, got {new_columns}")
-        new_column = new_columns.pop()
 
-        # If geo column is missing, geometry should be empty point
-        df.loc[df[new_column].isnull(), "geometry"] = np.nan
+        # Note: We do NOT invalidate geometry when boundary join fails.
+        # A point may be within city limits but fall outside a specific boundary
+        # layer (e.g., school catchments) due to boundary misalignment.
+        # The boundary column will be null but the point should still be mappable.
 
     # Check the length
     if len(df) != original_length:

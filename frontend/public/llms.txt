@@ -1,0 +1,50 @@
+# Philadelphia Gun Violence Dashboard
+
+> An open-source interactive visualization of gun violence and shooting incidents in Philadelphia, updated daily with public data.
+
+## Overview
+
+This dashboard provides an interactive map and charts for exploring shooting victim data in Philadelphia. Users can filter by year, view trends over time, and examine geographic patterns across police districts, council districts, and ZIP codes.
+
+## Key Features
+
+- Interactive map with shooting incident locations
+- Crossfiltering between map and charts
+- Daily automated data updates
+- Aggregation by police districts, council districts, and ZIP codes
+- Downloadable data in CSV and GeoJSON formats
+- Accessibility features including keyboard navigation and screen reader support
+
+## Data Sources
+
+1. **Shooting Victims Data**: Individual-level data from OpenDataPhilly (https://www.opendataphilly.org/dataset/shooting-victims), updated daily by the Philadelphia Police Department's Statistics Unit
+2. **Homicide Statistics**: Official counts from PhillyPolice.com
+3. **Court Records**: Case information from Pennsylvania's Unified Judicial System portal, linked via DC number
+
+## Important Limitations
+
+- All data is preliminary and may differ from other official sources
+- The PPD homicide count includes all homicides, not just firearm-related deaths
+- Fatal shootings in this dataset may undercount total gun homicides
+- This tool is for informational purposes only and should not be the sole source for research or policy decisions
+- Data entry by PPD typically occurs by 10:30 AM on weekdays
+
+## Technical Stack
+
+- **Frontend**: Vue 3, TypeScript, Vuetify 3, MapLibre GL, D3.js, Crossfilter2
+- **Backend**: FastAPI (Python), Pydantic, AWS S3
+- **Infrastructure**: Fly.io (API), Netlify (frontend)
+- **Data Pipeline**: Python ETL with Typer CLI, Playwright for scraping, GitHub Actions for automation
+
+## URLs
+
+- Main site: https://nickhand.dev/philly-gun-violence-map/
+- Source code: https://github.com/nickhand/philly-gun-violence-dashboard
+
+## Author
+
+Nick Hand (https://nickhand.dev)
+
+## License
+
+Open source project. See GitHub repository for license details.

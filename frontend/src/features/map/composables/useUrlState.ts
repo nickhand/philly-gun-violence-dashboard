@@ -148,11 +148,15 @@ export function useUrlState(
   function readUrlState(): void {
     const query = route.query;
 
-    // Read year
+    // Read year (handles both numeric years and "All Years")
     if (query.year && typeof query.year === "string") {
-      const year = parseInt(query.year, 10);
-      if (!isNaN(year)) {
-        selectedYear.value = year;
+      if (query.year === "All Years") {
+        selectedYear.value = null;
+      } else {
+        const year = parseInt(query.year, 10);
+        if (!isNaN(year)) {
+          selectedYear.value = year;
+        }
       }
     }
 
@@ -184,11 +188,11 @@ export function useUrlState(
       }
     }
 
-    // Update year
+    // Update year (use "All Years" for null to match Vue 2 behavior)
     if (selectedYear.value !== null) {
       query.year = selectedYear.value.toString();
     } else {
-      delete query.year;
+      query.year = "All Years";
     }
 
     // Update layers

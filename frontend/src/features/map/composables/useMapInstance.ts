@@ -12,6 +12,7 @@ import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import mapStyle from "@/data/style.json";
 import { enhanceBasemapLabels } from "../config/basemapLabels";
+import { MAP_DEFAULTS } from "@/shared/constants";
 
 /**
  * Map configuration options.
@@ -31,11 +32,57 @@ export interface MapOptions {
  * Default map configuration for Philadelphia.
  */
 const DEFAULT_OPTIONS: Required<MapOptions> = {
-  center: [-75.1652, 39.9526], // Philadelphia
-  zoom: 11,
-  minZoom: 9,
-  maxZoom: 18,
+  center: MAP_DEFAULTS.center,
+  zoom: MAP_DEFAULTS.zoom,
+  minZoom: MAP_DEFAULTS.minZoom,
+  maxZoom: MAP_DEFAULTS.maxZoom,
 };
+
+/**
+ * Custom Home control to reset map to initial bounds.
+ */
+class HomeControl implements maplibregl.IControl {
+  private container: HTMLDivElement | null = null;
+  private map: MapLibreMap | null = null;
+  private initialCenter: [number, number];
+  private initialZoom: number;
+
+  constructor(center: [number, number], zoom: number) {
+    this.initialCenter = center;
+    this.initialZoom = zoom;
+  }
+
+  onAdd(map: MapLibreMap): HTMLElement {
+    this.map = map;
+    this.container = document.createElement("div");
+    this.container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+
+    const button = document.createElement("button");
+    button.className = "maplibregl-ctrl-home";
+    button.type = "button";
+    button.title = "Reset map view";
+    button.setAttribute("aria-label", "Reset map view to Philadelphia");
+    button.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+      <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+    </svg>`;
+
+    button.addEventListener("click", () => {
+      this.map?.flyTo({
+        center: this.initialCenter,
+        zoom: this.initialZoom,
+        duration: 1000,
+      });
+    });
+
+    this.container.appendChild(button);
+    return this.container;
+  }
+
+  onRemove(): void {
+    this.container?.parentNode?.removeChild(this.container);
+    this.map = null;
+  }
+}
 
 /**
  * Composable for MapLibre GL map instance management.
@@ -127,6 +174,11 @@ export function useMapInstance(options: MapOptions = {}) {
     // Add navigation controls (zoom only, no compass - matches legacy app)
     mapInstance.value.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
+      "top-right"
+    );
+    // Add home button to reset to initial view
+    mapInstance.value.addControl(
+      new HomeControl(config.center, config.zoom),
       "top-right"
     );
     mapInstance.value.addControl(

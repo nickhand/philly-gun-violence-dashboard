@@ -44,7 +44,7 @@ export interface PaginationParams {
  *
  * // Fetch all streets with filters
  * const filteredStreets = await fetchAllPages(
- *   (params) => fetchStreetsPage({ segment_id: ['123', '456'], ...params }),
+ *   (params) => fetchStreetsPage({ segment_ids: ['123', '456'], ...params }),
  *   {}
  * );
  * ```

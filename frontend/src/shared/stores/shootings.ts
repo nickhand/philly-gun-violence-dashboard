@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { markRaw } from "vue";
 import type {
   ShootingVictimsGeoJson,
   ShootingVictimsGeoJsonApi,
@@ -66,6 +67,7 @@ export const useShootingsStore = defineStore("shootings", {
         this.dataYearsError = false;
 
         // If no year is selected yet, default to the most recent year.
+        // Note: null means "All Years" (intentionally selected), so don't override it.
         if (dataYears.length && this.selectedYear === undefined) {
           this.selectedYear = this.dataYears[0];
         }
@@ -130,7 +132,8 @@ export const useShootingsStore = defineStore("shootings", {
               const apiData: ShootingVictimsGeoJsonApi =
                 await fetchShootingsAllPages({ year: yearNum });
               yearData = normalizeShootingsData(apiData);
-              this.dataCache[cacheKey] = yearData;
+              // Mark as raw to prevent Vue from making features reactive (performance)
+              this.dataCache[cacheKey] = markRaw(yearData);
             }
 
             // Concatenate features from this year
@@ -138,10 +141,11 @@ export const useShootingsStore = defineStore("shootings", {
           }
 
           // Return concatenated data without caching
-          data = {
+          // Mark as raw to prevent Vue deep reactivity on large feature arrays
+          data = markRaw({
             type: "FeatureCollection",
             features: allFeatures,
-          };
+          });
         } else {
           // Fetch specific year
           const cacheKey = String(year);
@@ -152,7 +156,8 @@ export const useShootingsStore = defineStore("shootings", {
             const apiData: ShootingVictimsGeoJsonApi =
               await fetchShootingsAllPages({ year });
             yearData = normalizeShootingsData(apiData);
-            this.dataCache[cacheKey] = yearData;
+            // Mark as raw to prevent Vue from making features reactive (performance)
+            this.dataCache[cacheKey] = markRaw(yearData);
           }
 
           data = yearData;

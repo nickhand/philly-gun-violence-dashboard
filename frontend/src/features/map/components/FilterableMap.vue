@@ -28,21 +28,25 @@
  * @component
  */
 
-import { ref, watch, toRef } from "vue";
+import { ref, watch, toRef, onMounted } from "vue";
 import MapLegend from "./MapLegend.vue";
-import { getLayerConfigs } from "../config/layers";
 import { SOURCES } from "../config/sources";
+import { injectTooltipStyles } from "../config/tooltips";
 import {
   useMapInstance,
   useMapSources,
   useMapLayers,
+  useMapTooltips,
   useAggregation,
 } from "../composables";
+import type { LayerConfig } from "../types";
 
 // Props
 interface Props {
   /** Filtered GeoJSON features to display */
   filteredFeatures: GeoJSON.Feature[];
+  /** Layer configurations (reactive, changes with year) */
+  layerConfigs: LayerConfig[];
   /** Active layer names to render */
   activeLayers: string[];
 }
@@ -57,14 +61,16 @@ const emit = defineEmits<{
   "show-overlay": [value: boolean];
 }>();
 
-// Layer configs - use a year value to get proper circle sizes
-const layerConfigs = getLayerConfigs(2024);
+// Convert props to refs for composables
+const filteredFeaturesRef = toRef(props, "filteredFeatures");
 
 // Refs
 const mapLegendRef = ref<InstanceType<typeof MapLegend> | null>(null);
 
-// Convert props to refs for composables
-const filteredFeaturesRef = toRef(props, "filteredFeatures");
+// Inject tooltip styles on mount
+onMounted(() => {
+  injectTooltipStyles();
+});
 
 // --- Composables ---
 
@@ -85,7 +91,10 @@ const {
 const { applyAggregationColors, legendConfig, hideLegend } =
   useAggregation(filteredFeaturesRef);
 
-// 3. Source management (depends on aggregation)
+// 3. Tooltip management
+const { addTooltip } = useMapTooltips(mapInstance, setCursor);
+
+// 4. Source management (depends on aggregation)
 const {
   hasSource,
   addSourceForLayer,
@@ -102,7 +111,7 @@ const {
   hideLoader
 );
 
-// 4. Layer management (depends on sources)
+// 5. Layer management (depends on sources)
 const {
   addInitialLayers,
   setActiveLayers: setActiveLayersInternal,
@@ -125,8 +134,15 @@ watch(
 
 onMapReady(async () => {
   // Add sources and layers
-  await addInitialSources(layerConfigs);
-  addInitialLayers(layerConfigs);
+  await addInitialSources(props.layerConfigs);
+  addInitialLayers(props.layerConfigs);
+
+  // Add tooltips for layers that have tooltip config
+  for (const config of props.layerConfigs) {
+    if (config.tooltip) {
+      addTooltip(config.name, config.tooltip);
+    }
+  }
 
   // Load initial data if available
   if (props.filteredFeatures.length > 0) {
@@ -147,7 +163,7 @@ onMapReady(async () => {
 async function setActiveLayers(layerNames: string[]): Promise<void> {
   const anyAggregatedVisible = await setActiveLayersInternal(
     layerNames,
-    layerConfigs,
+    props.layerConfigs,
     addSourceForLayer,
     updateStreetsSource,
     updateBoundarySource
@@ -180,21 +196,45 @@ watch(
 
     // Update streets source if it exists
     if (hasSource(SOURCES.STREETS)) {
-      const streetsConfig = layerConfigs.find(
+      const streetsConfig = props.layerConfigs.find(
         (c) => c.source === SOURCES.STREETS
       );
       if (streetsConfig) {
         await updateStreetsSource(streetsConfig);
+        // Show legend if this is an aggregated layer that's active
+        if (
+          streetsConfig.aggregated &&
+          props.activeLayers.includes(streetsConfig.name)
+        ) {
+          if (legendConfig.value && mapLegendRef.value) {
+            mapLegendRef.value.show(legendConfig.value);
+          }
+        }
       }
     }
 
     // Update visible aggregated boundary sources
     // Only update layers that are both visible on the map AND in the activeLayers list
     await updateVisibleAggregatedLayers(
-      layerConfigs,
+      props.layerConfigs,
       updateBoundarySource,
       props.activeLayers
     );
+
+    // Show legend if any aggregated boundary layer is active and legendConfig is set
+    const hasActiveAggregatedBoundary = props.layerConfigs.some(
+      (c) =>
+        c.aggregated &&
+        c.source !== SOURCES.STREETS &&
+        props.activeLayers.includes(c.name)
+    );
+    if (
+      hasActiveAggregatedBoundary &&
+      legendConfig.value &&
+      mapLegendRef.value
+    ) {
+      mapLegendRef.value.show(legendConfig.value);
+    }
   },
   { deep: true }
 );
@@ -208,6 +248,36 @@ watch(
     if (!mapLoaded.value) return;
     await setActiveLayers(newLayers);
   }
+);
+
+/**
+ * Watch layer configs for circle radius changes (year changes).
+ * Updates the Point locations layer paint property when selectedYear changes.
+ */
+watch(
+  () => props.layerConfigs,
+  (newConfigs) => {
+    if (!mapLoaded.value || !mapInstance.value) {
+      return;
+    }
+
+    // Find the Point locations layer config
+    const pointsConfig = newConfigs.find((c) => c.name === "Point locations");
+    const paint = pointsConfig?.paint as Record<string, unknown> | undefined;
+    if (paint?.["circle-radius"]) {
+      const map = mapInstance.value;
+      // Layer ID is lowercase with hyphens (layerNameToId transforms "Point locations" → "point-locations")
+      const layerId = "point-locations";
+      if (map.getLayer(layerId)) {
+        map.setPaintProperty(
+          layerId,
+          "circle-radius",
+          paint["circle-radius"] as any
+        );
+      }
+    }
+  },
+  { deep: true }
 );
 
 // --- Expose for parent component ---
@@ -258,7 +328,7 @@ defineExpose({
   left: 0;
   width: 100%;
   text-align: right;
-  padding-top: 100px;
+  padding-top: 140px;
   pointer-events: none;
   z-index: 10;
 }
@@ -292,5 +362,33 @@ defineExpose({
   color: #ffffff;
   border-color: #ffffff;
   font-size: 10px;
+}
+
+/* Home button styling - matches MapLibre nav controls */
+:deep(.maplibregl-ctrl-home) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  color: #333;
+}
+
+:deep(.maplibregl-ctrl-home:hover) {
+  background: #f0f0f0;
+}
+
+:deep(.maplibregl-ctrl-home:focus) {
+  outline: 2px solid #1e88e5;
+  outline-offset: -2px;
+}
+
+:deep(.maplibregl-ctrl-home svg) {
+  display: block;
 }
 </style>

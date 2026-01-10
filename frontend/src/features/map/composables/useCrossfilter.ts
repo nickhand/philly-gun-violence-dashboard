@@ -9,7 +9,8 @@
 
 import { ref, type Ref } from "vue";
 import crossfilter, { type Crossfilter, type Dimension } from "crossfilter2";
-import type { FilterConfig } from "../types";
+import { bin } from "d3-array";
+import type { FilterConfig, HistogramBin } from "../types";
 
 /**
  * Crossfilter composable return type.
@@ -22,6 +23,8 @@ interface UseCrossfilterReturn {
   dimensions: Ref<Map<string, Dimension<GeoJSON.Feature, any>>>;
   /** Active filter values keyed by dimension ID */
   activeFilters: Ref<Map<string, any>>;
+  /** Data-driven slider limits for autoLimits filters */
+  sliderLimits: Ref<Map<string, [number, number]>>;
   /** Initialize crossfilter with GeoJSON features */
   initializeCrossfilter: (
     features: GeoJSON.Feature[],
@@ -40,6 +43,8 @@ interface UseCrossfilterReturn {
     count: number;
     extent?: [any, any];
   };
+  /** Get histogram data for a dimension (excluding its own filter) */
+  getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[];
 }
 
 /**
@@ -76,6 +81,7 @@ export function useCrossfilter(): UseCrossfilterReturn {
     new Map()
   );
   const activeFilters = ref<Map<string, any>>(new Map());
+  const sliderLimits = ref<Map<string, [number, number]>>(new Map());
 
   // Store filter configs to access getFilter transformations
   const filterConfigsMap = ref<Map<string, FilterConfig>>(new Map());
@@ -111,6 +117,7 @@ export function useCrossfilter(): UseCrossfilterReturn {
     dimensions.value.clear();
     activeFilters.value.clear();
     filterConfigsMap.value.clear();
+    sliderLimits.value.clear();
 
     // Create dimension for each filter configuration
     filterConfigs.forEach((config) => {
@@ -123,6 +130,19 @@ export function useCrossfilter(): UseCrossfilterReturn {
         }
       );
       dimensions.value.set(config.name, dimension);
+
+      // For autoLimits slider filters, compute min/max from data
+      if (config.kind === "slider" && config.autoLimits) {
+        const top = dimension.top(1);
+        const bottom = dimension.bottom(1);
+        if (top.length > 0 && bottom.length > 0) {
+          const max = top[0].properties?.[config.name];
+          const min = bottom[0].properties?.[config.name];
+          if (typeof min === "number" && typeof max === "number") {
+            sliderLimits.value.set(config.name, [min, max]);
+          }
+        }
+      }
     });
 
     // Trigger reactivity
@@ -139,12 +159,14 @@ export function useCrossfilter(): UseCrossfilterReturn {
    *                - Select: single value
    *                - Multiselect: array of values
    *                - Checkbox: boolean
+   *                - Object with value and excludeMissing for slider filters
    *
    * @example
    * ```ts
    * applyFilter('year', [2020, 2023]); // Range filter
    * applyFilter('district', 'Central'); // Select filter
    * applyFilter('fatal', true); // Checkbox filter
+   * applyFilter('age', { value: [0, 100], excludeMissing: true }); // Slider with excludeMissing
    * ```
    */
   function applyFilter(dimensionId: string, value: any): void {
@@ -157,13 +179,27 @@ export function useCrossfilter(): UseCrossfilterReturn {
     // Get the filter config to use its getFilter transformation
     const filterConfig = filterConfigsMap.value.get(dimensionId);
 
+    // Handle object format with excludeMissing (from slider filters)
+    // Check for non-array object with excludeMissing property
+    let filterValue = value;
+    let excludeMissing = false;
+    if (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      "excludeMissing" in value
+    ) {
+      filterValue = value.value;
+      excludeMissing = value.excludeMissing ?? false;
+    }
+
     // Store the UI value (not the transformed value)
-    activeFilters.value.set(dimensionId, value);
+    activeFilters.value.set(dimensionId, filterValue);
 
     // Transform the value using the filter's getFilter function if available
     const transformedValue = filterConfig?.getFilter
-      ? filterConfig.getFilter(value)
-      : value;
+      ? filterConfig.getFilter(filterValue, excludeMissing)
+      : filterValue;
 
     // Apply filter based on transformed value
     if (transformedValue === null || transformedValue === undefined) {
@@ -303,15 +339,75 @@ export function useCrossfilter(): UseCrossfilterReturn {
     return { count };
   }
 
+  /**
+   * Get histogram data for a dimension, excluding its own filter.
+   * This allows the histogram to show the full distribution regardless of
+   * the current slider position.
+   *
+   * @param dimensionId - ID of the dimension to get histogram for
+   * @param numBins - Number of bins for the histogram (default 30)
+   * @returns Array of histogram bins with x0, x1, and length
+   *
+   * @example
+   * ```ts
+   * const bins = getHistogramData('age', 20);
+   * // Returns: [{ x0: 0, x1: 5, length: 10 }, ...]
+   * ```
+   */
+  function getHistogramData(
+    dimensionId: string,
+    numBins: number = 30
+  ): HistogramBin[] {
+    // Read filterVersion to establish reactive dependency
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    filterVersion.value;
+
+    if (!crossfilterInstance.value) {
+      return [];
+    }
+
+    const dimension = dimensions.value.get(dimensionId);
+    if (!dimension) {
+      return [];
+    }
+
+    // Get all filtered data, but exclude this dimension's filter
+    // This shows the full distribution for this dimension
+    // @ts-expect-error crossfilter2 types don't include allFiltered with ignore param
+    const filteredData = crossfilterInstance.value.allFiltered([dimension]);
+
+    // Extract numeric values for this dimension
+    const values = filteredData
+      .map((d: GeoJSON.Feature) => d.properties?.[dimensionId])
+      .filter((v): v is number => typeof v === "number" && !isNaN(v));
+
+    if (values.length === 0) {
+      return [];
+    }
+
+    // Use d3 bin to create histogram
+    const histogram = bin<number, number>().thresholds(numBins);
+    const bins = histogram(values);
+
+    // Convert d3 bins to our HistogramBin format
+    return bins.map((b) => ({
+      x0: b.x0 ?? 0,
+      x1: b.x1 ?? 0,
+      length: b.length,
+    }));
+  }
+
   return {
     crossfilterInstance,
     dimensions,
     activeFilters,
+    sliderLimits,
     initializeCrossfilter,
     applyFilter,
     resetFilter,
     resetAllFilters,
     getAllFiltered,
     getDimensionStats,
+    getHistogramData,
   };
 }
