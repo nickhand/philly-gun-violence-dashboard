@@ -169,6 +169,7 @@ export function useMapInstance(options: MapOptions = {}) {
       maxZoom: config.maxZoom,
       dragRotate: false, // Disable 3D rotation
       pitchWithRotate: false, // Disable pitch/tilt
+      attributionControl: false, // We add our own with compact mode
     });
 
     // Add navigation controls (zoom only, no compass - matches legacy app)
@@ -185,6 +186,13 @@ export function useMapInstance(options: MapOptions = {}) {
       new maplibregl.ScaleControl({}),
       "bottom-left"
     );
+    // Add attribution control - compact on mobile (< 768px)
+    mapInstance.value.addControl(
+      new maplibregl.AttributionControl({
+        compact: window.innerWidth < 768,
+      }),
+      "bottom-right"
+    );
 
     // Track data loading state (matches legacy behavior)
     mapInstance.value.on("dataloading", () => {
@@ -199,6 +207,14 @@ export function useMapInstance(options: MapOptions = {}) {
       enhanceBasemapLabels(mapInstance.value!);
       isLoading.value = false;
       mapLoaded.value = true;
+
+      // On mobile, collapse attribution by default
+      if (window.innerWidth < 768) {
+        const attrib = mapContainer.value?.querySelector(
+          ".maplibregl-ctrl-attrib"
+        );
+        attrib?.classList.remove("maplibregl-compact-show");
+      }
 
       // Run all registered callbacks
       for (const callback of readyCallbacks) {

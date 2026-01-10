@@ -1,10 +1,6 @@
 <template>
   <div class="about-page-wrapper">
-    <dashboard-navbar
-      :data-years="[]"
-      :selected-year="null"
-      :show-overlay="false"
-    />
+    <app-navbar :show-overlay="false" :show-back-button="true" />
 
     <main class="about-page">
       <!-- Hero Section -->
@@ -97,9 +93,9 @@
               rel="noopener noreferrer"
               class="data-source-card"
             >
-              <div class="source-header">Court Records</div>
+              <div class="source-header">Public Court Records</div>
               <p>
-                Case information linked via DC number from Pennsylvania's
+                Public court records linked via DC number from Pennsylvania's
                 Unified Judicial System portal.
               </p>
               <span class="source-origin">PA Courts Portal</span>
@@ -130,9 +126,9 @@
             <div class="method-item">
               <h3>Court Case Linkage</h3>
               <p>
-                Court case information is updated weekly by searching for each
-                incident's police DC number in the Philadelphia Municipal Court
-                system using automated web scraping.
+                Public court records are updated weekly by searching for each
+                incident's police DC number in the Pennsylvania Unified Judicial
+                System's public portal using automated web scraping.
               </p>
             </div>
             <div class="method-item">
@@ -152,59 +148,6 @@
               </p>
             </div>
           </div>
-        </div>
-      </section>
-
-      <!-- Features -->
-      <section class="content-section">
-        <div class="section-header">
-          <div class="section-icon">
-            <v-icon icon="mdi-star-outline" size="24" />
-          </div>
-          <h2 class="section-title">Features & Enhancements</h2>
-        </div>
-        <div class="section-content">
-          <ul class="feature-list">
-            <li>
-              <v-icon icon="mdi-check-circle" size="18" class="list-icon" />
-              <span
-                >Complete frontend rebuild with Vue 3, TypeScript, and modern
-                tooling</span
-              >
-            </li>
-            <li>
-              <v-icon icon="mdi-check-circle" size="18" class="list-icon" />
-              <span
-                >Interactive crossfiltering across map, charts, and data
-                tables</span
-              >
-            </li>
-            <li>
-              <v-icon icon="mdi-check-circle" size="18" class="list-icon" />
-              <span
-                >Aggregation by police districts, council districts, and ZIP
-                codes</span
-              >
-            </li>
-            <li>
-              <v-icon icon="mdi-check-circle" size="18" class="list-icon" />
-              <span
-                >Automated daily data pipelines with Python ETL and GitHub
-                Actions</span
-              >
-            </li>
-            <li>
-              <v-icon icon="mdi-check-circle" size="18" class="list-icon" />
-              <span>FastAPI backend deployed on Fly.io with S3 caching</span>
-            </li>
-            <li>
-              <v-icon icon="mdi-check-circle" size="18" class="list-icon" />
-              <span
-                >Accessibility features including keyboard navigation and screen
-                reader support</span
-              >
-            </li>
-          </ul>
         </div>
       </section>
 
@@ -243,10 +186,10 @@
               <h3>Data Pipeline</h3>
               <ul>
                 <li>Python ETL</li>
+                <li>GeoPandas for geospatial data processing</li>
+                <li>Web scraping via Playwright</li>
                 <li>Typer CLI</li>
-                <li>Playwright (scraping)</li>
                 <li>GitHub Actions</li>
-                <li>GeoPandas</li>
               </ul>
             </div>
           </div>
@@ -312,27 +255,15 @@
       </section>
 
       <!-- Footer -->
-      <footer class="about-footer">
-        <p>
-          Built with 💙 in Philadelphia by
-          <a
-            href="https://nickhand.dev"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="footer-link"
-          >
-            Nick Hand
-          </a>
-          • {{ new Date().getFullYear() }}
-        </p>
-      </footer>
+      <app-footer />
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useHead } from "@unhead/vue";
-import DashboardNavbar from "@/features/dashboard/components/DashboardNavbar.vue";
+import AppNavbar from "@/app/components/AppNavbar.vue";
+import AppFooter from "@/app/components/AppFooter.vue";
 
 // SEO Meta Tags for About Page
 useHead({
@@ -620,7 +551,7 @@ useHead({
   padding: 14px 24px;
   border-radius: 8px;
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 400;
   font-size: 0.95rem;
   margin-top: 16px;
   transition: all 0.2s ease;
@@ -675,19 +606,6 @@ useHead({
 .about-footer {
   text-align: center;
   padding-top: 48px;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 0.9rem;
-}
-
-.footer-link {
-  color: rgba(255, 255, 255, 0.6);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-
-.footer-link:hover {
-  color: #7ab5e5;
-  text-decoration: underline;
 }
 
 /* Responsive */

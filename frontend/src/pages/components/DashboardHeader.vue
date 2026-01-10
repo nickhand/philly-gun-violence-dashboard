@@ -1,5 +1,5 @@
 <template>
-  <div class="header-message-wrapper">
+  <div class="dashboard-header">
     <div class="header-message">Mapping Philadelphia's Gun Violence</div>
 
     <div>
@@ -267,7 +267,7 @@ watch(
   color: rgb(var(--v-theme-secondary));
 }
 
-.header-message-wrapper {
+.dashboard-header {
   display: flex;
   flex-direction: column;
   justify-content: center;

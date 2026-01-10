@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-navbar">
+  <div class="app-navbar">
     <!-- Overlay when data is loading -->
     <v-overlay
       :model-value="showOverlay"
@@ -7,9 +7,24 @@
       :scrim="overlayColor"
     />
 
-    <!-- About button -->
+    <!-- Back button (for About page) -->
     <v-btn
-      v-if="$route.path != '/about'"
+      v-if="showBackButton"
+      class="nav-button"
+      variant="outlined"
+      density="compact"
+      color="white"
+      height="38"
+      :ripple="false"
+      @click="handleBackClick"
+    >
+      <v-icon start icon="mdi-arrow-left" />
+      <span>Back</span>
+    </v-btn>
+
+    <!-- Info button (for Dashboard page) -->
+    <v-btn
+      v-else
       class="nav-button"
       variant="outlined"
       density="compact"
@@ -22,22 +37,9 @@
       <v-icon start icon="mdi-information-outline" />
       <span>Info</span>
     </v-btn>
-    <!-- Back button -->
-    <v-btn
-      v-else
-      class="nav-button"
-      variant="outlined"
-      density="compact"
-      color="white"
-      height="38"
-      :ripple="false"
-      @click="$router.replace({ path: '/', query: { year: selectedYear } })"
-    >
-      <v-icon start icon="mdi-arrow-left" />
-      <span>Back</span>
-    </v-btn>
 
-    <div class="year-message" v-if="$route.path != '/about'">
+    <!-- Year selector (only on Dashboard) -->
+    <div class="year-message" v-if="showYearSelector">
       <div class="year-message__label">Viewing data for</div>
       <v-select
         class="year-select"
@@ -62,20 +64,37 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
-const props = defineProps<{
-  /*
-   * Available years for filtering data.
-   */
-  dataYears: number[];
-  /*
-   * Currently selected year for filtering data.
-   */
-  selectedYear: number | null | undefined;
-  /*
-   * Whether to show the loading overlay.
-   */
-  showOverlay: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    /**
+     * Available years for filtering data.
+     */
+    dataYears?: number[];
+    /**
+     * Currently selected year for filtering data.
+     */
+    selectedYear?: number | null;
+    /**
+     * Whether to show the loading overlay.
+     */
+    showOverlay?: boolean;
+    /**
+     * Whether to show the year selector dropdown.
+     */
+    showYearSelector?: boolean;
+    /**
+     * Whether to show the back button instead of info button.
+     */
+    showBackButton?: boolean;
+  }>(),
+  {
+    dataYears: () => [],
+    selectedYear: null,
+    showOverlay: false,
+    showYearSelector: false,
+    showBackButton: false,
+  }
+);
 
 // Emit event to update selected year in the parent component.
 const emit = defineEmits<{
@@ -98,7 +117,7 @@ const overlayColor = "#353d42";
 // Local state for the dropdown value.
 const value = ref<string | null>(null);
 
-/*
+/**
  * Watch for changes in the selectedYear prop to update the dropdown value.
  */
 watch(
@@ -111,7 +130,7 @@ watch(
   { immediate: true }
 );
 
-/*
+/**
  * Handle year selection changes from the dropdown.
  */
 function handleYearChange(nextValue: string | null) {
@@ -124,16 +143,26 @@ function handleYearChange(nextValue: string | null) {
   }
 }
 
-/*
+/**
  * Navigate to the About page when the Info button is clicked.
  */
 function handleInfoClick() {
   router.replace("/about");
 }
+
+/**
+ * Navigate back to the Dashboard when the Back button is clicked.
+ */
+function handleBackClick() {
+  router.replace({
+    path: "/",
+    query: { year: props.selectedYear ?? undefined },
+  });
+}
 </script>
 
 <style scoped>
-.dashboard-navbar {
+.app-navbar {
   width: 100%;
   display: flex;
   flex-direction: column;

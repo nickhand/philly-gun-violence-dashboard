@@ -193,8 +193,14 @@ defineExpose({
 <style scoped>
 .address-search {
   position: relative;
-  width: 340px;
+  width: 280px;
   font-family: system-ui, -apple-system, sans-serif;
+}
+
+@media screen and (max-width: 767.98px) {
+  .address-search {
+    width: 200px;
+  }
 }
 
 .search-input-wrapper {

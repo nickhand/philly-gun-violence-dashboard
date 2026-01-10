@@ -7,6 +7,24 @@ default:
 	@just --list
 
 # -----------------------------------------------------------------------------
+# Frontend Tasks
+# -----------------------------------------------------------------------------
+# Install frontend dependencies
+[group: "ui"]
+ui-install:
+	cd frontend; npm install
+
+# Build the frontend application
+[group: "ui"]
+ui-build:
+	cd frontend; npm run build
+
+# Launch the development server for the frontend
+[group: "ui"]
+ui-dev:
+	cd frontend; npm run dev
+
+# -----------------------------------------------------------------------------
 # ETL Commands
 # -----------------------------------------------------------------------------
 

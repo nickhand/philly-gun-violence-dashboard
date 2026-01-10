@@ -7,13 +7,14 @@
       <a href="#charts" class="skip-link">Skip to charts</a>
     </nav>
 
-    <dashboard-navbar
+    <app-navbar
       :data-years="dataYears"
       :selected-year="selectedYearLocal"
       :show-overlay="showOverlay"
+      :show-year-selector="true"
       @update:selected-year="handleSelectedYearChange"
     />
-    <header-message
+    <dashboard-header
       :fatal="fatalCount"
       :nonfatal="nonfatalCount"
       :current-year="currentYear"
@@ -40,20 +41,7 @@
     <chart-dashboard id="charts" :features="filteredFeatures" />
 
     <!-- Footer -->
-    <footer class="dashboard-footer">
-      <p>
-        Built with 💙 in Philadelphia by
-        <a
-          href="https://nickhand.dev"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="footer-link"
-        >
-          Nick Hand
-        </a>
-        • {{ new Date().getFullYear() }}
-      </p>
-    </footer>
+    <app-footer />
   </section>
 </template>
 
@@ -63,8 +51,9 @@ import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
 import { useHead } from "@unhead/vue";
 import { useShootingsStore } from "@/shared/stores/shootings";
-import DashboardNavbar from "@/features/dashboard/components/DashboardNavbar.vue";
-import HeaderMessage from "@/features/dashboard/components/HeaderMessage.vue";
+import AppNavbar from "@/app/components/AppNavbar.vue";
+import AppFooter from "@/app/components/AppFooter.vue";
+import DashboardHeader from "@/pages/components/DashboardHeader.vue";
 import MappingDashboard from "@/features/map/components/MappingDashboard.vue";
 import ChartDashboard from "@/features/charts/components/ChartDashboard.vue";
 
@@ -278,22 +267,5 @@ function handleFilteredFeatures(features: Feature[]) {
   text-align: center;
   padding-top: 48px;
   padding-bottom: 2rem;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 0.9rem;
-}
-
-.dashboard-footer p {
-  margin: 0;
-}
-
-.footer-link {
-  color: rgba(255, 255, 255, 0.6);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-
-.footer-link:hover {
-  color: #7ab5e5;
-  text-decoration: underline;
 }
 </style>

@@ -68,7 +68,6 @@ api/               FastAPI service
 etl/               ETL pipelines and CLI
 dashboard-utils/   Shared AWS + data utilities + models
 frontend/          Vue 3 frontend application
-frontend-vue2/     Legacy Vue 2 frontend (deprecated)
 ```
 
 ## Frontend

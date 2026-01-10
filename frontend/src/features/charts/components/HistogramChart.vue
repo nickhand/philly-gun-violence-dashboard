@@ -179,7 +179,7 @@ const barPadding = 0.25;
 
 const margin = computed(() => ({
   top: 8,
-  right: 130,
+  right: isMobile.value ? 90 : 130,
   bottom: 4,
   left: isMobile.value ? props.responsiveLabelWidth : props.labelWidth,
 }));

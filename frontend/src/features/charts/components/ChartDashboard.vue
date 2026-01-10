@@ -169,12 +169,13 @@ const colors = CHART_COLORS;
 /* Small screens: single column */
 @media (max-width: 768px) {
   .chart-dashboard {
-    padding: 24px 16px 32px;
+    padding: 20px 8px 24px;
   }
 
   .chart-row {
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
+    margin-bottom: 20px;
   }
 
   .chart-row > * {

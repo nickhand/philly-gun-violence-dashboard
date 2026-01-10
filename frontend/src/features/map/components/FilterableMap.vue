@@ -356,6 +356,29 @@ defineExpose({
   color: #a0cfff;
 }
 
+/* On mobile, start attribution collapsed (compact mode) */
+@media screen and (max-width: 767.98px) {
+  :deep(.maplibregl-ctrl-attrib.maplibregl-compact) {
+    min-height: 20px;
+    padding: 0;
+    background-color: rgba(50, 50, 50, 0.8);
+    border-radius: 4px;
+  }
+
+  :deep(
+      .maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show)
+        .maplibregl-ctrl-attrib-inner
+    ) {
+    display: none;
+  }
+
+  :deep(
+      .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button
+    ) {
+    display: block;
+  }
+}
+
 /* Scale control styling */
 :deep(.maplibregl-ctrl-scale) {
   background-color: rgba(50, 50, 50, 0.8);
