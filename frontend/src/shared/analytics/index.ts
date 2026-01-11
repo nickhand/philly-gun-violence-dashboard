@@ -1,1 +1,1 @@
-export { initAnalytics, track } from "./posthog";
+export { initAnalytics, track, usePostHog } from "./posthog";

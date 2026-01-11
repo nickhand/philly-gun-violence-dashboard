@@ -32,10 +32,10 @@
               >Nick Hand</a
             >
             while serving as Director of Finance, Policy, and Data at the
-            <strong>Philadelphia City Controller's Office</strong>. The project
-            was created to provide transparent, accessible insights into gun
-            violence trends across the city, during a time when gun violence was
-            spiking to crisis levels.
+            Philadelphia City Controller's Office. The project was created to
+            provide transparent, accessible insights into gun violence trends
+            across the city, during a time when gun violence was spiking to
+            crisis levels.
           </p>
           <p>
             Since leaving the Controller's Office, I have continued to maintain

@@ -24,6 +24,9 @@ export function initAnalytics(): void {
   posthog.init(key, {
     api_host: "https://us.i.posthog.com",
 
+    // Only create person profiles for identified users
+    person_profiles: "identified_only",
+
     // Automatic tracking
     capture_pageview: true,
     capture_pageleave: true,
@@ -50,4 +53,12 @@ export function track(
 ): void {
   if (!initialized) return;
   posthog.capture(event, properties);
+}
+
+/**
+ * Composable for accessing PostHog instance.
+ * Use this in components that need direct access to posthog.
+ */
+export function usePostHog() {
+  return { posthog, initialized };
 }
