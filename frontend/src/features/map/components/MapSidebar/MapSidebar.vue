@@ -90,7 +90,7 @@
             :key="filter.name"
             :model-value="filterHelpers.getFilterValue(filter.name) ?? false"
             :label="filter.label"
-            @update:model-value="$emit('filter-change', filter.name, $event)"
+            @update:model-value="handleSwitchChange(filter.name, $event)"
           />
 
           <!-- Checkbox Filters -->
@@ -167,6 +167,7 @@ import { useFilterHelpers } from "../../composables/useFilterHelpers";
 import { SwitchFilter, CheckboxFilter, SliderFilter } from "./filters";
 import MapLayersPanel from "./MapLayersPanel.vue";
 import DownloadDialog, { type DownloadOptions } from "./DownloadDialog.vue";
+import { track } from "@/shared/analytics";
 
 // Props
 interface Props {
@@ -244,6 +245,17 @@ const sliderFilters = computed(() =>
 );
 
 // Event handlers
+function handleSwitchChange(filterId: string, value: boolean | null): void {
+  // Track switch filter change
+  track("filter_toggled", {
+    filter: filterId,
+    type: "switch",
+    enabled: value,
+  });
+
+  emit("filter-change", filterId, value);
+}
+
 function handleCheckboxChange(
   filterId: string,
   value: any,
@@ -254,6 +266,15 @@ function handleCheckboxChange(
     value,
     checked
   );
+
+  // Track filter change
+  track("filter_toggled", {
+    filter: filterId,
+    type: "checkbox",
+    value,
+    enabled: checked,
+  });
+
   emit("filter-change", filterId, newValue);
 }
 
@@ -262,6 +283,13 @@ function handleSliderValueChange(
   value: [number, number],
   hasExcludeMissing?: boolean
 ): void {
+  // Track slider filter change
+  track("filter_toggled", {
+    filter: filterId,
+    type: "slider",
+    value,
+  });
+
   // For filters with excludeMissing option, pass the current state
   if (hasExcludeMissing) {
     emit("filter-change", filterId, {

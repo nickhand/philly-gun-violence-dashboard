@@ -144,6 +144,7 @@
 
 import { ref, computed, watch } from "vue";
 import { format } from "d3-format";
+import { track } from "@/shared/analytics";
 
 // Types
 export interface DownloadOptions {
@@ -216,6 +217,17 @@ function handleDownload(): void {
     format: fileFormat.value,
     aggregateBy: aggregateBy.value,
   };
+
+  // Track data download
+  track("data_downloaded", {
+    data_selection: dataSelection.value,
+    format: fileFormat.value,
+    aggregate_by: aggregateBy.value,
+    record_count:
+      dataSelection.value === "filtered"
+        ? props.filteredCount
+        : props.totalCount,
+  });
 
   emit("download", options);
   isOpen.value = false;

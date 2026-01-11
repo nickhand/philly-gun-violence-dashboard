@@ -4,9 +4,13 @@ import App from "@/app/App.vue";
 import { createAppRouter } from "@/app/router";
 import { createAppPinia } from "@/app/pinia";
 import { vuetify } from "@/app/vuetify";
+import { initAnalytics } from "@/shared/analytics";
 
 // Styles
 import "@/app/styles/main.css";
+
+// Initialize analytics before app mount
+initAnalytics();
 
 const app = createApp(App);
 const head = createHead();

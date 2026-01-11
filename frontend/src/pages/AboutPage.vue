@@ -28,6 +28,7 @@
               target="_blank"
               rel="noopener noreferrer"
               class="text-link"
+              @click="trackExternalLink('Nick Hand', 'https://nickhand.dev')"
               >Nick Hand</a
             >
             while serving as Director of Finance, Policy, and Data at the
@@ -64,6 +65,12 @@
               target="_blank"
               rel="noopener noreferrer"
               class="data-source-card"
+              @click="
+                trackExternalLink(
+                  'Shooting Victims',
+                  'https://www.opendataphilly.org/dataset/shooting-victims'
+                )
+              "
             >
               <div class="source-header">Shooting Victims</div>
               <p>
@@ -78,6 +85,12 @@
               target="_blank"
               rel="noopener noreferrer"
               class="data-source-card"
+              @click="
+                trackExternalLink(
+                  'Homicide Statistics',
+                  'https://www.phillypolice.com/crime-data/crime-statistics/#homicide_numbers'
+                )
+              "
             >
               <div class="source-header">Homicide Statistics</div>
               <p>
@@ -92,6 +105,12 @@
               target="_blank"
               rel="noopener noreferrer"
               class="data-source-card"
+              @click="
+                trackExternalLink(
+                  'Court Records',
+                  'https://ujsportal.pacourts.us/CaseSearch'
+                )
+              "
             >
               <div class="source-header">Public Court Records</div>
               <p>
@@ -233,6 +252,12 @@
             target="_blank"
             rel="noopener noreferrer"
             class="github-button"
+            @click="
+              trackExternalLink(
+                'GitHub Repository',
+                'https://github.com/nickhand/philly-gun-violence-dashboard'
+              )
+            "
           >
             <v-icon icon="mdi-github" size="20" />
             <span>View on GitHub</span>
@@ -255,6 +280,12 @@
             <a
               href="mailto:nicholas.adam.hand@gmail.com"
               class="contact-button"
+              @click="
+                trackExternalLink(
+                  'Email',
+                  'mailto:nicholas.adam.hand@gmail.com'
+                )
+              "
             >
               <v-icon icon="mdi-email" size="20" />
               <span>nicholas.adam.hand@gmail.com</span>
@@ -264,6 +295,7 @@
               target="_blank"
               rel="noopener noreferrer"
               class="contact-button"
+              @click="trackExternalLink('Website', 'https://nickhand.dev')"
             >
               <v-icon icon="mdi-web" size="20" />
               <span>nickhand.dev</span>
@@ -284,6 +316,14 @@ import { useHead } from "@unhead/vue";
 import AppNavbar from "@/app/components/AppNavbar.vue";
 import AppFooter from "@/app/components/AppFooter.vue";
 import { fetchAllMeta, type AllDatasetsMeta } from "@/shared/api/meta";
+import { track } from "@/shared/analytics";
+
+/**
+ * Track clicks on external links.
+ */
+function trackExternalLink(label: string, url: string): void {
+  track("external_link_clicked", { label, url });
+}
 
 // Data freshness state
 const meta = ref<AllDatasetsMeta | null>(null);

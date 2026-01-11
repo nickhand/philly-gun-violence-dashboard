@@ -60,6 +60,7 @@
 
 import { ref, watch } from "vue";
 import { CheckboxGroup } from "./filters";
+import { track } from "@/shared/analytics";
 
 const props = defineProps<{
   /** Names of toggleable layers */
@@ -91,6 +92,13 @@ function handleLayerToggle(layerName: string, visible: boolean): void {
   } else {
     selectedLayers.value = selectedLayers.value.filter((l) => l !== layerName);
   }
+
+  // Track layer change
+  track("map_layer_changed", {
+    layer: layerName,
+    visible,
+  });
+
   emit("layer-change", layerName, visible);
 }
 
@@ -113,7 +121,13 @@ function handleLayerOnly(layerName: string): void {
 }
 
 // Watch for overlay changes
-watch(selectedOverlay, (newValue) => {
+watch(selectedOverlay, (newValue, oldValue) => {
+  // Track aggregation layer change
+  track("aggregation_changed", {
+    layer: newValue,
+    previous_layer: oldValue,
+  });
+
   emit("overlay-change", newValue);
 });
 

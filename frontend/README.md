@@ -84,10 +84,31 @@ src/
 Create a `.env` file for local development:
 
 ```env
-VITE_API_URL=http://localhost:8000
+VITE_API_BASE_URL=http://localhost:8000
+VITE_POSTHOG_KEY=              # Optional: PostHog analytics key
 ```
 
-For production, this points to the Fly.io API deployment.
+For production, `VITE_API_BASE_URL` points to the Fly.io API deployment.
+
+## Analytics
+
+The frontend uses [PostHog](https://posthog.com/) for privacy-focused product analytics:
+
+- **Pageviews & sessions** - Automatic page tracking
+- **User interactions** - Year changes, filter usage, layer toggles
+- **Data downloads** - Track when users export data
+- **External links** - Track clicks to data sources and GitHub
+
+Analytics are only enabled in production with a valid `VITE_POSTHOG_KEY`. In development, all tracking calls are no-ops.
+
+Tracked events:
+- `year_changed` - User changes the year filter
+- `filter_toggled` - User modifies any filter (checkbox, slider, switch)
+- `map_layer_changed` - User toggles a map layer
+- `aggregation_changed` - User changes aggregation geography
+- `location_searched` - User searches for an address
+- `data_downloaded` - User exports data (CSV/GeoJSON)
+- `external_link_clicked` - User clicks an external link
 
 ## API Integration
 

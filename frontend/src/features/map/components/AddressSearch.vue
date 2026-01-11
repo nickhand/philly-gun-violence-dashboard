@@ -67,6 +67,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import { useGeocoding, type AddressResult } from "../composables/useGeocoding";
+import { track } from "@/shared/analytics";
 
 const emit = defineEmits<{
   (e: "select", result: AddressResult): void;
@@ -105,6 +106,12 @@ function handleSelect(result: AddressResult): void {
   query.value = result.shortName;
   showResults.value = false;
   activeIndex.value = -1;
+
+  // Track location search
+  track("location_searched", {
+    found: true,
+  });
+
   emit("select", result);
 }
 

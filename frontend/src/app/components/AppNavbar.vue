@@ -63,6 +63,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { track } from "@/shared/analytics";
 
 const props = withDefaults(
   defineProps<{
@@ -135,6 +136,14 @@ watch(
  */
 function handleYearChange(nextValue: string | null) {
   if (!nextValue) return;
+
+  // Track year change analytics
+  const previousYear = value.value;
+  track("year_changed", {
+    year: nextValue,
+    previous_year: previousYear,
+  });
+
   // Emit normalized year values for the store.
   if (nextValue === "All Years") {
     emit("update:selectedYear", null);
