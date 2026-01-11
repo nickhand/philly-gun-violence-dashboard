@@ -95,7 +95,7 @@
               <div class="source-header">Homicide Statistics</div>
               <p>
                 Official homicide counts from the Philadelphia Police
-                Department's statistics unit.
+                Department's (PPD's) statistics unit.
               </p>
               <span class="source-origin">PhillyPolice.com</span>
             </a>
@@ -202,6 +202,28 @@
                 pipelines. The Philadelphia Police Department's Statistics Unit
                 manually enters data from detective reports, with updates
                 typically available by 10:30 AM on weekdays.
+              </p>
+            </div>
+            <div class="method-item">
+              <h3>Officer-Involved Shootings</h3>
+              <p>
+                This dashboard only includes data for criminal shooting victims,
+                excluding officer-involved shootings, due to differences in
+                reporting fields between the datasets. For more information, see
+                the
+                <a
+                  href="https://www.phillypolice.com/ois"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click="
+                    trackExternalLink(
+                      'Officer-Involved Shootings',
+                      'https://www.phillypolice.com/ois'
+                    )
+                  "
+                  >PPD's website</a
+                >
+                on officer-involed shootings.
               </p>
             </div>
             <div class="method-item">
