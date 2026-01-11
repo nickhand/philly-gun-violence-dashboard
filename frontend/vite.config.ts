@@ -5,25 +5,8 @@ import vuetify from "vite-plugin-vuetify";
 import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig(({ command }) => ({
-  base: "/",
-  plugins: [
-    vue(),
-    vueDevTools(),
-    vuetify({ autoImport: true }),
-    // Inject base tag only in production builds
-    {
-      name: "inject-base-tag",
-      transformIndexHtml(html) {
-        if (command === "build") {
-          return html.replace(
-            "<head>",
-            '<head>\n    <base href="https://phillygunviolence.netlify.app/" />'
-          );
-        }
-        return html;
-      },
-    },
-  ],
+  base: process.env.VITE_PUBLIC_BASE ?? "/philly-gun-violence-map/",
+  plugins: [vue(), vueDevTools(), vuetify({ autoImport: true })],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

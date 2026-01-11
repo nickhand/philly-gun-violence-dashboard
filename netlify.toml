@@ -1,0 +1,2 @@
+[build.environment]
+VITE_PUBLIC_BASE = "/philly-gun-violence-map/"
