@@ -1,2 +1,7 @@
 [build.environment]
 VITE_PUBLIC_BASE = "/philly-gun-violence-map/"
+
+[[redirects]]
+from = "/philly-gun-violence-map/*"
+to = "/philly-gun-violence-map/index.html"
+status = 200
