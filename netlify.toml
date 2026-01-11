@@ -1,2 +1,14 @@
 [build.environment]
 VITE_PUBLIC_BASE = "/philly-gun-violence-map/"
+
+# Serve Vite-built assets when requested under the subpath
+[[redirects]]
+from = "/philly-gun-violence-map/assets/*"
+to = "/assets/:splat"
+status = 200
+
+# SPA fallback for history-mode routes under the subpath
+[[redirects]]
+from = "/philly-gun-violence-map/*"
+to = "/index.html"
+status = 200
