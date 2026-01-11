@@ -5,3 +5,9 @@ VITE_PUBLIC_BASE = "/philly-gun-violence-map/"
 from = "/philly-gun-violence-map/*"
 to = "/philly-gun-violence-map/index.html"
 status = 200
+
+[[redirects]]
+from = "/"
+to = "/philly-gun-violence-map/"
+status = 301
+force = true
