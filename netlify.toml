@@ -1,8 +1,2 @@
 [build.environment]
 VITE_PUBLIC_BASE = "/philly-gun-violence-map/"
-
-[[redirects]]
-from = "/"
-to = "/philly-gun-violence-map/"
-status = 301
-force = true
