@@ -319,7 +319,7 @@ function renderChart() {
     .attr("dy", "0.35em")
     .attr("text-anchor", "end")
     .attr("fill", "#fff")
-    .attr("font-size", "18px")
+    .attr("font-size", isMobile.value ? "17px" : "18px")
     .attr("font-weight", "500")
     .text((d: ChartDataItem) => d.label);
 
@@ -354,7 +354,7 @@ function renderChart() {
     .attr("dy", "0.35em")
     .attr("x", (d: ChartDataItem) => xScale.value(d.count) + 8)
     .attr("fill", "#fff")
-    .attr("font-size", "18px")
+    .attr("font-size", isMobile.value ? "17px" : "18px")
     .attr("font-weight", "500");
 
   enterLabels
@@ -366,7 +366,7 @@ function renderChart() {
     .append("tspan")
     .attr("class", "histogram-chart__percentage")
     .attr("fill", "rgba(255, 255, 255, 0.7)")
-    .attr("font-size", "16px")
+    .attr("font-size", isMobile.value ? "15px" : "16px")
     .attr("font-weight", "400")
     .text((d: ChartDataItem) => ` (${d.percentLabel})`);
 
@@ -507,16 +507,8 @@ onMounted(() => {
 
 @media (max-width: 768px) {
   .histogram-chart__title {
-    font-size: 1.1rem;
+    font-size: 1.3rem;
     margin-top: 16px;
-  }
-
-  .histogram-chart__axis-label {
-    font-size: 14px;
-  }
-
-  .histogram-chart__data-label {
-    font-size: 13px;
   }
 }
 </style>
