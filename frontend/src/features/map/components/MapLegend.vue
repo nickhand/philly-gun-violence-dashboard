@@ -38,7 +38,6 @@
  */
 
 import { ref, computed, nextTick, watch } from "vue";
-import { scaleLinear } from "d3-scale";
 import { select } from "d3-selection";
 import { format } from "d3-format";
 import * as d3ScaleChromatic from "d3-scale-chromatic";
@@ -75,14 +74,9 @@ const options = ref<LegendOptions>({
 
 // Refs
 const svgRef = ref<SVGSVGElement | null>(null);
-const gradientRef = ref<SVGLinearGradientElement | null>(null);
 
 // Computed
 const height = computed(() => props.barHeight);
-
-const colorScale = computed(() =>
-  scaleLinear().domain(options.value.domain).range(options.value.range)
-);
 
 // Format numbers compactly
 function formatNumber(n: number): string {

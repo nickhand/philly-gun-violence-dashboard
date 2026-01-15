@@ -69,7 +69,7 @@ import "d3-transition";
 
 // Types
 interface Feature {
-  properties: Record<string, unknown>;
+  properties: Record<string, unknown> | null;
 }
 
 interface ChartDataItem {
@@ -210,7 +210,7 @@ const chartData = computed<ChartDataItem[]>(() => {
   const grouped = rollup(
     props.features,
     (v: Feature[]) => v.length,
-    (d: Feature) => d.properties[props.accessor]
+    (d: Feature) => d.properties?.[props.accessor]
   );
 
   const total = props.features.length;

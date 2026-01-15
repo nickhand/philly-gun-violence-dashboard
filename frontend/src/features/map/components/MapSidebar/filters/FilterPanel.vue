@@ -54,7 +54,7 @@ defineEmits<{
 
 <style scoped>
 .filter-panel {
-  background-color: #353d42 !important;
+  background-color: rgb(var(--v-theme-background)) !important;
   color: #fff !important;
 }
 

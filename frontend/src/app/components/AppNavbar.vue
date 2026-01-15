@@ -113,7 +113,7 @@ const yearOptions = computed(() => [
 
 // Overlay constants (matches Vue 2 legacy)
 const overlayOpacity = 0.3;
-const overlayColor = "#353d42";
+const overlayColor = "background"; // Uses Vuetify theme color
 
 // Local state for the dropdown value.
 const value = ref<string | null>(null);

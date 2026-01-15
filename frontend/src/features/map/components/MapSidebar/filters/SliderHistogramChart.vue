@@ -47,7 +47,7 @@
 
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { scaleLinear } from "d3-scale";
-import type { HistogramBin } from "../../types";
+import type { HistogramBin } from "@/features/map/types";
 
 const props = withDefaults(
   defineProps<{

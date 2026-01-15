@@ -421,7 +421,7 @@ useHead({
 <style scoped>
 .about-page-wrapper {
   background-color: #2a3136;
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }

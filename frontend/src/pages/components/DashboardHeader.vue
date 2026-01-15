@@ -99,7 +99,7 @@ const homicidesStore = useHomicidesStore();
 // Overlay constants (matches Vue 2 legacy)
 const overlayOpacity = 0.3;
 const overlayOpacityInner = 0.9;
-const overlayColor = "#353d42";
+const overlayColor = "background"; // Uses Vuetify theme color
 
 /**
  * Format a number with comma separators and zero decimal places.

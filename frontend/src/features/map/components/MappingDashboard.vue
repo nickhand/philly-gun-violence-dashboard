@@ -161,7 +161,7 @@ import type { AddressResult } from "../composables/useGeocoding";
 // Types
 interface Feature {
   type: "Feature";
-  properties: Record<string, unknown>;
+  properties: Record<string, unknown> | null;
   geometry: GeoJSON.Geometry | null;
 }
 
@@ -511,6 +511,7 @@ function aggregateByBoundary(
   >();
 
   features.forEach((f) => {
+    if (!f.properties) return;
     const key = f.properties[column];
     if (key === null || key === undefined) return;
 
@@ -551,12 +552,12 @@ function aggregateByBoundary(
  * Convert aggregated data to CSV format.
  *
  * @param data - Array of aggregated records
- * @param layerName - Name of the layer for header
+ * @param _layerName - Name of the layer for header (unused, reserved for future use)
  * @returns CSV string
  */
 function convertAggregatedToCSV(
   data: Array<Record<string, unknown>>,
-  layerName: string
+  _layerName: string
 ): string {
   if (data.length === 0) return "";
 
@@ -659,7 +660,9 @@ function convertToCSV(features: Feature[]): string {
   // Get all unique property keys from all features
   const allKeys = new Set<string>();
   features.forEach((f) => {
-    Object.keys(f.properties).forEach((key) => allKeys.add(key));
+    if (f.properties) {
+      Object.keys(f.properties).forEach((key) => allKeys.add(key));
+    }
   });
 
   // Add lat/lng if geometry exists
@@ -681,7 +684,7 @@ function convertToCSV(features: Feature[]): string {
       } else if (header === "longitude" && f.geometry?.type === "Point") {
         value = (f.geometry as GeoJSON.Point).coordinates[0];
       } else {
-        value = f.properties[header];
+        value = f.properties?.[header];
       }
 
       // Handle null/undefined

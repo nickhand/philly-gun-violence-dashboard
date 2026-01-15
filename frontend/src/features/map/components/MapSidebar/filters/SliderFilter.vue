@@ -66,7 +66,7 @@
 import { computed } from "vue";
 import FilterPanel from "./FilterPanel.vue";
 import SliderHistogramChart from "./SliderHistogramChart.vue";
-import type { HistogramBin } from "../../types";
+import type { HistogramBin } from "@/features/map/types";
 
 const props = defineProps<{
   /** Filter label */

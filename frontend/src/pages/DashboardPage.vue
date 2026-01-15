@@ -105,7 +105,7 @@ useHead({
 
 // Types
 interface Feature {
-  properties: Record<string, unknown>;
+  properties: Record<string, unknown> | null;
 }
 
 // Access shootings store.
@@ -291,8 +291,8 @@ async function retryLoad() {
 
 <style scoped>
 .dashboard-view {
-  background-color: #353d42;
-  min-height: 100vh;
+  background-color: rgb(var(--v-theme-background));
+  min-height: 100dvh;
 }
 
 /* Skip links - visible only on focus for keyboard users */

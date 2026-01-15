@@ -113,7 +113,7 @@ import { CHART_COLORS } from "@/shared/constants";
 
 // Types
 interface Feature {
-  properties: Record<string, unknown>;
+  properties: Record<string, unknown> | null;
 }
 
 interface Props {
@@ -129,7 +129,7 @@ const colors = CHART_COLORS;
 
 <style scoped>
 .chart-dashboard {
-  background-color: #353d42;
+  background-color: rgb(var(--v-theme-background));
   padding: 32px 48px 48px;
 }
 

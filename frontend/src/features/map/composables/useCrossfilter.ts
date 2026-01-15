@@ -386,7 +386,7 @@ export function useCrossfilter(): UseCrossfilterReturn {
     }
 
     // Use d3 bin to create histogram
-    const histogram = bin<number, number>().thresholds(numBins);
+    const histogram = bin<number>().thresholds(numBins);
     const bins = histogram(values);
 
     // Convert d3 bins to our HistogramBin format

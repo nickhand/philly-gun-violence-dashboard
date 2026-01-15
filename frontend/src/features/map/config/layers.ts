@@ -90,7 +90,9 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       column: "neighborhood",
       geoid: "neighborhood",
       tooltip: {
-        formatter: createAggregatedLayerTooltip((d) => d.neighborhood),
+        formatter: createAggregatedLayerTooltip(
+          (d) => d.neighborhood as string
+        ),
         on: "mousemove",
       },
     },

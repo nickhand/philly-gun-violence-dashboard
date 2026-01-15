@@ -124,7 +124,7 @@ export const useStreetsStore = defineStore("streets", {
 
         // Fetch all pages
         while (true) {
-          const response = await fetchStreets({ limit, offset });
+          const response = await fetchStreetsPage({ limit, offset });
 
           allFeatures.push(...response.features);
 
@@ -174,7 +174,7 @@ export const useStreetsStore = defineStore("streets", {
 
       try {
         // Use the new fetchStreetsAllPages function with segment ID filter
-        const data = await fetchStreetsAllPages({ segment_id: segmentIds });
+        const data = await fetchStreetsAllPages({ segment_ids: segmentIds });
         return data;
       } finally {
         this.isLoading = false;

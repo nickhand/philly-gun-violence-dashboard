@@ -336,7 +336,7 @@ defineExpose({
   display: flex;
   flex-direction: column;
   border-left: 5px solid #868b8e;
-  background-color: #353d42;
+  background-color: rgb(var(--v-theme-background));
   position: relative;
   color: #fff;
 }
@@ -394,7 +394,7 @@ defineExpose({
 }
 
 .sidebar-inner-content {
-  background-color: #353d42;
+  background-color: rgb(var(--v-theme-background));
   overflow-y: auto;
   flex: 1;
 }
@@ -423,7 +423,7 @@ defineExpose({
 }
 
 :deep(.v-expansion-panel) {
-  background-color: #353d42 !important;
+  background-color: rgb(var(--v-theme-background)) !important;
   margin-top: 0 !important;
   border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
 }

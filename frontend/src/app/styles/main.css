@@ -6,7 +6,8 @@
   /* Colors - can be overridden by high contrast mode */
   --text-primary: rgba(255, 255, 255, 0.87);
   --text-secondary: rgba(255, 255, 255, 0.6);
-  --bg-surface: #353d42;
+  /* Note: --bg-surface uses Vuetify's theme background color */
+  --bg-surface: rgb(var(--v-theme-background));
   --border-color: rgba(255, 255, 255, 0.12);
   --focus-ring-color: #1e88e5;
 }
@@ -14,7 +15,7 @@
 #app {
   font-family: Avenir, Helvetica, Arial, sans-serif;
   overflow-x: hidden;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 @media (max-width: 960px) {
