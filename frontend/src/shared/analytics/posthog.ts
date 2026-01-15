@@ -10,14 +10,10 @@ export function initAnalytics(): void {
   const key = import.meta.env.VITE_POSTHOG_KEY;
 
   if (!key) {
-    console.log(
-      "[Analytics] No PostHog key configured, skipping initialization"
-    );
     return;
   }
 
   if (!import.meta.env.PROD) {
-    console.log("[Analytics] Skipping PostHog in development mode");
     return;
   }
 
@@ -40,7 +36,6 @@ export function initAnalytics(): void {
   });
 
   initialized = true;
-  console.log("[Analytics] PostHog initialized");
 }
 
 /**

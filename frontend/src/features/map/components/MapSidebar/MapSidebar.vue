@@ -63,6 +63,8 @@
           :toggleable-layer-names="toggleableLayerNames"
           :overlay-layer-names="overlayLayerNames"
           :default-toggled-layer-names="defaultToggledLayerNames"
+          :initial-active-layers="initialActiveLayers"
+          :initial-overlay="initialOverlay"
           @layer-change="
             (name, visible) => $emit('layer-change', name, visible)
           "
@@ -181,6 +183,10 @@ interface Props {
   toggleableLayerNames?: string[];
   overlayLayerNames?: string[];
   defaultToggledLayerNames?: string[];
+  /** Initial active layers from URL state */
+  initialActiveLayers?: string[];
+  /** Initial overlay layer from URL state */
+  initialOverlay?: string | null;
   showOverlay?: boolean;
   markerTitle?: string;
   markerShortTitle?: string;
@@ -194,6 +200,8 @@ const props = withDefaults(defineProps<Props>(), {
   toggleableLayerNames: () => [],
   overlayLayerNames: () => [],
   defaultToggledLayerNames: () => [],
+  initialActiveLayers: () => [],
+  initialOverlay: null,
   showOverlay: false,
   markerTitle: "shooting victim",
   markerShortTitle: "victim",

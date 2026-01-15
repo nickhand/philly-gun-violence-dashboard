@@ -164,7 +164,9 @@ export function useMapLayers(
     updateStreetsSource: (config: LayerConfig) => Promise<void>,
     updateBoundarySource: (config: LayerConfig) => Promise<void>
   ): Promise<boolean> {
-    if (!mapInstance.value || !mapLoaded.value) return false;
+    if (!mapInstance.value || !mapLoaded.value) {
+      return false;
+    }
 
     let anyAggregatedLayerVisible = false;
 

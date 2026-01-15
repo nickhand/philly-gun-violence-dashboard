@@ -32,15 +32,26 @@ function layerNameToUrlId(name: string): string {
 
 /**
  * Convert URL ID back to layer name.
- * Converts hyphens to spaces and applies title case.
+ * Looks up the actual layer name from known layer names using case-insensitive matching.
  *
- * @param id - URL-friendly ID (e.g., "point-locations")
- * @returns Human-readable layer name (e.g., "Point locations")
+ * @param id - URL-friendly ID (e.g., "pa-senate-districts")
+ * @param knownLayerNames - Array of known layer names to look up against
+ * @returns Human-readable layer name (e.g., "PA Senate Districts") or fallback
  */
-function urlIdToLayerName(id: string): string {
-  // Convert hyphens to spaces
+function urlIdToLayerName(id: string, knownLayerNames: string[]): string {
+  // Convert ID to comparable form (lowercase with hyphens)
+  const normalizedId = id.toLowerCase();
+
+  // Look up actual layer name by matching URL IDs
+  for (const layerName of knownLayerNames) {
+    const layerUrlId = layerNameToUrlId(layerName);
+    if (layerUrlId === normalizedId) {
+      return layerName;
+    }
+  }
+
+  // Fallback: convert hyphens to spaces and capitalize first letter
   const withSpaces = id.replace(/-/g, " ");
-  // Capitalize first letter only (preserve rest as-is for names like "ZIP Code")
   return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
 }
 
@@ -66,7 +77,8 @@ function urlIdToLayerName(id: string): string {
 export function useUrlState(
   selectedYear: Ref<number | null>,
   activeLayers: Ref<string[]>,
-  mapInstance: Ref<MapLibreMap | null>
+  mapInstance: Ref<MapLibreMap | null>,
+  knownLayerNames: string[] = []
 ) {
   const router = useRouter();
   const route = useRoute();
@@ -126,7 +138,7 @@ export function useUrlState(
       .split(",")
       .map((l) => l.trim())
       .filter(Boolean)
-      .map(urlIdToLayerName);
+      .map((id) => urlIdToLayerName(id, knownLayerNames));
   }
 
   /**

@@ -115,6 +115,8 @@
       :toggleable-layer-names="toggleableLayerNames"
       :overlay-layer-names="overlayLayerNames"
       :default-toggled-layer-names="defaultToggledLayerNames"
+      :initial-active-layers="initialToggleableLayers"
+      :initial-overlay="currentOverlay"
       :histograms="histograms"
       @filter-change="handleFilterChange"
       @filter-reset="handleFilterReset"
@@ -207,21 +209,46 @@ const {
 const { histograms, initializeHistograms, updateHistograms } = useHistograms();
 
 /**
+ * Convert URL layer ID to actual layer name by matching against known layer names.
+ * Does case-insensitive matching to handle "pa-senate-districts" → "PA Senate Districts".
+ *
+ * @param urlId - URL-friendly layer ID (e.g., "pa-senate-districts")
+ * @param allLayerNames - Array of all known layer names to match against
+ * @returns Matched layer name or null if no match found
+ */
+function urlIdToLayerName(urlId: string, allLayerNames: string[]): string | null {
+  // Convert URL ID to comparable format (lowercase, spaces instead of hyphens)
+  const urlNormalized = urlId.toLowerCase().replace(/-/g, " ");
+
+  // Find matching layer name (case-insensitive)
+  return (
+    allLayerNames.find(
+      (name) => name.toLowerCase().replace(/\s+/g, " ") === urlNormalized
+    ) ?? null
+  );
+}
+
+/**
  * Parse initial layers from URL query parameter.
  * Converts URL IDs (e.g., "point-locations") to layer names (e.g., "Point locations").
  */
 function getInitialLayersFromUrl(): string[] {
   const layersParam = route.query.layers;
+
   if (layersParam && typeof layersParam === "string") {
+    // Get all known layer names (toggleable + overlay)
+    const allLayerNames = [
+      ...toggleableLayerNames.value,
+      ...overlayLayerNames.value,
+    ];
+
     const layers = layersParam
       .split(",")
       .map((id) => id.trim())
       .filter(Boolean)
-      .map((id) => {
-        // Convert URL ID to layer name (e.g., "point-locations" → "Point locations")
-        const withSpaces = id.replace(/-/g, " ");
-        return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
-      });
+      .map((id) => urlIdToLayerName(id, allLayerNames))
+      .filter((name): name is string => name !== null);
+
     if (layers.length > 0) {
       return layers;
     }
@@ -311,8 +338,14 @@ const searchMarkerStyle = computed(() => {
   };
 });
 
+// All known layer names for URL parsing
+const allLayerNames = computed(() => [
+  ...toggleableLayerNames.value,
+  ...overlayLayerNames.value,
+]);
+
 // Sync state with URL (year, layers, map view)
-useUrlState(normalizedYear, activeLayers, mapInstance);
+useUrlState(normalizedYear, activeLayers, mapInstance, allLayerNames.value);
 
 // Computed properties
 /**
@@ -721,11 +754,25 @@ function handleMapReady(): void {
 /**
  * Handle layer visibility change from sidebar.
  * Toggles layer visibility on the map.
+ * When overlay is active, updates savedToggleableLayers instead of activeLayers.
  *
  * @param layerName - Layer name to toggle
  * @param visible - Whether layer should be visible
  */
 function handleLayerChange(layerName: string, visible: boolean): void {
+  // When overlay is active, update savedToggleableLayers (what will restore when cleared)
+  if (currentOverlay.value) {
+    if (visible) {
+      if (!savedToggleableLayers.value.includes(layerName)) {
+        savedToggleableLayers.value = [...savedToggleableLayers.value, layerName];
+      }
+    } else {
+      savedToggleableLayers.value = savedToggleableLayers.value.filter((l) => l !== layerName);
+    }
+    return;
+  }
+
+  // No overlay - update activeLayers directly
   if (visible) {
     if (!activeLayers.value.includes(layerName)) {
       activeLayers.value = [...activeLayers.value, layerName];
@@ -735,11 +782,48 @@ function handleLayerChange(layerName: string, visible: boolean): void {
   }
 }
 
-// Track currently selected overlay layer
-const currentOverlay = ref<string | null>(null);
+// Parse initial overlay from URL (if layers param contains an overlay layer)
+function getInitialOverlayFromUrl(): string | null {
+  const layersParam = route.query.layers;
+
+  if (layersParam && typeof layersParam === "string") {
+    const urlIds = layersParam
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+
+    // Find the first URL ID that matches an overlay layer name
+    for (const urlId of urlIds) {
+      const matchedName = urlIdToLayerName(urlId, overlayLayerNames.value);
+      if (matchedName) {
+        return matchedName;
+      }
+    }
+  }
+  return null;
+}
+
+// Track currently selected overlay layer - initialize from URL if present
+const currentOverlay = ref<string | null>(getInitialOverlayFromUrl());
 
 // Track saved toggleable layers (to restore when overlay is cleared)
-const savedToggleableLayers = ref<string[]>([]);
+// If we're loading with an overlay from URL, save the default toggleable layers
+const savedToggleableLayers = ref<string[]>(
+  currentOverlay.value ? [...defaultToggledLayerNames.value] : []
+);
+
+// Compute the toggleable layers for checkbox state
+// When overlay is active, show the saved layers; otherwise show active toggleable layers
+const initialToggleableLayers = computed(() => {
+  if (currentOverlay.value) {
+    // Overlay is active - show saved toggleable layers (what will restore when cleared)
+    return savedToggleableLayers.value.length > 0
+      ? savedToggleableLayers.value
+      : defaultToggledLayerNames.value;
+  }
+  // No overlay - filter activeLayers to only include toggleable layers
+  return activeLayers.value.filter((l) => toggleableLayerNames.value.includes(l));
+});
 
 /**
  * Handle overlay layer change from sidebar.

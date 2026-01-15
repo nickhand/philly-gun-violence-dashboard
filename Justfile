@@ -24,6 +24,11 @@ ui-build:
 ui-dev:
 	cd frontend; npm run dev
 
+# Type check the frontend application
+[group: "ui"]
+ui-type-check:
+	cd frontend; npm run type-check
+
 # -----------------------------------------------------------------------------
 # ETL Commands
 # -----------------------------------------------------------------------------

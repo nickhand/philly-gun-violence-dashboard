@@ -58,7 +58,7 @@
  * @component
  */
 
-import { ref, watch } from "vue";
+import { ref, watch, onMounted } from "vue";
 import { CheckboxGroup } from "./filters";
 import { track } from "@/shared/analytics";
 
@@ -67,8 +67,12 @@ const props = defineProps<{
   toggleableLayerNames: string[];
   /** Names of overlay layers for aggregation */
   overlayLayerNames: string[];
-  /** Default toggled layer names */
+  /** Default toggled layer names (used for reset) */
   defaultToggledLayerNames: string[];
+  /** Initial active layers from URL state */
+  initialActiveLayers?: string[];
+  /** Initial overlay layer from URL state */
+  initialOverlay?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -80,9 +84,13 @@ const emit = defineEmits<{
   "opacity-change": [layerName: string, opacity: number];
 }>();
 
-// Local state
-const selectedLayers = ref<string[]>([...props.defaultToggledLayerNames]);
-const selectedOverlay = ref<string | null>(null);
+// Local state - initialize from initialActiveLayers if provided, else defaults
+const selectedLayers = ref<string[]>(
+  props.initialActiveLayers && props.initialActiveLayers.length > 0
+    ? [...props.initialActiveLayers]
+    : [...props.defaultToggledLayerNames]
+);
+const selectedOverlay = ref<string | null>(props.initialOverlay ?? null);
 const overlayOpacity = ref(50);
 
 /** Handle layer checkbox toggle */
@@ -147,6 +155,13 @@ function resetToDefaults(): void {
 // Expose methods for parent components
 defineExpose({
   resetToDefaults,
+});
+
+// Emit initial overlay change if set from URL
+onMounted(() => {
+  if (props.initialOverlay) {
+    emit("overlay-change", props.initialOverlay);
+  }
 });
 </script>
 
