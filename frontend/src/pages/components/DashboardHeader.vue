@@ -59,7 +59,7 @@
 
         <!-- Shooting victims summary -->
         <div class="header-submessage">
-          This app maps the victims of gun violence:
+          This map shows the victims of gun violence:
           <span class="nonfatal">{{ formatNumber(nonfatal) }} nonfatal</span>
           and
           <span class="fatal">{{ formatNumber(fatal) }} fatal</span>
