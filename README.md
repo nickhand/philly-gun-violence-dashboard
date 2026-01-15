@@ -1,3 +1,5 @@
+<img width="500" height="500" src="./frontend/public/og-image.png"/>
+
 # Philadelphia Gun Violence Dashboard
 
 A full-stack data pipeline and API that power a public Gun Violence Dashboard for the City of Philadelphia.
