@@ -18,7 +18,11 @@
         />
 
         <!-- Homicide summary -->
-        <div v-if="hasHomicideData" class="header-submessage" v-html="homicideMessage" />
+        <div
+          v-if="hasHomicideData"
+          class="header-submessage"
+          v-html="homicideMessage"
+        />
         <div v-else class="header-submessage">
           Homicide totals are currently unavailable.
         </div>
@@ -192,7 +196,9 @@ const homicideMessage = computed((): string => {
   const noun = count === 1 ? "homicide" : "homicides";
 
   const fatalSpan = `<span class="fatal">${total} ${noun}</span>`;
-  const changeText = change ? `, ${change} from ${(props.selectedYear ?? props.currentYear) - 1}` : "";
+  const changeText = change
+    ? `, ${change} from ${(props.selectedYear ?? props.currentYear) - 1}`
+    : "";
 
   if (props.selectedYear === props.currentYear) {
     const dateSpan = `<span class="date-color">${props.currentYear}</span>`;
@@ -305,11 +311,13 @@ watch(
     margin-top: 50px;
     text-align: center;
     line-height: 1.2;
+    padding: 0 1.5rem;
   }
 
   .header-message {
     text-align: center;
     font-size: 2.7rem;
+    padding: 0 1.25rem;
   }
 }
 </style>
