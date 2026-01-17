@@ -1,5 +1,15 @@
 import { getApiBaseUrl } from "@/shared/api/client";
 
+/** Metadata for a specific year */
+export interface YearMeta {
+  /** Number of rows for this year */
+  rows: number;
+  /** URL to fetch versioned NDJSON rows for this year */
+  rows_url: string;
+  /** URL to fetch versioned GeoJSON for this year */
+  geojson_url: string;
+}
+
 /** Metadata response from /shootings/meta endpoint */
 export interface ShootingsMeta {
   /** Content-based version hash */
@@ -10,10 +20,8 @@ export interface ShootingsMeta {
   rows: number;
   /** Available years in the dataset */
   years: number[];
-  /** URL to fetch versioned NDJSON rows */
-  rows_url: string;
-  /** URL to fetch versioned GeoJSON */
-  geojson_url: string;
+  /** Per-year metadata with row counts and URLs */
+  years_meta: Record<number, YearMeta>;
 }
 
 /** Result of fetching meta with conditional request support */

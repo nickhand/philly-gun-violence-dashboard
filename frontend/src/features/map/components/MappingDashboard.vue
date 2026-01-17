@@ -175,7 +175,7 @@ const emit = defineEmits<{
 
 // Store access - using new Arquero-based data store
 const shootingsStore = useShootingsDataStore();
-const { rows, selectedYear } = storeToRefs(shootingsStore);
+const { selectedYear, rowsByYear } = storeToRefs(shootingsStore);
 
 // Normalize selectedYear to exclude undefined
 const normalizedYear = computed(() => selectedYear.value ?? null);
@@ -334,10 +334,20 @@ useUrlState(normalizedYear, activeLayers, mapInstance, allLayerNames.value);
 // Note: filteredFeatures is now a computed ref from useArquero, not a local computed
 
 /**
- * Total feature count (unfiltered).
+ * Total feature count for current year.
  * Used for statistics display in sidebar.
  */
-const totalFeatures = computed(() => rows.value?.length ?? 0);
+const totalFeatures = computed(() => {
+  const year = selectedYear.value;
+  if (year === null || year === undefined) {
+    // All years: sum all loaded years
+    return Object.values(rowsByYear.value).reduce(
+      (sum, rows) => sum + rows.length,
+      0
+    );
+  }
+  return rowsByYear.value[year]?.length ?? 0;
+});
 
 /**
  * Generate a text summary of map data for screen readers.
@@ -480,29 +490,35 @@ watch(selectedYear, () => {
 
 /**
  * Initialize Arquero filtering when data loads or year changes.
- * Filters rows by selected year before initializing Arquero.
+ * Loads year data on demand, then initializes Arquero.
  */
 watch(
-  [rows, selectedYear],
-  ([newRows, year]) => {
-    if (newRows && newRows.length > 0) {
-      const startTime = performance.now();
+  [rowsByYear, selectedYear],
+  async ([yearData, year]) => {
+    // Ensure the required year(s) are loaded
+    const loadStart = performance.now();
+    await shootingsStore.ensureYearLoaded(year ?? null);
 
-      // Filter rows by selected year (null = all years)
-      const filterStart = performance.now();
-      const filteredRows =
-        year === null || year === undefined
-          ? newRows
-          : newRows.filter((r) => r.year === year);
+    // Get the rows for the selected year(s)
+    let rowsToUse: ShootingRow[];
+    if (year === null || year === undefined) {
+      // "All Years" - combine all loaded years
+      rowsToUse = Object.values(yearData).flat() as ShootingRow[];
+    } else {
+      rowsToUse = (yearData[year] as ShootingRow[]) ?? [];
+    }
+
+    if (rowsToUse.length > 0) {
+      const startTime = performance.now();
 
       if (import.meta.env.DEV) {
         console.log(
-          `[MappingDashboard] Filtered to ${filteredRows.length} rows (year=${year ?? "all"}) in ${(performance.now() - filterStart).toFixed(1)}ms`
+          `[MappingDashboard] Using ${rowsToUse.length} rows (year=${year ?? "all"}, load=${(startTime - loadStart).toFixed(1)}ms)`
         );
       }
 
-      // Initialize Arquero with filtered row data
-      initializeArquero(filteredRows as ShootingRow[], filters.value);
+      // Initialize Arquero with row data
+      initializeArquero(rowsToUse, filters.value);
       // Initialize histograms after Arquero is ready
       initializeHistograms(filters.value, getHistogramData);
 

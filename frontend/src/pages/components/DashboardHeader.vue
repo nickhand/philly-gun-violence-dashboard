@@ -4,14 +4,14 @@
 
     <div>
       <v-overlay
-        :model-value="showOverlay"
+        :model-value="showOverlay || isLoadingHomicides"
         :opacity="overlayOpacity"
         :scrim="overlayColor"
       />
 
       <div style="position: relative">
         <v-overlay
-          :model-value="showOverlay"
+          :model-value="showOverlay || isLoadingHomicides"
           :opacity="overlayOpacityInner"
           :scrim="overlayColor"
           absolute
@@ -53,6 +53,8 @@ const homicidesStore = useHomicidesStore();
 
 // Track loading state to prevent showing partial data
 const isLoadingHomicides = ref(false);
+// Counter to track which load operation is current (prevents race conditions)
+let loadOperationId = 0;
 
 // Overlay constants (matches Vue 2 legacy)
 const overlayOpacity = 0.3;
@@ -93,9 +95,18 @@ async function fetchAllYearsTotals(): Promise<number | null> {
 /**
  * Load homicide data when selectedYear changes.
  * Fetches both selected year and previous year before allowing render.
+ * Uses operation ID to prevent race conditions from overlapping calls.
  */
 async function loadHomicideData() {
+  const currentOperationId = ++loadOperationId;
   isLoadingHomicides.value = true;
+
+  if (import.meta.env.DEV) {
+    console.log(
+      `[DashboardHeader] loadHomicideData started (op #${currentOperationId}, year=${props.selectedYear})`
+    );
+  }
+
   try {
     if (props.selectedYear === null || props.selectedYear === undefined) {
       // For "All Years", pre-fetch all years data
@@ -111,7 +122,21 @@ async function loadHomicideData() {
       await Promise.all(fetches);
     }
   } finally {
-    isLoadingHomicides.value = false;
+    // Only clear loading state if this is still the current operation
+    if (currentOperationId === loadOperationId) {
+      isLoadingHomicides.value = false;
+      if (import.meta.env.DEV) {
+        console.log(
+          `[DashboardHeader] loadHomicideData completed (op #${currentOperationId}, year=${props.selectedYear})`
+        );
+      }
+    } else {
+      if (import.meta.env.DEV) {
+        console.log(
+          `[DashboardHeader] loadHomicideData STALE - ignoring (op #${currentOperationId}, current=#${loadOperationId})`
+        );
+      }
+    }
   }
 }
 

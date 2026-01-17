@@ -158,14 +158,16 @@ def load_shootings_data(app: FastAPI) -> None:
     # Keep a stable list of features and build an index for fast year filtering.
     shootings_features = list(shootings_geojson.get("features", []))
     shootings_year_index: dict[int, list[int]] = {}
-    shootings_rows: list[dict[str, Any]] = []
+    # Store rows indexed by year for per-year endpoints
+    shootings_rows_by_year: dict[int, list[dict[str, Any]]] = {}
 
     for idx, feature in enumerate(shootings_features):
         year = _extract_year(feature.get("properties", {}).get("date"))
         if year is not None:
             shootings_year_index.setdefault(year, []).append(idx)
-        # Flatten feature to row for NDJSON endpoint (pass index for unique_id)
-        shootings_rows.append(_flatten_feature_to_row(feature, idx))
+            # Flatten feature to row for NDJSON endpoint (pass index for unique_id)
+            row = _flatten_feature_to_row(feature, idx)
+            shootings_rows_by_year.setdefault(year, []).append(row)
 
     shootings_years = sorted(shootings_year_index)
 
@@ -173,21 +175,29 @@ def load_shootings_data(app: FastAPI) -> None:
     version = _compute_version_hash(shootings_geojson)
     generated_at = datetime.now(UTC).isoformat()
 
+    # Build per-year URLs for efficient loading
+    years_meta = {
+        year: {
+            "rows": len(shootings_rows_by_year.get(year, [])),
+            "rows_url": f"/shootings/rows/{version}/{year}.ndjson",
+            "geojson_url": f"/shootings/geojson/{version}/{year}.geojson",
+        }
+        for year in shootings_years
+    }
+
     # Build metadata
     shootings_meta = {
         "version": version,
         "generated_at": generated_at,
         "rows": len(shootings_features),
         "years": shootings_years,
-        "rows_url": f"/shootings/rows/{version}.ndjson",
-        "geojson_url": f"/shootings/geojson/{version}.geojson",
+        "years_meta": years_meta,
     }
 
-    app.state.shootings_geojson = shootings_geojson
     app.state.shootings_features = shootings_features
     app.state.shootings_year_index = shootings_year_index
     app.state.shootings_years = shootings_years
-    app.state.shootings_rows = shootings_rows
+    app.state.shootings_rows_by_year = shootings_rows_by_year
     app.state.shootings_meta = shootings_meta
     app.state.shootings_version = version
     app.state.dataset_etags["shootings"] = _get_s3_etag(s3, shootings_key)

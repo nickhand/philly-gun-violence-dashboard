@@ -116,6 +116,7 @@ const {
   selectedYear,
   rows,
   isLoading,
+  isLoadingYear,
   overlayHold,
   loadError,
   metaError,
@@ -179,17 +180,25 @@ const filterAnnouncement = computed(() => {
 
 /**
  * Whether to show the loading overlay.
- * Show overlay if loading data, overlay hold is set, there's an error,
- * or the map is still initializing.
+ * Show overlay if loading data, loading additional year data, overlay hold is set,
+ * there's an error, or the map is still initializing.
  */
-const showOverlay = computed(
-  () =>
+const showOverlay = computed(() => {
+  const result =
     isLoading.value ||
+    isLoadingYear.value ||
     overlayHold.value ||
     !!loadError.value ||
     metaError.value ||
-    (dataReady.value && !mapReady.value)
-);
+    (dataReady.value && !mapReady.value);
+
+  if (import.meta.env.DEV) {
+    console.log(
+      `[DashboardPage] showOverlay=${result} (isLoading=${isLoading.value}, isLoadingYear=${isLoadingYear.value}, overlayHold=${overlayHold.value}, loadError=${!!loadError.value}, metaError=${metaError.value}, dataReady=${dataReady.value}, mapReady=${mapReady.value})`
+    );
+  }
+  return result;
+});
 const currentYear = computed(() => new Date().getFullYear());
 const minYear = computed(
   () => dataYears.value[dataYears.value.length - 1] ?? currentYear.value

@@ -6,7 +6,8 @@
  *
  * This store:
  * - Fetches metadata from /shootings/meta with ETag/304 support
- * - Loads row data from versioned NDJSON endpoint
+ * - Loads row data per-year for fast initial load
+ * - Lazy-loads additional years on demand
  * - Caches data in memory with version tracking
  * - Provides the base dataset for Arquero filtering
  *
@@ -16,7 +17,11 @@
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
 import type { ShootingRow } from "@/shared/types/shootings";
-import { fetchShootingsMeta, fetchShootingsRows } from "@/shared/api/shootings";
+import {
+  fetchShootingsMeta,
+  fetchShootingsRows,
+  type ShootingsMeta,
+} from "@/shared/api/shootings";
 
 const STORAGE_KEY_VERSION = "shootings_data_version";
 const STORAGE_KEY_GENERATED_AT = "shootings_data_generated_at";
@@ -33,10 +38,14 @@ interface ShootingsDataState {
   dataYears: number[];
   /** Total number of rows in dataset */
   totalRows: number;
-  /** Raw row data (for Arquero table initialization) */
-  rows: ShootingRow[] | null;
-  /** True if currently loading data */
+  /** Raw row data indexed by year (for Arquero table initialization) */
+  rowsByYear: Record<number, ShootingRow[]>;
+  /** Set of years that have been loaded */
+  loadedYears: Set<number>;
+  /** True if currently loading initial data */
   isLoading: boolean;
+  /** True if currently loading additional year data */
+  isLoadingYear: boolean;
   /** Error message if loading failed */
   loadError: string | null;
   /** True if there was an error fetching metadata */
@@ -45,6 +54,8 @@ interface ShootingsDataState {
   overlayHold: boolean;
   /** Currently selected year for UI (not data filtering) */
   selectedYear: number | null | undefined;
+  /** Cached metadata for per-year URLs */
+  meta: ShootingsMeta | null;
 }
 
 export const useShootingsDataStore = defineStore("shootingsData", {
@@ -53,24 +64,60 @@ export const useShootingsDataStore = defineStore("shootingsData", {
     datasetGeneratedAt: null,
     dataYears: [],
     totalRows: 0,
-    rows: null,
+    rowsByYear: {},
+    loadedYears: new Set(),
     isLoading: false,
+    isLoadingYear: false,
     loadError: null,
     metaError: false,
     overlayHold: false,
     selectedYear: undefined,
+    meta: null,
   }),
 
   getters: {
-    /** Whether the dataset is ready (loaded) */
-    isReady: (state): boolean => state.rows !== null,
+    /** Whether the dataset is ready (at least one year loaded) */
+    isReady: (state): boolean => state.loadedYears.size > 0,
 
     /** Whether data is being fetched (for loading indicators) */
-    isFetchingYears: (state): boolean => state.isLoading && state.rows === null,
+    isFetchingYears: (state): boolean =>
+      state.isLoading && state.loadedYears.size === 0,
 
     /** Sorted years in descending order for UI display */
     sortedYears: (state): number[] =>
       [...state.dataYears].sort((a, b) => b - a),
+
+    /**
+     * Get all loaded rows combined (for "All Years" view).
+     * Returns rows from all loaded years.
+     */
+    rows: (state): ShootingRow[] | null => {
+      if (state.loadedYears.size === 0) return null;
+      // Combine all loaded years
+      const allRows: ShootingRow[] = [];
+      for (const year of state.loadedYears) {
+        const yearRows = state.rowsByYear[year];
+        if (yearRows) {
+          allRows.push(...yearRows);
+        }
+      }
+      return allRows;
+    },
+
+    /**
+     * Check if a specific year is loaded.
+     */
+    isYearLoaded:
+      (state) =>
+      (year: number): boolean =>
+        state.loadedYears.has(year),
+
+    /**
+     * Check if all years are loaded (needed for "All Years" view).
+     */
+    allYearsLoaded: (state): boolean =>
+      state.dataYears.length > 0 &&
+      state.dataYears.every((y) => state.loadedYears.has(y)),
   },
 
   actions: {
@@ -124,7 +171,110 @@ export const useShootingsDataStore = defineStore("shootingsData", {
     },
 
     /**
-     * Fetch metadata and load dataset if needed.
+     * Load a specific year's data.
+     *
+     * @param year - The year to load
+     * @param setLoadingState - Whether to manage isLoadingYear state (default true)
+     * @returns Promise resolving to true if data was loaded
+     */
+    async loadYear(year: number, setLoadingState = true): Promise<boolean> {
+      // Already loaded
+      if (this.loadedYears.has(year)) {
+        return true;
+      }
+
+      // Need metadata first
+      if (!this.meta) {
+        console.warn("[ShootingsData] Cannot load year without metadata");
+        return false;
+      }
+
+      const yearMeta = this.meta.years_meta[year];
+      if (!yearMeta) {
+        console.warn(`[ShootingsData] No metadata for year ${year}`);
+        return false;
+      }
+
+      if (setLoadingState) {
+        this.isLoadingYear = true;
+      }
+      const startTime = performance.now();
+
+      try {
+        const rows = await fetchShootingsRows(yearMeta.rows_url);
+
+        if (import.meta.env.DEV) {
+          console.log(
+            `[ShootingsData] Year ${year} fetch: ${(performance.now() - startTime).toFixed(1)}ms (${rows.length} rows)`
+          );
+        }
+
+        // Store rows for this year
+        this.rowsByYear[year] = markRaw(rows as unknown as ShootingRow[]);
+        this.loadedYears.add(year);
+
+        return true;
+      } catch (error) {
+        console.error(`Failed to load year ${year}`, error);
+        return false;
+      } finally {
+        if (setLoadingState) {
+          this.isLoadingYear = false;
+        }
+      }
+    },
+
+    /**
+     * Load all years' data (for "All Years" view).
+     * Loads years in parallel for efficiency.
+     *
+     * @returns Promise resolving to true if all data was loaded
+     */
+    async loadAllYears(): Promise<boolean> {
+      if (!this.meta) {
+        return false;
+      }
+
+      const yearsToLoad = this.dataYears.filter(
+        (y) => !this.loadedYears.has(y)
+      );
+      if (yearsToLoad.length === 0) {
+        return true;
+      }
+
+      this.isLoadingYear = true;
+      if (import.meta.env.DEV) {
+        console.log(
+          `[ShootingsData] loadAllYears: setting isLoadingYear=true, yearsToLoad=${yearsToLoad.join(",")}`
+        );
+      }
+      const startTime = performance.now();
+
+      try {
+        // Load all remaining years in parallel (don't let individual loads manage state)
+        await Promise.all(
+          yearsToLoad.map((year) => this.loadYear(year, false))
+        );
+
+        if (import.meta.env.DEV) {
+          console.log(
+            `[ShootingsData] All years fetch: ${(performance.now() - startTime).toFixed(1)}ms`
+          );
+        }
+
+        return true;
+      } finally {
+        this.isLoadingYear = false;
+        if (import.meta.env.DEV) {
+          console.log(
+            `[ShootingsData] loadAllYears: setting isLoadingYear=false`
+          );
+        }
+      }
+    },
+
+    /**
+     * Fetch metadata and load initial year's data.
      * Uses conditional requests (ETag/304) to avoid unnecessary data transfers.
      *
      * @param forceReload - If true, skip version check and reload data
@@ -160,7 +310,7 @@ export const useShootingsDataStore = defineStore("shootingsData", {
         }
 
         // If not modified and we already have data, we're done
-        if (!metaResult.modified && this.rows !== null) {
+        if (!metaResult.modified && this.loadedYears.size > 0) {
           if (import.meta.env.DEV) {
             console.log(
               `[ShootingsData] Data unchanged (304), using cached version`
@@ -169,9 +319,8 @@ export const useShootingsDataStore = defineStore("shootingsData", {
           return false;
         }
 
-        // Edge case: Got 304 but we don't have data in memory (e.g., stale localStorage version)
-        // Retry without the version header to get fresh data
-        if (!metaResult.modified && this.rows === null) {
+        // Edge case: Got 304 but we don't have data in memory
+        if (!metaResult.modified && this.loadedYears.size === 0) {
           if (import.meta.env.DEV) {
             console.log(
               `[ShootingsData] Got 304 but no data in memory, refetching without version`
@@ -180,7 +329,6 @@ export const useShootingsDataStore = defineStore("shootingsData", {
           metaResult = await fetchShootingsMeta(null);
         }
 
-        // If modified or we don't have data, fetch the rows
         if (!metaResult.meta) {
           throw new Error("Meta endpoint returned no data");
         }
@@ -188,6 +336,7 @@ export const useShootingsDataStore = defineStore("shootingsData", {
         const meta = metaResult.meta;
 
         // Update metadata state
+        this.meta = meta;
         this.datasetVersion = meta.version;
         this.datasetGeneratedAt = meta.generated_at;
         this.dataYears = [...meta.years].sort((a, b) => b - a);
@@ -198,19 +347,17 @@ export const useShootingsDataStore = defineStore("shootingsData", {
           this.selectedYear = this.dataYears[0];
         }
 
-        // Fetch rows from versioned endpoint
-        const rows = await fetchShootingsRows(meta.rows_url);
-
-        const rowsTime = performance.now();
-        if (import.meta.env.DEV) {
-          console.log(
-            `[ShootingsData] Rows fetch: ${(rowsTime - metaTime).toFixed(1)}ms (${rows.length} rows)`
-          );
+        // Clear any previously loaded data on version change
+        if (forceReload) {
+          this.rowsByYear = {};
+          this.loadedYears = new Set();
         }
 
-        // Store rows (marked as raw to prevent Vue deep reactivity)
-        // Cast through unknown since the API returns Record<string, unknown>[]
-        this.rows = markRaw(rows as unknown as ShootingRow[]);
+        // Load only the selected year's data for fast initial load
+        const yearToLoad = this.selectedYear ?? this.dataYears[0];
+        if (yearToLoad) {
+          await this.loadYear(yearToLoad);
+        }
 
         // Save version to localStorage for future conditional requests
         this.saveCachedVersion();
@@ -231,6 +378,26 @@ export const useShootingsDataStore = defineStore("shootingsData", {
       } finally {
         this.isLoading = false;
       }
+    },
+
+    /**
+     * Ensure the selected year's data is loaded.
+     * Call this when the user changes the selected year.
+     *
+     * @param year - The year to ensure is loaded, or null for all years
+     * @returns Promise resolving to true if data is available
+     */
+    async ensureYearLoaded(year: number | null): Promise<boolean> {
+      if (import.meta.env.DEV) {
+        console.log(
+          `[ShootingsData] ensureYearLoaded called (year=${year}, isLoadingYear before=${this.isLoadingYear})`
+        );
+      }
+      if (year === null) {
+        // "All Years" selected - load all
+        return this.loadAllYears();
+      }
+      return this.loadYear(year);
     },
 
     /**

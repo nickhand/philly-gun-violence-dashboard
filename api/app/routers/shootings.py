@@ -1,16 +1,16 @@
 """Shootings endpoints.
 
 This module provides endpoints for accessing shootings data:
-- `/shootings/meta` - Primary entry point with version, metadata, and URLs
-- `/shootings/rows/{version}.ndjson` - Versioned NDJSON for Arquero (immutable, cacheable)
-- `/shootings/geojson/{version}.geojson` - Versioned GeoJSON for maps (immutable, cacheable)
+- `/shootings/meta` - Primary entry point with version, metadata, and per-year URLs
+- `/shootings/rows/{version}/{year}.ndjson` - Year-specific NDJSON for Arquero (immutable)
+- `/shootings/geojson/{version}/{year}.geojson` - Year-specific GeoJSON for maps (immutable)
 """
 
 import json
 from collections.abc import Iterator
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.data_loader import make_refresh_dependency
@@ -33,8 +33,8 @@ def get_shootings_meta(
 
     This is the primary entry point. The frontend should:
     1. Fetch this endpoint to get the current version and available years
-    2. Use `rows_url` to fetch NDJSON data for Arquero
-    3. Use `geojson_url` to fetch GeoJSON for map rendering
+    2. Use `years_meta[year].rows_url` to fetch NDJSON data for a specific year
+    3. Use `years_meta[year].geojson_url` to fetch GeoJSON for map rendering
 
     Supports ETag-based caching: if `If-None-Match` header matches the
     current version, returns 304 Not Modified.
@@ -67,16 +67,20 @@ def get_shootings_meta(
     return cast(dict[str, Any], meta)
 
 
-@router.get("/shootings/rows/{version}.ndjson")
-def get_shootings_rows(
+@router.get("/shootings/rows/{version}/{year}.ndjson")
+def get_shootings_rows_by_year(
     request: Request,
     version: str,
+    year: int,
 ) -> StreamingResponse:
-    """Return shootings data as NDJSON (newline-delimited JSON) for Arquero.
+    """Return shootings data for a specific year as NDJSON.
 
     Each line is a JSON object representing a flattened shooting record with:
     - `lon`, `lat`: Coordinates extracted from geometry
-    - `date_ms`: Date as Unix timestamp in milliseconds
+    - `dateInMs`: Date as Unix timestamp in milliseconds
+    - `timeInMs`: Milliseconds since midnight
+    - `weekday`: Day of week (0=Sunday, 6=Saturday)
+    - `year`: Year of incident
     - All properties from the original GeoJSON features
 
     This endpoint is versioned and immutable - the same version always returns
@@ -88,6 +92,8 @@ def get_shootings_rows(
         The current request with access to application state.
     version : str
         The version string (must match current dataset version).
+    year : int
+        The year to fetch data for.
 
     Returns
     -------
@@ -97,10 +103,8 @@ def get_shootings_rows(
     Raises
     ------
     HTTPException
-        404 if version doesn't match current dataset version.
+        404 if version doesn't match or year not available.
     """
-    from fastapi import HTTPException
-
     current_version = request.app.state.shootings_version
     if version != current_version:
         raise HTTPException(
@@ -108,10 +112,17 @@ def get_shootings_rows(
             detail=f"Version '{version}' not found. Current version is '{current_version}'.",
         )
 
+    rows_by_year = request.app.state.shootings_rows_by_year
+    if year not in rows_by_year:
+        available_years = sorted(rows_by_year.keys())
+        raise HTTPException(
+            status_code=404,
+            detail=f"Year {year} not found. Available years: {available_years}",
+        )
+
     def generate_ndjson() -> Iterator[str]:
-        """Stream NDJSON rows one line at a time."""
-        rows = request.app.state.shootings_rows
-        for row in rows:
+        """Stream NDJSON rows for the specified year."""
+        for row in rows_by_year[year]:
             yield json.dumps(row, separators=(",", ":")) + "\n"
 
     return StreamingResponse(
@@ -121,15 +132,19 @@ def get_shootings_rows(
     )
 
 
-@router.get("/shootings/geojson/{version}.geojson")
-def get_shootings_geojson_versioned(
+@router.get("/shootings/geojson/{version}/{year}.geojson")
+def get_shootings_geojson_by_year(
     request: Request,
     version: str,
+    year: int,
 ) -> Response:
-    """Return the full shootings GeoJSON FeatureCollection (versioned).
+    """Return shootings GeoJSON for a specific year.
+
+    Returns a GeoJSON FeatureCollection containing only features for the
+    specified year. Use for map rendering.
 
     This endpoint is versioned and immutable - the same version always returns
-    the same data, enabling aggressive client-side caching. Use for map rendering.
+    the same data, enabling aggressive client-side caching.
 
     Parameters
     ----------
@@ -137,6 +152,8 @@ def get_shootings_geojson_versioned(
         The current request with access to application state.
     version : str
         The version string (must match current dataset version).
+    year : int
+        The year to fetch data for.
 
     Returns
     -------
@@ -146,10 +163,8 @@ def get_shootings_geojson_versioned(
     Raises
     ------
     HTTPException
-        404 if version doesn't match current dataset version.
+        404 if version doesn't match or year not available.
     """
-    from fastapi import HTTPException
-
     current_version = request.app.state.shootings_version
     if version != current_version:
         raise HTTPException(
@@ -157,7 +172,21 @@ def get_shootings_geojson_versioned(
             detail=f"Version '{version}' not found. Current version is '{current_version}'.",
         )
 
-    geojson = request.app.state.shootings_geojson
+    year_index = request.app.state.shootings_year_index
+    if year not in year_index:
+        available_years = sorted(year_index.keys())
+        raise HTTPException(
+            status_code=404,
+            detail=f"Year {year} not found. Available years: {available_years}",
+        )
+
+    # Build GeoJSON for the specific year
+    features = request.app.state.shootings_features
+    year_features = [features[idx] for idx in year_index[year]]
+    geojson = {
+        "type": "FeatureCollection",
+        "features": year_features,
+    }
     content = json.dumps(geojson, separators=(",", ":"))
 
     return Response(
