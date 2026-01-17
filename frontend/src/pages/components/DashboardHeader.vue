@@ -35,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { format } from "d3-format";
 import { useHomicidesStore } from "@/shared/stores/homicides";
 
@@ -50,6 +50,9 @@ const props = defineProps<{
 }>();
 
 const homicidesStore = useHomicidesStore();
+
+// Track loading state to prevent showing partial data
+const isLoadingHomicides = ref(false);
 
 // Overlay constants (matches Vue 2 legacy)
 const overlayOpacity = 0.3;
@@ -89,25 +92,37 @@ async function fetchAllYearsTotals(): Promise<number | null> {
 
 /**
  * Load homicide data when selectedYear changes.
+ * Fetches both selected year and previous year before allowing render.
  */
 async function loadHomicideData() {
-  if (props.selectedYear === null || props.selectedYear === undefined) {
-    // For "All Years", pre-fetch all years data
-    await fetchAllYearsTotals();
-  } else {
-    // Fetch data for selected year
-    await homicidesStore.fetchTotals(props.selectedYear);
-    // Also fetch previous year for year-over-year change calculation
-    if (props.selectedYear > props.minYear) {
-      await homicidesStore.fetchTotals(props.selectedYear - 1);
+  isLoadingHomicides.value = true;
+  try {
+    if (props.selectedYear === null || props.selectedYear === undefined) {
+      // For "All Years", pre-fetch all years data
+      await fetchAllYearsTotals();
+    } else {
+      // Fetch selected year and previous year in parallel to avoid race condition
+      const fetches: Promise<unknown>[] = [
+        homicidesStore.fetchTotals(props.selectedYear),
+      ];
+      if (props.selectedYear > props.minYear) {
+        fetches.push(homicidesStore.fetchTotals(props.selectedYear - 1));
+      }
+      await Promise.all(fetches);
     }
+  } finally {
+    isLoadingHomicides.value = false;
   }
 }
 
 /**
  * Check if homicide data is available for the current selection.
+ * Also checks loading state to prevent showing partial data.
  */
 const hasHomicideData = computed(() => {
+  // Don't show data while loading to prevent partial renders
+  if (isLoadingHomicides.value) return false;
+
   if (props.selectedYear === null || props.selectedYear === undefined) {
     return Object.keys(homicidesStore.totalsCache).length > 0;
   }
