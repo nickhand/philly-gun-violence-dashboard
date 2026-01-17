@@ -18,62 +18,13 @@
         />
 
         <!-- Homicide summary -->
-        <template v-if="hasHomicideData">
-          <div v-if="selectedYear === currentYear" class="header-submessage">
-            There {{ homicideTotalValue === 1 ? "has" : "have" }} been
-            <span class="fatal"
-              >{{ homicideTotal }}
-              {{ homicideTotalValue === 1 ? "homicide" : "homicides" }}</span
-            >
-            in <span class="date-color">{{ currentYear }}</span
-            ><template v-if="homicideChange"
-              >, {{ homicideChange }} from {{ currentYear - 1 }}</template
-            >.
-          </div>
-          <div
-            v-else-if="selectedYear === null || selectedYear === undefined"
-            class="header-submessage"
-          >
-            In total, there {{ homicideTotalValue === 1 ? "has" : "have" }} been
-            <span class="fatal"
-              >{{ homicideTotal }}
-              {{ homicideTotalValue === 1 ? "homicide" : "homicides" }}</span
-            ><span class="date-color"> since {{ minYear }}</span
-            >.
-          </div>
-          <div v-else class="header-submessage">
-            In total, there {{ homicideTotalValue === 1 ? "was" : "were" }}
-            <span class="fatal"
-              >{{ homicideTotal }}
-              {{ homicideTotalValue === 1 ? "homicide" : "homicides" }}</span
-            >
-            in <span class="date-color">{{ selectedYear }}</span
-            ><template v-if="homicideChange"
-              >, {{ homicideChange }} from {{ selectedYear - 1 }}</template
-            >.
-          </div>
-        </template>
+        <div v-if="hasHomicideData" class="header-submessage" v-html="homicideMessage" />
         <div v-else class="header-submessage">
           Homicide totals are currently unavailable.
         </div>
 
         <!-- Shooting victims summary -->
-        <div class="header-submessage">
-          This map shows the victims of gun violence:
-          <span class="nonfatal">{{ formatNumber(nonfatal) }} nonfatal</span>
-          and
-          <span class="fatal">{{ formatNumber(fatal) }} fatal</span>
-          shooting victims
-          <template v-if="selectedYear === currentYear">
-            so far in <span class="date-color">{{ currentYear }}.</span>
-          </template>
-          <template v-else-if="selectedYear === null">
-            since <span class="date-color">{{ minYear }}.</span>
-          </template>
-          <template v-else>
-            in <span class="date-color">{{ selectedYear }}.</span>
-          </template>
-        </div>
+        <div class="header-submessage" v-html="shootingMessage" />
       </div>
     </div>
   </div>
@@ -229,6 +180,53 @@ const homicideChange = computed((): string | null => {
   }
 });
 
+/**
+ * Build the homicide summary message HTML.
+ */
+const homicideMessage = computed((): string => {
+  const total = homicideTotal.value;
+  const count = homicideTotalValue.value;
+  const change = homicideChange.value;
+  const hasHave = count === 1 ? "has" : "have";
+  const wasWere = count === 1 ? "was" : "were";
+  const noun = count === 1 ? "homicide" : "homicides";
+
+  const fatalSpan = `<span class="fatal">${total} ${noun}</span>`;
+  const changeText = change ? `, ${change} from ${(props.selectedYear ?? props.currentYear) - 1}` : "";
+
+  if (props.selectedYear === props.currentYear) {
+    const dateSpan = `<span class="date-color">${props.currentYear}</span>`;
+    return `There ${hasHave} been ${fatalSpan} in ${dateSpan}${changeText}.`;
+  }
+
+  if (props.selectedYear === null || props.selectedYear === undefined) {
+    const dateSpan = `<span class="date-color">since ${props.minYear}</span>`;
+    return `In total, there ${hasHave} been ${fatalSpan} ${dateSpan}.`;
+  }
+
+  const dateSpan = `<span class="date-color">${props.selectedYear}</span>`;
+  return `In total, there ${wasWere} ${fatalSpan} in ${dateSpan}${changeText}.`;
+});
+
+/**
+ * Build the shooting victims summary message HTML.
+ */
+const shootingMessage = computed((): string => {
+  const nonfatalText = `<span class="nonfatal">${formatNumber(props.nonfatal)} nonfatal</span>`;
+  const fatalText = `<span class="fatal">${formatNumber(props.fatal)} fatal</span>`;
+
+  let dateText: string;
+  if (props.selectedYear === props.currentYear) {
+    dateText = `so far in <span class="date-color">${props.currentYear}.</span>`;
+  } else if (props.selectedYear === null) {
+    dateText = `since <span class="date-color">${props.minYear}.</span>`;
+  } else {
+    dateText = `in <span class="date-color">${props.selectedYear}.</span>`;
+  }
+
+  return `This map shows the victims of gun violence: ${nonfatalText} and ${fatalText} shooting victims ${dateText}`;
+});
+
 // Load initial homicide data on mount
 onMounted(() => {
   loadHomicideData();
@@ -255,15 +253,16 @@ watch(
 </script>
 
 <style scoped>
-.nonfatal {
+/* Use :deep() to style v-html content */
+.header-submessage :deep(.nonfatal) {
   color: rgb(var(--v-theme-warning));
 }
 
-.fatal {
+.header-submessage :deep(.fatal) {
   color: rgb(var(--v-theme-error));
 }
 
-.date-color {
+.header-submessage :deep(.date-color) {
   color: rgb(var(--v-theme-secondary));
 }
 
