@@ -34,6 +34,16 @@ export const GEOJSON_PROPERTIES = [
   "race",
   "sex",
   "has_court_case",
+
+  // Aggregation keys (used by overlay layers for choropleth grouping)
+  "segment_id",
+  "police_district",
+  "council_district",
+  "zip_code",
+  "neighborhood",
+  "house_district",
+  "senate_district",
+  "school_name",
 ] as const;
 
 export type GeoJSONPropertyKey = (typeof GEOJSON_PROPERTIES)[number];
