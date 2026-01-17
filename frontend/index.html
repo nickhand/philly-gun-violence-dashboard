@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -18,11 +18,11 @@
     />
     <meta
       name="description"
-      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data. Filter by year, district, and neighborhood."
+      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data. Filter by year, district, and neighborhood. Download data in CSV and GeoJSON formats."
     />
     <meta
       name="keywords"
-      content="Philadelphia gun violence, Philly shootings, Philadelphia shootings map, gun violence dashboard, Philly crime map, Philadelphia crime data, shooting victims Philadelphia"
+      content="Philadelphia gun violence, Philly shootings, Philadelphia shootings map, Philly shootings data, gun violence dashboard, Philly crime map, Philadelphia crime data, shooting victims Philadelphia, download Philadelphia shootings data, Philly shootings dataset"
     />
     <meta name="author" content="Nick Hand" />
     <link
@@ -42,7 +42,7 @@
     />
     <meta
       property="og:description"
-      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data."
+      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data. Download in CSV and GeoJSON."
     />
     <meta
       property="og:image"
@@ -63,7 +63,7 @@
     />
     <meta
       name="twitter:description"
-      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data."
+      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data. Download data in CSV and GeoJSON."
     />
     <meta
       name="twitter:image"
@@ -74,13 +74,13 @@
     <meta name="geo.region" content="US-PA" />
     <meta name="geo.placename" content="Philadelphia" />
 
-    <!-- JSON-LD Structured Data -->
+    <!-- JSON-LD Structured Data - WebApplication -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": "WebApplication",
         "name": "Philadelphia Gun Violence Dashboard",
-        "description": "Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data.",
+        "description": "Download Philadelphia gun violence data in CSV and GeoJSON formats. Interactive map of 17,000+ shooting incidents updated daily.",
         "url": "https://nickhand.dev/philly-gun-violence-map/",
         "applicationCategory": "DataVisualization",
         "operatingSystem": "Any",
@@ -114,6 +114,131 @@
             "longitude": -75.1652
           }
         }
+      }
+    </script>
+
+    <!-- JSON-LD Structured Data - Dataset (for Google Dataset Search) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": "Philadelphia Gun Violence and Shooting Victims Data",
+        "description": "Comprehensive dataset of shooting incidents in Philadelphia including victim demographics, geographic coordinates, outcomes (fatal/nonfatal), and linked court cases. Updated daily from official Philadelphia Police Department data.",
+        "url": "https://nickhand.dev/philly-gun-violence-map/",
+        "license": "https://opendatacommons.org/licenses/pddl/1-0/",
+        "isAccessibleForFree": true,
+        "creator": {
+          "@type": "Person",
+          "name": "Nick Hand",
+          "url": "https://nickhand.dev"
+        },
+        "provider": {
+          "@type": "Organization",
+          "name": "OpenDataPhilly",
+          "url": "https://www.opendataphilly.org"
+        },
+        "temporalCoverage": "2015/..",
+        "spatialCoverage": {
+          "@type": "Place",
+          "name": "Philadelphia, Pennsylvania, USA",
+          "geo": {
+            "@type": "GeoShape",
+            "box": "39.867 -75.280 40.138 -74.956"
+          }
+        },
+        "distribution": [
+          {
+            "@type": "DataDownload",
+            "encodingFormat": "text/csv",
+            "contentUrl": "https://nickhand.dev/philly-gun-violence-map/"
+          },
+          {
+            "@type": "DataDownload",
+            "encodingFormat": "application/geo+json",
+            "contentUrl": "https://nickhand.dev/philly-gun-violence-map/"
+          }
+        ],
+        "variableMeasured": [
+          {
+            "@type": "PropertyValue",
+            "name": "dc_key",
+            "description": "Unique incident number assigned by Police Department"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "date",
+            "description": "Date and time of the shooting incident"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "fatal",
+            "description": "Whether the shooting was fatal (true/false)"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "race",
+            "description": "Race/ethnicity of victim (B, H, W, A, Other/Unknown)"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "sex",
+            "description": "Sex of victim (M/F)"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "age",
+            "description": "Victim's age in years"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "age_group",
+            "description": "Victim's age group category"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "police_district",
+            "description": "Police district where incident occurred"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "neighborhood",
+            "description": "Neighborhood name where incident occurred"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "council_district",
+            "description": "City Council district number"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "zip_code",
+            "description": "ZIP code of incident location"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "street_name",
+            "description": "Street name where incident occurred"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "block_number",
+            "description": "Block number of incident location"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "has_court_case",
+            "description": "Whether incident has associated court case"
+          }
+        ],
+        "keywords": [
+          "gun violence",
+          "shootings",
+          "Philadelphia",
+          "crime data",
+          "public safety",
+          "victim data",
+          "geospatial data"
+        ]
       }
     </script>
   </head>

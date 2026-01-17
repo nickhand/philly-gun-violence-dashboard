@@ -82,17 +82,18 @@ import ChartDashboard from "@/features/charts/components/ChartDashboard.vue";
 
 // SEO Meta Tags
 useHead({
-  title: "Philadelphia Gun Violence Dashboard | Interactive Shootings Map",
+  title:
+    "Philadelphia Gun Violence Dashboard | Interactive Shootings Map & Data",
   meta: [
     {
       name: "description",
       content:
-        "Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Explore daily-updated data by year, district, and neighborhood.",
+        "Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Explore daily-updated data by year, district, and neighborhood. Download in CSV and GeoJSON.",
     },
     {
       name: "keywords",
       content:
-        "Philadelphia gun violence, Philly shootings, Philadelphia shootings map, gun violence dashboard, Philly crime map, Philadelphia crime data, shooting victims",
+        "Philadelphia gun violence, Philly shootings, Philadelphia shootings map, gun violence dashboard, Philly crime map, Philadelphia crime data, shooting victims, download shootings data",
     },
   ],
   link: [
