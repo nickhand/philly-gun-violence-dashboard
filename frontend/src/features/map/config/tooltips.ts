@@ -28,8 +28,6 @@ export interface ShootingProperties {
   sex: "M" | "F";
   fatal: boolean;
   has_court_case: boolean;
-  officer_involved?: boolean;
-  inside?: boolean;
 }
 
 /**
@@ -252,10 +250,6 @@ export function createPointsLayerTooltip(
   // Case info
   builder.row("DC Number", props.dc_key);
   builder.row("Court Case", props.has_court_case ? "Yes" : "No");
-
-  if (props.officer_involved !== undefined) {
-    builder.row("Officer Involved", props.officer_involved ? "Yes" : "No");
-  }
 
   return builder.build();
 }

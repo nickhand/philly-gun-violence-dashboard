@@ -1,6 +1,6 @@
 """Data freshness metadata endpoints."""
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Request
 
@@ -36,7 +36,7 @@ def get_shootings_meta(request: Request) -> dict[str, Any]:
         Metadata including last_updated and data_through.
     """
     s3 = request.app.state.s3
-    return read_processed_json("shootings_meta", s3=s3)
+    return cast(dict[str, Any], read_processed_json("shootings_meta", s3=s3))
 
 
 @router.get("/homicides")
@@ -49,7 +49,7 @@ def get_homicides_meta(request: Request) -> dict[str, Any]:
         Metadata including last_updated and data_through.
     """
     s3 = request.app.state.s3
-    return read_processed_json("homicides_meta", s3=s3)
+    return cast(dict[str, Any], read_processed_json("homicides_meta", s3=s3))
 
 
 @router.get("/courts")
@@ -62,4 +62,4 @@ def get_courts_meta(request: Request) -> dict[str, Any]:
         Metadata including last_updated and data_through.
     """
     s3 = request.app.state.s3
-    return read_processed_json("courts_meta", s3=s3)
+    return cast(dict[str, Any], read_processed_json("courts_meta", s3=s3))

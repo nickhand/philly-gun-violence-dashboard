@@ -3,7 +3,6 @@
 This module provides endpoints for accessing shootings data:
 - `/shootings/meta` - Primary entry point with version, metadata, and per-year URLs
 - `/shootings/rows/{version}/{year}.ndjson` - Year-specific NDJSON for Arquero (immutable)
-- `/shootings/geojson/{version}/{year}.geojson` - Year-specific GeoJSON for maps (immutable)
 """
 
 import json
@@ -34,7 +33,6 @@ def get_shootings_meta(
     This is the primary entry point. The frontend should:
     1. Fetch this endpoint to get the current version and available years
     2. Use `years_meta[year].rows_url` to fetch NDJSON data for a specific year
-    3. Use `years_meta[year].geojson_url` to fetch GeoJSON for map rendering
 
     Supports ETag-based caching: if `If-None-Match` header matches the
     current version, returns 304 Not Modified.
@@ -128,69 +126,5 @@ def get_shootings_rows_by_year(
     return StreamingResponse(
         generate_ndjson(),
         media_type="application/x-ndjson; charset=utf-8",
-        headers={"Cache-Control": IMMUTABLE_CACHE_CONTROL},
-    )
-
-
-@router.get("/shootings/geojson/{version}/{year}.geojson")
-def get_shootings_geojson_by_year(
-    request: Request,
-    version: str,
-    year: int,
-) -> Response:
-    """Return shootings GeoJSON for a specific year.
-
-    Returns a GeoJSON FeatureCollection containing only features for the
-    specified year. Use for map rendering.
-
-    This endpoint is versioned and immutable - the same version always returns
-    the same data, enabling aggressive client-side caching.
-
-    Parameters
-    ----------
-    request : fastapi.Request
-        The current request with access to application state.
-    version : str
-        The version string (must match current dataset version).
-    year : int
-        The year to fetch data for.
-
-    Returns
-    -------
-    Response
-        GeoJSON response with immutable cache headers.
-
-    Raises
-    ------
-    HTTPException
-        404 if version doesn't match or year not available.
-    """
-    current_version = request.app.state.shootings_version
-    if version != current_version:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Version '{version}' not found. Current version is '{current_version}'.",
-        )
-
-    year_index = request.app.state.shootings_year_index
-    if year not in year_index:
-        available_years = sorted(year_index.keys())
-        raise HTTPException(
-            status_code=404,
-            detail=f"Year {year} not found. Available years: {available_years}",
-        )
-
-    # Build GeoJSON for the specific year
-    features = request.app.state.shootings_features
-    year_features = [features[idx] for idx in year_index[year]]
-    geojson = {
-        "type": "FeatureCollection",
-        "features": year_features,
-    }
-    content = json.dumps(geojson, separators=(",", ":"))
-
-    return Response(
-        content=content,
-        media_type="application/geo+json",
         headers={"Cache-Control": IMMUTABLE_CACHE_CONTROL},
     )

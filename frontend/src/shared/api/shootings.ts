@@ -6,8 +6,6 @@ export interface YearMeta {
   rows: number;
   /** URL to fetch versioned NDJSON rows for this year */
   rows_url: string;
-  /** URL to fetch versioned GeoJSON for this year */
-  geojson_url: string;
 }
 
 /** Metadata response from /shootings/meta endpoint */

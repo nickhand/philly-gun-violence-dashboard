@@ -12,6 +12,10 @@ import * as aq from "arquero";
 import { bin } from "d3-array";
 import type { FilterConfig, HistogramBin } from "../types";
 import type { ShootingRow } from "@/shared/types/shootings";
+import {
+  rowsToGeoJSON,
+  type ShootingFeature,
+} from "@/shared/utils/rowsToGeoJSON";
 
 // Arquero table type - use any due to complex internal types
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,7 +50,7 @@ interface UseArqueroReturn {
   /** Filtered rows as array (reactive) */
   filteredRows: ComputedRef<ShootingRow[]>;
   /** Filtered features as GeoJSON (for map, reactive) */
-  filteredFeatures: ComputedRef<GeoJSON.Feature[]>;
+  filteredFeatures: ComputedRef<ShootingFeature[]>;
   /** Initialize with row data and filter configs */
   initialize: (rows: ShootingRow[], configs: FilterConfig[]) => void;
   /** Apply filter to a dimension */
@@ -312,26 +316,12 @@ export function useArquero(): UseArqueroReturn {
 
   /**
    * Convert filtered rows to GeoJSON features for map rendering.
+   * Uses rowsToGeoJSON to include only the properties needed for tooltip/styling.
    */
-  const filteredFeatures = computed<GeoJSON.Feature[]>(() => {
+  const filteredFeatures = computed<ShootingFeature[]>(() => {
     const rows = filteredRows.value;
-
-    return rows
-      .filter(
-        (row) =>
-          row.lon != null &&
-          row.lat != null &&
-          !isNaN(row.lon) &&
-          !isNaN(row.lat)
-      )
-      .map((row) => ({
-        type: "Feature" as const,
-        geometry: {
-          type: "Point" as const,
-          coordinates: [row.lon!, row.lat!],
-        },
-        properties: { ...row },
-      }));
+    const fc = rowsToGeoJSON(rows);
+    return fc.features;
   });
 
   /**
