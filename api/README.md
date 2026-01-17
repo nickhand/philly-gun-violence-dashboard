@@ -4,8 +4,9 @@ FastAPI service for the Philadelphia Gun Violence Dashboard. Provides GeoJSON en
 
 ## Key endpoints
 - `GET /health`
-- `GET /shootings?year=YYYY&limit=2000&offset=0`
-- `GET /shootings/years`
+- `GET /shootings/meta` — returns version hash and URLs for rows/geojson
+- `GET /shootings/rows/{version}.ndjson` — row data as NDJSON
+- `GET /shootings/geojson/{version}.geojson` — GeoJSON FeatureCollection
 - `GET /streets?segment_id=...&limit=2000&offset=0`
 - `GET /boundaries` and `GET /boundaries/{dataset}`
 - `GET /homicides/{year}`

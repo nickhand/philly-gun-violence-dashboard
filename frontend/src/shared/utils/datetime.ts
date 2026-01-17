@@ -1,4 +1,4 @@
-import { timeParse, timeFormat } from "d3-time-format";
+import { timeParse, utcFormat } from "d3-time-format";
 
 const parseIsoLike = timeParse("%Y-%m-%d %H:%M:%S");
 const parseLegacy = timeParse("%Y/%m/%d %H:%M:%S");
@@ -43,6 +43,8 @@ export function msToTimeString(ms: number): string {
  * Convert a timestamp to a formatted date/time string.
  *
  * Uses d3-time-format patterns for formatting.
+ * Formats in UTC to avoid timezone offset issues (the timestamps represent
+ * wall-clock times stored as UTC).
  *
  * @param ts - Unix timestamp in milliseconds
  * @param pattern - d3-time-format pattern (default: "%B %d" - e.g., "January 15")
@@ -57,6 +59,6 @@ export function msToTimeString(ms: number): string {
  */
 export function timestampToTimeString(ts: number, pattern = "%B %d"): string {
   const dt = new Date(ts);
-  const formatTime = timeFormat(pattern);
+  const formatTime = utcFormat(pattern);
   return formatTime(dt);
 }

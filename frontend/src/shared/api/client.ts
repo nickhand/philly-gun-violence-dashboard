@@ -15,15 +15,15 @@ export function getApiBaseUrl(): string {
  * Fetches data from the API with automatic JSON parsing and error handling.
  *
  * @template T - The expected response type
- * @param path - API endpoint path (e.g., "/shootings/years")
+ * @param path - API endpoint path (e.g., "/shootings/meta")
  * @param init - Optional fetch configuration (headers, method, etc.)
  * @returns Promise resolving to the typed response data
  * @throws Error if the API request fails (non-2xx status)
  *
  * @example
  * ```ts
- * const years = await apiFetch<number[]>("/shootings/years");
- * const data = await apiFetch<FeatureCollection>("/shootings?year=2024");
+ * const meta = await apiFetch<ShootingsMeta>("/shootings/meta");
+ * const data = await apiFetch<FeatureCollection>("/boundaries/police_districts");
  * ```
  */
 export async function apiFetch<T>(

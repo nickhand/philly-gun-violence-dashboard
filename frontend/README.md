@@ -9,7 +9,7 @@ Interactive Vue 3 dashboard visualizing gun violence data in Philadelphia with m
 - **UI Library:** Vuetify 3
 - **Mapping:** MapLibre GL
 - **Charts:** D3.js
-- **Data Filtering:** Crossfilter2
+- **Data Filtering:** Arquero
 - **State Management:** Pinia
 - **Build Tool:** Vite
 

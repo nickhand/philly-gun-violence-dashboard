@@ -13,7 +13,7 @@ import { msToTimeString, timestampToTimeString } from "@/shared/utils/datetime";
  * @example
  * ```typescript
  * const filterConfigs = getFilterConfigs(2024);
- * // Use in crossfilter or sidebar component
+ * // Use in Arquero filtering or sidebar component
  * ```
  */
 export function getFilterConfigs(selectedYear: number | null): FilterConfig[] {

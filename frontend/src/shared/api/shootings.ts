@@ -1,110 +1,111 @@
-import type { PageMeta } from "@/shared/types/pagination";
-import type { ShootingVictimsGeoJsonApi } from "@/shared/types/shootings";
-import { apiFetch } from "@/shared/api/client";
-import { fetchAllPages } from "@/shared/utils/pagination";
+import { getApiBaseUrl } from "@/shared/api/client";
 
-/** Paginated response for shootings data */
-export interface ShootingsPage extends PageMeta {
-  type: "FeatureCollection";
-  features: ShootingVictimsGeoJsonApi["features"];
-}
-
-/** API response for available shooting data years */
-export interface ShootingsYearsResponse {
+/** Metadata response from /shootings/meta endpoint */
+export interface ShootingsMeta {
+  /** Content-based version hash */
+  version: string;
+  /** ISO timestamp when data was generated */
+  generated_at: string;
+  /** Total number of rows in dataset */
+  rows: number;
+  /** Available years in the dataset */
   years: number[];
+  /** URL to fetch versioned NDJSON rows */
+  rows_url: string;
+  /** URL to fetch versioned GeoJSON */
+  geojson_url: string;
+}
+
+/** Result of fetching meta with conditional request support */
+export interface MetaFetchResult {
+  /** Whether the data was modified (false = 304 Not Modified) */
+  modified: boolean;
+  /** Meta data (only present if modified) */
+  meta?: ShootingsMeta;
 }
 
 /**
- * Fetches all available years with shooting victim data.
+ * Fetches shootings metadata with conditional request support (ETag/304).
  *
- * @returns Promise resolving to array of years with data
+ * @param lastKnownVersion - Optional last known version for If-None-Match header
+ * @returns Promise resolving to meta fetch result
  * @throws Error if the API request fails
  *
  * @example
  * ```ts
- * const years = await fetchShootingsYears();
- * // [2015, 2016, ..., 2024]
+ * // First fetch (no version known)
+ * const result = await fetchShootingsMeta();
+ * if (result.modified) {
+ *   console.log(`Version: ${result.meta?.version}`);
+ * }
+ *
+ * // Subsequent fetch with version check
+ * const result2 = await fetchShootingsMeta(lastVersion);
+ * if (!result2.modified) {
+ *   console.log("Data unchanged, use cached version");
+ * }
  * ```
  */
-export async function fetchShootingsYears(): Promise<number[]> {
-  const response = await apiFetch<ShootingsYearsResponse>("/shootings/years");
-  return response.years;
+export async function fetchShootingsMeta(
+  lastKnownVersion?: string | null
+): Promise<MetaFetchResult> {
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}/shootings/meta`;
+
+  const headers: HeadersInit = {};
+  if (lastKnownVersion) {
+    headers["If-None-Match"] = `"${lastKnownVersion}"`;
+  }
+
+  const response = await fetch(url, { headers });
+
+  // 304 Not Modified - data unchanged
+  if (response.status === 304) {
+    return { modified: false };
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `API request failed: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const meta = (await response.json()) as ShootingsMeta;
+  return { modified: true, meta };
 }
 
 /**
- * Fetches a single page of shooting victims data with optional filters.
+ * Fetches shootings rows as NDJSON and parses to array of row objects.
  *
- * @param params - Query parameters for filtering and pagination
- * @param params.year - Optional year to filter by (null for all years)
- * @param params.limit - Maximum number of features to return per page
- * @param params.offset - Number of features to skip (for pagination)
- * @returns Promise resolving to a paginated GeoJSON FeatureCollection with metadata
+ * @param rowsUrl - Relative URL to the versioned NDJSON endpoint (from meta.rows_url)
+ * @returns Promise resolving to array of row objects
  * @throws Error if the API request fails
  *
  * @example
  * ```ts
- * // Fetch first page for 2024
- * const page = await fetchShootingsPage({ year: 2024, limit: 2000, offset: 0 });
- *
- * // Fetch all years
- * const allYears = await fetchShootingsPage({ year: null, limit: 2000 });
+ * const rows = await fetchShootingsRows("/shootings/rows/abc123def456.ndjson");
+ * console.log(`Loaded ${rows.length} rows`);
  * ```
  */
-export async function fetchShootingsPage(params: {
-  year?: number | null;
-  limit?: number;
-  offset?: number;
-}): Promise<ShootingsPage> {
-  // Build query parameters
-  const search = new URLSearchParams();
-  if (params.year !== undefined && params.year !== null) {
-    search.set("year", String(params.year));
-  }
-  if (params.limit !== undefined) {
-    search.set("limit", String(params.limit));
-  }
-  if (params.offset !== undefined) {
-    search.set("offset", String(params.offset));
+export async function fetchShootingsRows(
+  rowsUrl: string
+): Promise<Record<string, unknown>[]> {
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}${rowsUrl}`;
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(
+      `API request failed: ${response.status} ${response.statusText}`
+    );
   }
 
-  // Fetch the data from the API
-  const suffix = search.toString();
-  return apiFetch<ShootingsPage>(`/shootings${suffix ? `?${suffix}` : ""}`);
-}
+  // Parse NDJSON: one JSON object per line
+  const text = await response.text();
+  const lines = text.trim().split("\n");
 
-/**
- * Fetches all shooting victims data by exhausting paginated API endpoints.
- *
- * This function automatically handles pagination by making multiple requests
- * until all data is retrieved. Use with caution for large datasets.
- *
- * @param params - Query parameters for filtering
- * @param params.year - Optional year to filter by (null for all years)
- * @param params.pageSize - Number of features to fetch per request (default: 2000)
- * @returns Promise resolving to complete GeoJSON FeatureCollection with all features
- * @throws Error if any API request fails
- *
- * @example
- * ```ts
- * // Fetch all shootings for 2024
- * const data2024 = await fetchShootingsAllPages({ year: 2024 });
- * console.log(`Total features: ${data2024.features.length}`);
- *
- * // Fetch all years with custom page size
- * const allData = await fetchShootingsAllPages({ year: null, pageSize: 5000 });
- * ```
- */
-export async function fetchShootingsAllPages(params: {
-  year?: number | null;
-  pageSize?: number;
-}): Promise<ShootingVictimsGeoJsonApi> {
-  return fetchAllPages(
-    (paginationParams) =>
-      fetchShootingsPage({
-        year: params.year,
-        ...paginationParams,
-      }),
-    {},
-    params.pageSize
-  );
+  return lines
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }

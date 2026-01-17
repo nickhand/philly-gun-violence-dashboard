@@ -1,8 +1,11 @@
 """Data loading utilities for API startup and refresh."""
 
+import hashlib
+import json
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import FastAPI, Request
 from mypy_boto3_s3.client import S3Client
@@ -58,6 +61,89 @@ def init_dataset_keys(app: FastAPI) -> None:
     app.state.dataset_last_checked = {}
 
 
+def _compute_version_hash(data: Any) -> str:
+    """Compute a short content hash for versioning.
+
+    Parameters
+    ----------
+    data : Any
+        The data to hash (will be JSON-serialized).
+
+    Returns
+    -------
+    str
+        A 12-character hex hash.
+    """
+    content = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(content).hexdigest()[:12]
+
+
+def _flatten_feature_to_row(feature: dict[str, Any], index: int) -> dict[str, Any]:
+    """Flatten a GeoJSON feature to a tabular row for Arquero.
+
+    Adds derived time fields matching the frontend's normalizeShootingsData:
+    - `dateInMs`: Timestamp of the incident date
+    - `timeInMs`: Milliseconds since midnight of the incident date
+    - `weekday`: Day of the week (0=Sunday, 6=Saturday)
+    - `unique_id`: Unique identifier for each feature
+
+    Parameters
+    ----------
+    feature : dict[str, Any]
+        A GeoJSON Feature with geometry and properties.
+    index : int
+        The index of the feature in the collection (used for unique_id).
+
+    Returns
+    -------
+    dict[str, Any]
+        Flattened row with lon, lat, derived time fields, and all properties.
+    """
+    props = feature.get("properties", {}).copy()
+    geometry = feature.get("geometry", {})
+    coords = geometry.get("coordinates", [None, None]) if geometry else [None, None]
+
+    # Extract lon/lat from Point geometry
+    lon = coords[0] if coords and len(coords) >= 1 else None
+    lat = coords[1] if coords and len(coords) >= 2 else None
+
+    # Parse date and compute derived time fields (matching frontend normalizeShootingsData)
+    date_str = props.get("date")
+    date_in_ms: int | None = None
+    time_in_ms: int | None = None
+    weekday: int | None = None
+    year: int | None = None
+
+    if date_str:
+        try:
+            dt = datetime.strptime(date_str, DATE_FORMAT)
+            # dateInMs: Unix timestamp in milliseconds (UTC)
+            date_in_ms = int(dt.replace(tzinfo=UTC).timestamp() * 1000)
+            # timeInMs: Milliseconds since midnight
+            time_in_ms = (dt.hour * 3600 + dt.minute * 60 + dt.second) * 1000
+            # weekday: Day of week (0=Monday in Python, but frontend expects 0=Sunday)
+            # Python weekday(): Monday=0, Sunday=6
+            # JS getDay(): Sunday=0, Saturday=6
+            # Convert: (python_weekday + 1) % 7
+            time_in_ms += dt.microsecond // 1000
+            weekday = (dt.weekday() + 1) % 7
+            year = dt.year
+        except ValueError:
+            pass
+
+    row = {
+        "lon": lon,
+        "lat": lat,
+        "dateInMs": date_in_ms,
+        "timeInMs": time_in_ms,
+        "weekday": weekday,
+        "year": year,
+        "unique_id": index,
+        **props,
+    }
+    return row
+
+
 def load_shootings_data(app: FastAPI) -> None:
     """Load shootings data into application state.
 
@@ -72,16 +158,38 @@ def load_shootings_data(app: FastAPI) -> None:
     # Keep a stable list of features and build an index for fast year filtering.
     shootings_features = list(shootings_geojson.get("features", []))
     shootings_year_index: dict[int, list[int]] = {}
+    shootings_rows: list[dict[str, Any]] = []
+
     for idx, feature in enumerate(shootings_features):
         year = _extract_year(feature.get("properties", {}).get("date"))
-        if year is None:
-            continue
-        shootings_year_index.setdefault(year, []).append(idx)
+        if year is not None:
+            shootings_year_index.setdefault(year, []).append(idx)
+        # Flatten feature to row for NDJSON endpoint (pass index for unique_id)
+        shootings_rows.append(_flatten_feature_to_row(feature, idx))
+
     shootings_years = sorted(shootings_year_index)
+
+    # Compute content-based version hash
+    version = _compute_version_hash(shootings_geojson)
+    generated_at = datetime.now(UTC).isoformat()
+
+    # Build metadata
+    shootings_meta = {
+        "version": version,
+        "generated_at": generated_at,
+        "rows": len(shootings_features),
+        "years": shootings_years,
+        "rows_url": f"/shootings/rows/{version}.ndjson",
+        "geojson_url": f"/shootings/geojson/{version}.geojson",
+    }
+
     app.state.shootings_geojson = shootings_geojson
     app.state.shootings_features = shootings_features
     app.state.shootings_year_index = shootings_year_index
     app.state.shootings_years = shootings_years
+    app.state.shootings_rows = shootings_rows
+    app.state.shootings_meta = shootings_meta
+    app.state.shootings_version = version
     app.state.dataset_etags["shootings"] = _get_s3_etag(s3, shootings_key)
 
 

@@ -35,15 +35,8 @@ export interface PaginationParams {
  *
  * @example
  * ```typescript
- * // Fetch all shootings for a year
- * const allShootings = await fetchAllPages(
- *   (params) => fetchShootingsPage({ year: 2024, ...params }),
- *   {},
- *   2000
- * );
- *
  * // Fetch all streets with filters
- * const filteredStreets = await fetchAllPages(
+ * const allStreets = await fetchAllPages(
  *   (params) => fetchStreetsPage({ segment_ids: ['123', '456'], ...params }),
  *   {}
  * );
@@ -51,7 +44,7 @@ export interface PaginationParams {
  */
 export async function fetchAllPages<
   TFeature,
-  TParams extends PaginationParams = PaginationParams
+  TParams extends PaginationParams = PaginationParams,
 >(
   fetchPageFn: (params: TParams) => Promise<PaginatedFeatureResponse<TFeature>>,
   params: Omit<TParams, "limit" | "offset">,

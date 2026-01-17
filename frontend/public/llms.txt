@@ -9,7 +9,7 @@ This dashboard provides an interactive map and charts for exploring shooting vic
 ## Key Features
 
 - Interactive map with shooting incident locations
-- Crossfiltering between map and charts
+- Linked filtering between map and charts
 - Daily automated data updates
 - Aggregation by police districts, council districts, and ZIP codes
 - Downloadable data in CSV and GeoJSON formats
@@ -31,7 +31,7 @@ This dashboard provides an interactive map and charts for exploring shooting vic
 
 ## Technical Stack
 
-- **Frontend**: Vue 3, TypeScript, Vuetify 3, MapLibre GL, D3.js, Crossfilter2
+- **Frontend**: Vue 3, TypeScript, Vuetify 3, MapLibre GL, D3.js, Arquero
 - **Backend**: FastAPI (Python), Pydantic, AWS S3
 - **Infrastructure**: Fly.io (API), Netlify (frontend)
 - **Data Pipeline**: Python ETL with Typer CLI, Playwright for scraping, GitHub Actions for automation

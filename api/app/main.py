@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.data_loader import (
     init_dataset_keys,
@@ -52,16 +53,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Add GZip compression for responses >= 1000 bytes
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://phillygunviolence.netlify.app",
         "https://www.nickhand.dev",
         "https://nickhand.dev",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
         "null",
     ],
     allow_credentials=True,

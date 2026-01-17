@@ -137,28 +137,29 @@
  * Orchestrates map rendering, data filtering, and sidebar controls.
  *
  * Architecture:
- * - Uses crossfilter for multi-dimensional filtering
+ * - Uses Arquero for multi-dimensional filtering
  * - FilterableMap handles MapLibre GL rendering and layer management
  * - MapSidebar provides filter controls and statistics
- * - Filtered features flow: data → crossfilter → map/sidebar
+ * - Filtered features flow: data → Arquero → map/sidebar
  *
  * @component
  */
 
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
 import FilterableMap from "./FilterableMap.vue";
 import MapSidebar from "./MapSidebar/MapSidebar.vue";
 import AddressSearch from "./AddressSearch.vue";
-import { useCrossfilter } from "../composables/useCrossfilter";
+import { useArquero } from "../composables/useArquero";
 import { useHistograms } from "../composables/useHistograms";
 import { useMapConfig } from "../composables/useMapConfig";
 import { useUrlState } from "../composables/useUrlState";
-import { useShootingsStore } from "@/shared/stores/shootings";
+import { useShootingsDataStore } from "@/shared/stores/shootingsData";
 import { useBoundariesStore } from "@/shared/stores/boundaries";
 import { sourceIdToDataset } from "../config/sources";
 import type { AddressResult } from "../composables/useGeocoding";
+import type { ShootingRow } from "@/shared/types/shootings";
 
 // Types
 interface Feature {
@@ -176,10 +177,10 @@ const emit = defineEmits<{
 // Access route for URL query params
 const route = useRoute();
 
-// Store access
-const shootingsStore = useShootingsStore();
+// Store access - using new Arquero-based data store
+const shootingsStore = useShootingsDataStore();
 const boundariesStore = useBoundariesStore();
-const { currentData, selectedYear } = storeToRefs(shootingsStore);
+const { rows, selectedYear } = storeToRefs(shootingsStore);
 
 // Normalize selectedYear to exclude undefined
 const normalizedYear = computed(() => selectedYear.value ?? null);
@@ -193,20 +194,25 @@ const {
   defaultToggledLayerNames,
 } = useMapConfig(normalizedYear);
 
-// Crossfilter composable for filtering
+// Arquero composable for filtering
 const {
   activeFilters,
   sliderLimits,
-  initializeCrossfilter,
+  filteredFeatures,
+  initialize: initializeArquero,
   applyFilter,
   resetFilter,
   resetAllFilters,
-  getAllFiltered,
   getHistogramData,
-} = useCrossfilter();
+} = useArquero();
 
 // Histograms composable for slider filter charts
 const { histograms, initializeHistograms, updateHistograms } = useHistograms();
+
+// Load data on mount
+onMounted(async () => {
+  await shootingsStore.loadDatasetIfNeeded();
+});
 
 /**
  * Convert URL layer ID to actual layer name by matching against known layer names.
@@ -216,7 +222,10 @@ const { histograms, initializeHistograms, updateHistograms } = useHistograms();
  * @param allLayerNames - Array of all known layer names to match against
  * @returns Matched layer name or null if no match found
  */
-function urlIdToLayerName(urlId: string, allLayerNames: string[]): string | null {
+function urlIdToLayerName(
+  urlId: string,
+  allLayerNames: string[]
+): string | null {
   // Convert URL ID to comparable format (lowercase, spaces instead of hyphens)
   const urlNormalized = urlId.toLowerCase().replace(/-/g, " ");
 
@@ -347,18 +356,13 @@ const allLayerNames = computed(() => [
 // Sync state with URL (year, layers, map view)
 useUrlState(normalizedYear, activeLayers, mapInstance, allLayerNames.value);
 
-// Computed properties
-/**
- * Filtered GeoJSON features from crossfilter.
- * Updates reactively when filters change.
- */
-const filteredFeatures = computed(() => getAllFiltered());
+// Note: filteredFeatures is now a computed ref from useArquero, not a local computed
 
 /**
  * Total feature count (unfiltered).
  * Used for statistics display in sidebar.
  */
-const totalFeatures = computed(() => currentData.value?.features.length ?? 0);
+const totalFeatures = computed(() => rows.value?.length ?? 0);
 
 /**
  * Generate a text summary of map data for screen readers.
@@ -427,7 +431,7 @@ const pointsOnMap = computed(() => {
 // Event handlers
 /**
  * Handle filter value change from sidebar controls.
- * Applies filter to crossfilter and triggers map update.
+ * Applies filter to Arquero table and triggers map update.
  *
  * @param dimensionId - Filter dimension ID
  * @param value - New filter value
@@ -466,9 +470,8 @@ async function handleDownload(options: {
   aggregateBy: string | null;
 }): Promise<void> {
   // Get appropriate features based on selection
-  const features = options.useFiltered
-    ? filteredFeatures.value
-    : getAllFiltered();
+  // With Arquero, filteredFeatures is already the full filtered result
+  const features = filteredFeatures.value;
 
   const timestamp = new Date().toISOString().split("T")[0];
   const suffix = options.useFiltered ? "filtered" : "all";
@@ -764,10 +767,15 @@ function handleLayerChange(layerName: string, visible: boolean): void {
   if (currentOverlay.value) {
     if (visible) {
       if (!savedToggleableLayers.value.includes(layerName)) {
-        savedToggleableLayers.value = [...savedToggleableLayers.value, layerName];
+        savedToggleableLayers.value = [
+          ...savedToggleableLayers.value,
+          layerName,
+        ];
       }
     } else {
-      savedToggleableLayers.value = savedToggleableLayers.value.filter((l) => l !== layerName);
+      savedToggleableLayers.value = savedToggleableLayers.value.filter(
+        (l) => l !== layerName
+      );
     }
     return;
   }
@@ -822,7 +830,9 @@ const initialToggleableLayers = computed(() => {
       : defaultToggledLayerNames.value;
   }
   // No overlay - filter activeLayers to only include toggleable layers
-  return activeLayers.value.filter((l) => toggleableLayerNames.value.includes(l));
+  return activeLayers.value.filter((l) =>
+    toggleableLayerNames.value.includes(l)
+  );
 });
 
 /**
@@ -918,18 +928,22 @@ watch(selectedYear, () => {
 });
 
 /**
- * Initialize crossfilter when data loads.
- * Watches currentData from store and reinitializes on change.
+ * Initialize Arquero filtering when data loads or year changes.
+ * Filters rows by selected year before initializing Arquero.
  */
 watch(
-  currentData,
-  (newData) => {
-    if (newData && newData.features.length > 0) {
-      initializeCrossfilter(
-        newData.features as any as GeoJSON.Feature[],
-        filters.value
-      );
-      // Initialize histograms after crossfilter is ready
+  [rows, selectedYear],
+  ([newRows, year]) => {
+    if (newRows && newRows.length > 0) {
+      // Filter rows by selected year (null = all years)
+      const filteredRows =
+        year === null || year === undefined
+          ? newRows
+          : newRows.filter((r) => r.year === year);
+
+      // Initialize Arquero with filtered row data
+      initializeArquero(filteredRows as ShootingRow[], filters.value);
+      // Initialize histograms after Arquero is ready
       initializeHistograms(filters.value, getHistogramData);
     }
   },

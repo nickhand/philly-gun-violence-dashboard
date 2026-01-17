@@ -2,7 +2,7 @@
  * Histograms Composable
  *
  * Manages histogram data for slider filters with showHistogram enabled.
- * Computes histograms from crossfilter dimensions, excluding each dimension's
+ * Computes histograms from Arquero-filtered data, excluding each dimension's
  * own filter to show the full distribution.
  *
  * @module useHistograms
@@ -35,7 +35,7 @@ interface UseHistogramsReturn {
  * ```ts
  * const { histograms, initializeHistograms, updateHistograms } = useHistograms();
  *
- * // After crossfilter is initialized
+ * // After Arquero table is initialized
  * initializeHistograms(filterConfigs, getHistogramData);
  *
  * // When filters change
@@ -58,7 +58,7 @@ export function useHistograms(numBins: number = 30): UseHistogramsReturn {
    * Initialize histograms for all slider filters with showHistogram enabled.
    *
    * @param filters - Filter configurations
-   * @param getHistogramData - Function to get histogram data from crossfilter
+   * @param getHistogramData - Function to get histogram data from Arquero table
    */
   function initializeHistograms(
     filters: FilterConfig[],
@@ -82,7 +82,7 @@ export function useHistograms(numBins: number = 30): UseHistogramsReturn {
   /**
    * Update all histogram data (call when filters change).
    *
-   * @param getHistogramData - Function to get histogram data from crossfilter
+   * @param getHistogramData - Function to get histogram data from Arquero table
    */
   function updateHistograms(
     getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[]

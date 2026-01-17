@@ -4,7 +4,7 @@
  * Centralized export point for all map-related composables.
  */
 
-export * from "./useCrossfilter";
+export * from "./useArquero";
 export * from "./useMapConfig";
 export * from "./useUrlState";
 export * from "./useHistograms";

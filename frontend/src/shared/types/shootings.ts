@@ -30,12 +30,25 @@ export interface ShootingVictimsPropertiesBase {
   segment_id: string | null;
 }
 
-export interface ShootingVictimsPropertiesDerived
-  extends ShootingVictimsPropertiesBase {
-  weekday: number;
-  timeInMs: number;
-  dateInMs: number;
+export interface ShootingVictimsPropertiesDerived extends ShootingVictimsPropertiesBase {
+  weekday: number | null;
+  timeInMs: number | null;
+  dateInMs: number | null;
   unique_id: number;
+}
+
+/**
+ * Flattened row schema for Arquero tables.
+ * Matches the NDJSON output from /shootings/rows endpoint.
+ * Includes all properties plus lon/lat extracted from geometry.
+ */
+export interface ShootingRow extends ShootingVictimsPropertiesDerived {
+  /** Longitude from geometry */
+  lon: number | null;
+  /** Latitude from geometry */
+  lat: number | null;
+  /** Year extracted from date (for filtering) */
+  year: number | null;
 }
 
 export type ShootingVictimsGeoJsonApi = FeatureCollection<

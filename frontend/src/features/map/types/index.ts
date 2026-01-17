@@ -180,7 +180,7 @@ export interface AggregatedLayerConfig extends LayerConfigSpec {
    * Function that aggregates filtered GeoJSON features into new GeoJSON.
    * Called whenever filters change to recompute aggregated geometry.
    *
-   * @param features - Filtered GeoJSON features from crossfilter
+   * @param features - Filtered GeoJSON features from Arquero
    * @returns GeoJSON FeatureCollection with aggregated geometries
    */
   aggregationFn: (features: GeoJSON.Feature[]) => GeoJSON.FeatureCollection;

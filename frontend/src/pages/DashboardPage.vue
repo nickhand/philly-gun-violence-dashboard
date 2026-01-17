@@ -30,7 +30,7 @@
     </div>
 
     <!-- Map dashboard with filters -->
-    <main id="main-content" v-if="currentData !== null">
+    <main id="main-content" v-if="dataReady">
       <mapping-dashboard
         @map-ready="handleMapReady"
         @filtered-features="handleFilteredFeatures"
@@ -73,7 +73,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
 import { useHead } from "@unhead/vue";
-import { useShootingsStore } from "@/shared/stores/shootings";
+import { useShootingsDataStore } from "@/shared/stores/shootingsData";
 import AppNavbar from "@/app/components/AppNavbar.vue";
 import AppFooter from "@/app/components/AppFooter.vue";
 import DashboardHeader from "@/pages/components/DashboardHeader.vue";
@@ -108,18 +108,20 @@ interface Feature {
   properties: Record<string, unknown> | null;
 }
 
-// Access shootings store.
-const shootingsStore = useShootingsStore();
+// Access shootings store (Arquero-based).
+const shootingsStore = useShootingsDataStore();
 const {
-  dataYears,
+  sortedYears: dataYears,
   selectedYear,
-  currentData,
-  isLoadingData,
-  isFetchingYears,
+  rows,
+  isLoading,
   overlayHold,
-  dataLoadError,
-  dataYearsError,
+  loadError,
+  metaError,
 } = storeToRefs(shootingsStore);
+
+// Computed to check if data is ready (replaces currentData !== null check)
+const dataReady = computed(() => rows.value !== null && rows.value.length > 0);
 
 // Access route for URL query params
 const route = useRoute();
@@ -145,8 +147,7 @@ const defaultErrorMessage =
  * Current error message to display.
  */
 const currentError = computed(
-  () =>
-    dataLoadError.value || (dataYearsError.value ? defaultErrorMessage : null)
+  () => loadError.value || (metaError.value ? defaultErrorMessage : null)
 );
 
 /**
@@ -177,17 +178,16 @@ const filterAnnouncement = computed(() => {
 
 /**
  * Whether to show the loading overlay.
- * Matches Vue 2 behavior: show overlay if fetching years, loading data,
- * overlay hold is set, there's an error, or the map is still initializing.
+ * Show overlay if loading data, overlay hold is set, there's an error,
+ * or the map is still initializing.
  */
 const showOverlay = computed(
   () =>
-    isFetchingYears.value ||
-    isLoadingData.value ||
+    isLoading.value ||
     overlayHold.value ||
-    !!dataLoadError.value ||
-    dataYearsError.value ||
-    (currentData.value !== null && !mapReady.value)
+    !!loadError.value ||
+    metaError.value ||
+    (dataReady.value && !mapReady.value)
 );
 const currentYear = computed(() => new Date().getFullYear());
 const minYear = computed(
@@ -197,22 +197,24 @@ const latestDataDate = computed(() => null as Date | null);
 
 /**
  * Count fatal shooting victims for the selected year.
+ * Uses filteredFeatures from MappingDashboard (pre-filtered by year and user filters).
  */
 const fatalCount = computed(() => {
-  if (!currentData.value) return 0;
-  return currentData.value.features.filter((f) => f.properties.fatal).length;
+  return filteredFeatures.value.filter((f) => f.properties?.fatal === true)
+    .length;
 });
 
 /**
  * Count nonfatal shooting victims for the selected year.
+ * Uses filteredFeatures from MappingDashboard (pre-filtered by year and user filters).
  */
 const nonfatalCount = computed(() => {
-  if (!currentData.value) return 0;
-  return currentData.value.features.filter((f) => !f.properties.fatal).length;
+  return filteredFeatures.value.filter((f) => f.properties?.fatal !== true)
+    .length;
 });
 
 onMounted(async () => {
-  // Read year from URL BEFORE fetching data years (which sets default year)
+  // Read year from URL BEFORE loading data (which sets default year)
   const urlYear = route.query.year;
   if (urlYear && typeof urlYear === "string") {
     if (urlYear === "All Years") {
@@ -222,27 +224,24 @@ onMounted(async () => {
     } else {
       const parsedYear = parseInt(urlYear, 10);
       if (!isNaN(parsedYear)) {
-        // Set year in store before fetchDataYears to prevent default override
+        // Set year in store before loading to prevent default override
         shootingsStore.setSelectedYear(parsedYear);
         selectedYearLocal.value = parsedYear;
       }
     }
   }
 
-  await shootingsStore.fetchDataYears();
-  // Fetch initial data for the selected year
-  if (selectedYear.value !== undefined) {
-    await shootingsStore.fetchShootingsData(selectedYear.value);
-  }
+  // Load dataset - this fetches meta + rows in one go
+  await shootingsStore.loadDatasetIfNeeded();
 });
 
 watch(selectedYear, (next) => {
   selectedYearLocal.value = next;
 });
 
-watch(selectedYearLocal, async (next) => {
+watch(selectedYearLocal, (next) => {
+  // Just update the store - Arquero filters in-memory, no data refetch needed
   shootingsStore.setSelectedYear(next);
-  await shootingsStore.fetchShootingsData(next);
 });
 
 /**
@@ -275,17 +274,12 @@ function handleFilteredFeatures(features: Feature[]) {
 async function retryLoad() {
   showErrorDialog.value = false;
   shootingsStore.$patch({
-    dataLoadError: null,
-    dataYearsError: false,
+    loadError: null,
+    metaError: false,
   });
 
-  // Retry fetching data years first
-  const years = await shootingsStore.fetchDataYears();
-
-  // If years were fetched successfully and we have a selected year, fetch that data
-  if (years && years.length > 0 && selectedYear.value !== undefined) {
-    await shootingsStore.fetchShootingsData(selectedYear.value);
-  }
+  // Retry loading the dataset
+  await shootingsStore.reloadDataset();
 }
 </script>
 
