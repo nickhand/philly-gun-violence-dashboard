@@ -209,10 +209,7 @@ const {
 // Histograms composable for slider filter charts
 const { histograms, initializeHistograms, updateHistograms } = useHistograms();
 
-// Load data on mount
-onMounted(async () => {
-  await shootingsStore.loadDatasetIfNeeded();
-});
+// Note: Data loading is handled by DashboardPage parent component
 
 /**
  * Convert URL layer ID to actual layer name by matching against known layer names.
@@ -935,16 +932,31 @@ watch(
   [rows, selectedYear],
   ([newRows, year]) => {
     if (newRows && newRows.length > 0) {
+      const startTime = performance.now();
+
       // Filter rows by selected year (null = all years)
+      const filterStart = performance.now();
       const filteredRows =
         year === null || year === undefined
           ? newRows
           : newRows.filter((r) => r.year === year);
 
+      if (import.meta.env.DEV) {
+        console.log(
+          `[MappingDashboard] Filtered to ${filteredRows.length} rows (year=${year ?? "all"}) in ${(performance.now() - filterStart).toFixed(1)}ms`
+        );
+      }
+
       // Initialize Arquero with filtered row data
       initializeArquero(filteredRows as ShootingRow[], filters.value);
       // Initialize histograms after Arquero is ready
       initializeHistograms(filters.value, getHistogramData);
+
+      if (import.meta.env.DEV) {
+        console.log(
+          `[MappingDashboard] Total data initialization in ${(performance.now() - startTime).toFixed(1)}ms`
+        );
+      }
     }
   },
   { immediate: true }

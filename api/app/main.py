@@ -1,11 +1,13 @@
 """FastAPI application setup for the Gun Violence Dashboard API."""
 
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from loguru import logger
 
 from app.data_loader import (
     init_dataset_keys,
@@ -37,13 +39,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     None
         Control back to FastAPI for request handling.
     """
+    startup_start = time.perf_counter()
+    logger.info("Starting API initialization...")
+
     # Initialize shared clients and load cached datasets once at startup.
+    s3_start = time.perf_counter()
     app.state.s3 = make_s3_client()
+    logger.info(f"S3 client created in {(time.perf_counter() - s3_start) * 1000:.1f}ms")
+
     init_dataset_keys(app)
+
+    shootings_start = time.perf_counter()
     load_shootings_data(app)
+    logger.info(f"Shootings data loaded in {(time.perf_counter() - shootings_start) * 1000:.1f}ms")
+
+    boundaries_start = time.perf_counter()
     load_boundary_data(app)
+    logger.info(
+        f"Boundaries data loaded in {(time.perf_counter() - boundaries_start) * 1000:.1f}ms"
+    )
+
+    streets_start = time.perf_counter()
     load_streets_data(app)
+    logger.info(f"Streets data loaded in {(time.perf_counter() - streets_start) * 1000:.1f}ms")
+
+    homicides_start = time.perf_counter()
     load_homicides_data(app)
+    logger.info(f"Homicides data loaded in {(time.perf_counter() - homicides_start) * 1000:.1f}ms")
+
+    total_time = (time.perf_counter() - startup_start) * 1000
+    logger.info(f"API initialization complete in {total_time:.1f}ms")
     yield
 
 

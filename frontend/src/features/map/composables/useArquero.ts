@@ -107,9 +107,17 @@ export function useArquero(): UseArqueroReturn {
    * @param configs - Filter configurations defining dimensions
    */
   function initialize(rows: ShootingRow[], configs: FilterConfig[]): void {
+    const startTime = performance.now();
+
     // Create Arquero table from rows
     // Mark as raw to prevent Vue from making the table deeply reactive
+    const tableStart = performance.now();
     baseTable.value = markRaw(aq.from(rows));
+    if (import.meta.env.DEV) {
+      console.log(
+        `[Arquero] Table created from ${rows.length} rows in ${(performance.now() - tableStart).toFixed(1)}ms`
+      );
+    }
 
     // Store filter configs
     filterConfigs.value = configs;
@@ -143,6 +151,12 @@ export function useArquero(): UseArqueroReturn {
 
     // Trigger reactivity
     filterVersion.value++;
+
+    if (import.meta.env.DEV) {
+      console.log(
+        `[Arquero] Initialization complete in ${(performance.now() - startTime).toFixed(1)}ms`
+      );
+    }
   }
 
   /**

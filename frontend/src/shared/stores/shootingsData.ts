@@ -137,9 +137,17 @@ export const useShootingsDataStore = defineStore("shootingsData", {
 
       const startTime = performance.now();
 
+      // DEV: Add ?fresh query param to force fresh data fetch for timing tests
+      const urlParams = new URLSearchParams(window.location.search);
+      const forceFresh = urlParams.has("fresh") || forceReload;
+
+      if (import.meta.env.DEV && forceFresh) {
+        console.log("[ShootingsData] Force fresh fetch (skipping cache)");
+      }
+
       try {
         // Fetch metadata with conditional request
-        const lastVersion = forceReload
+        const lastVersion = forceFresh
           ? null
           : (this.datasetVersion ?? this.loadCachedVersion());
         let metaResult = await fetchShootingsMeta(lastVersion);

@@ -214,6 +214,11 @@ const nonfatalCount = computed(() => {
 });
 
 onMounted(async () => {
+  const mountStart = performance.now();
+  if (import.meta.env.DEV) {
+    console.log("[DashboardPage] Component mounted, starting data load...");
+  }
+
   // Read year from URL BEFORE loading data (which sets default year)
   const urlYear = route.query.year;
   if (urlYear && typeof urlYear === "string") {
@@ -233,6 +238,12 @@ onMounted(async () => {
 
   // Load dataset - this fetches meta + rows in one go
   await shootingsStore.loadDatasetIfNeeded();
+
+  if (import.meta.env.DEV) {
+    console.log(
+      `[DashboardPage] Data load complete in ${(performance.now() - mountStart).toFixed(1)}ms`
+    );
+  }
 });
 
 watch(selectedYear, (next) => {
