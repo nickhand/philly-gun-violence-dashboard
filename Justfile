@@ -29,6 +29,11 @@ ui-dev:
 ui-type-check:
 	cd frontend; npm run type-check
 
+# Lint the frontend (alias for type-check)
+[group: "ui"]
+ui-lint:
+	cd frontend; npm run type-check
+
 # -----------------------------------------------------------------------------
 # ETL Commands
 # -----------------------------------------------------------------------------

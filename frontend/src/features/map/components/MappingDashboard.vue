@@ -145,19 +145,18 @@
  * @component
  */
 
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { useRoute } from "vue-router";
 import FilterableMap from "./FilterableMap.vue";
 import MapSidebar from "./MapSidebar/MapSidebar.vue";
 import AddressSearch from "./AddressSearch.vue";
 import { useArquero } from "../composables/useArquero";
+import { useDownload } from "../composables/useDownload";
 import { useHistograms } from "../composables/useHistograms";
 import { useMapConfig } from "../composables/useMapConfig";
+import { useOverlayState } from "../composables/useOverlayState";
 import { useUrlState } from "../composables/useUrlState";
 import { useShootingsDataStore } from "@/shared/stores/shootingsData";
-import { useBoundariesStore } from "@/shared/stores/boundaries";
-import { sourceIdToDataset } from "../config/sources";
 import type { AddressResult } from "../composables/useGeocoding";
 import type { ShootingRow } from "@/shared/types/shootings";
 
@@ -174,12 +173,8 @@ const emit = defineEmits<{
   "filtered-features": [features: Feature[]];
 }>();
 
-// Access route for URL query params
-const route = useRoute();
-
 // Store access - using new Arquero-based data store
 const shootingsStore = useShootingsDataStore();
-const boundariesStore = useBoundariesStore();
 const { rows, selectedYear } = storeToRefs(shootingsStore);
 
 // Normalize selectedYear to exclude undefined
@@ -209,7 +204,8 @@ const {
 // Histograms composable for slider filter charts
 const { histograms, initializeHistograms, updateHistograms } = useHistograms();
 
-// Note: Data loading is handled by DashboardPage parent component
+// Download composable for export functionality
+const { handleDownload } = useDownload({ filteredFeatures, layers });
 
 /**
  * Convert URL layer ID to actual layer name by matching against known layer names.
@@ -234,38 +230,20 @@ function urlIdToLayerName(
   );
 }
 
-/**
- * Parse initial layers from URL query parameter.
- * Converts URL IDs (e.g., "point-locations") to layer names (e.g., "Point locations").
- */
-function getInitialLayersFromUrl(): string[] {
-  const layersParam = route.query.layers;
-
-  if (layersParam && typeof layersParam === "string") {
-    // Get all known layer names (toggleable + overlay)
-    const allLayerNames = [
-      ...toggleableLayerNames.value,
-      ...overlayLayerNames.value,
-    ];
-
-    const layers = layersParam
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .map((id) => urlIdToLayerName(id, allLayerNames))
-      .filter((name): name is string => name !== null);
-
-    if (layers.length > 0) {
-      return layers;
-    }
-  }
-  // Default to Point locations if no URL param
-  return ["Point locations"];
-}
-
-// Active layers (names of layers to display on the map)
-// Initialize from URL query param or default to Point locations
-const activeLayers = ref<string[]>(getInitialLayersFromUrl());
+// Overlay state composable for managing layer visibility
+const {
+  activeLayers,
+  currentOverlay,
+  initialToggleableLayers,
+  handleLayerChange,
+  handleOverlayChange,
+  resetLayers: resetOverlayState,
+} = useOverlayState({
+  toggleableLayerNames,
+  overlayLayerNames,
+  defaultToggledLayerNames,
+  urlIdToLayerName,
+});
 
 // Map instance ref for URL state sync
 const mapRef = ref<any>(null);
@@ -456,287 +434,6 @@ function handleResetAll(): void {
 }
 
 /**
- * Handle data download request.
- * Exports features in requested format based on dialog options.
- *
- * @param options - Download options from dialog
- */
-async function handleDownload(options: {
-  useFiltered: boolean;
-  format: "csv" | "geojson";
-  aggregateBy: string | null;
-}): Promise<void> {
-  // Get appropriate features based on selection
-  // With Arquero, filteredFeatures is already the full filtered result
-  const features = filteredFeatures.value;
-
-  const timestamp = new Date().toISOString().split("T")[0];
-  const suffix = options.useFiltered ? "filtered" : "all";
-
-  // Handle aggregation if requested
-  if (options.aggregateBy) {
-    const aggregated = aggregateByBoundary(features, options.aggregateBy);
-    const aggSlug = options.aggregateBy.toLowerCase().replace(/\s+/g, "-");
-
-    if (options.format === "csv") {
-      const csv = convertAggregatedToCSV(aggregated, options.aggregateBy);
-      const blob = new Blob([csv], { type: "text/csv" });
-      downloadBlob(blob, `shootings-by-${aggSlug}-${suffix}-${timestamp}.csv`);
-    } else {
-      // GeoJSON format - join with boundary geometries
-      const geojson = await joinAggregatedWithBoundaries(
-        aggregated,
-        options.aggregateBy
-      );
-      const blob = new Blob([JSON.stringify(geojson, null, 2)], {
-        type: "application/json",
-      });
-      downloadBlob(
-        blob,
-        `shootings-by-${aggSlug}-${suffix}-${timestamp}.geojson`
-      );
-    }
-    return;
-  }
-
-  // No aggregation - export raw features
-  if (options.format === "geojson") {
-    const geojson = {
-      type: "FeatureCollection",
-      features,
-    };
-    const blob = new Blob([JSON.stringify(geojson, null, 2)], {
-      type: "application/json",
-    });
-    downloadBlob(blob, `shootings-${suffix}-${timestamp}.geojson`);
-  } else if (options.format === "csv") {
-    const csv = convertToCSV(features);
-    const blob = new Blob([csv], { type: "text/csv" });
-    downloadBlob(blob, `shootings-${suffix}-${timestamp}.csv`);
-  }
-}
-
-/**
- * Aggregate features by a boundary layer.
- * Groups shooting features by the boundary column and computes summary statistics.
- *
- * @param features - Array of shooting features
- * @param layerName - Name of the overlay layer to aggregate by
- * @returns Array of aggregated records
- */
-function aggregateByBoundary(
-  features: Feature[],
-  layerName: string
-): Array<Record<string, unknown>> {
-  // Find the layer config to get the column name
-  const layerConfig = layers.value.find((l) => l.name === layerName);
-  if (!layerConfig || !layerConfig.column) {
-    console.warn(`No column found for layer: ${layerName}`);
-    return [];
-  }
-
-  const column = layerConfig.column;
-
-  // Group by the boundary column
-  const groups = new Map<
-    string | number,
-    { total: number; fatal: number; nonfatal: number }
-  >();
-
-  features.forEach((f) => {
-    if (!f.properties) return;
-    const key = f.properties[column];
-    if (key === null || key === undefined) return;
-
-    const keyStr = String(key);
-    if (!groups.has(keyStr)) {
-      groups.set(keyStr, { total: 0, fatal: 0, nonfatal: 0 });
-    }
-
-    const group = groups.get(keyStr)!;
-    group.total += 1;
-    if (f.properties.fatal === true) {
-      group.fatal += 1;
-    } else {
-      group.nonfatal += 1;
-    }
-  });
-
-  // Convert to array of records
-  const results: Array<Record<string, unknown>> = [];
-  groups.forEach((stats, key) => {
-    results.push({
-      [column]: key,
-      total_shootings: stats.total,
-      fatal: stats.fatal,
-      nonfatal: stats.nonfatal,
-    });
-  });
-
-  // Sort by total descending
-  results.sort(
-    (a, b) => (b.total_shootings as number) - (a.total_shootings as number)
-  );
-
-  return results;
-}
-
-/**
- * Convert aggregated data to CSV format.
- *
- * @param data - Array of aggregated records
- * @param _layerName - Name of the layer for header (unused, reserved for future use)
- * @returns CSV string
- */
-function convertAggregatedToCSV(
-  data: Array<Record<string, unknown>>,
-  _layerName: string
-): string {
-  if (data.length === 0) return "";
-
-  const headers = Object.keys(data[0]);
-  const rows = data.map((row) =>
-    headers.map((h) => {
-      const value = row[h];
-      if (value === null || value === undefined) return "";
-      const str = String(value);
-      if (str.includes(",") || str.includes('"')) {
-        return `"${str.replace(/"/g, '""')}"`;
-      }
-      return str;
-    })
-  );
-
-  return [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
-}
-
-/**
- * Join aggregated data with boundary GeoJSON features.
- * Fetches boundary data and merges shooting counts into feature properties.
- *
- * @param aggregated - Array of aggregated shooting counts
- * @param layerName - Name of the overlay layer
- * @returns GeoJSON FeatureCollection with shooting counts in properties
- */
-async function joinAggregatedWithBoundaries(
-  aggregated: Array<Record<string, unknown>>,
-  layerName: string
-): Promise<GeoJSON.FeatureCollection> {
-  // Find the layer config to get source and geoid column
-  const layerConfig = layers.value.find((l) => l.name === layerName);
-  if (!layerConfig || !layerConfig.source || !layerConfig.geoid) {
-    console.warn(`No source/geoid found for layer: ${layerName}`);
-    return { type: "FeatureCollection", features: [] };
-  }
-
-  // Get dataset name from source ID (e.g., "boundary-police-districts" -> "police-districts")
-  const dataset = sourceIdToDataset(layerConfig.source);
-  if (!dataset) {
-    console.warn(
-      `Could not extract dataset from source: ${layerConfig.source}`
-    );
-    return { type: "FeatureCollection", features: [] };
-  }
-
-  // Fetch boundary data
-  const boundaryData = await boundariesStore.fetchBoundaryData(dataset);
-  if (!boundaryData) {
-    console.warn(`Failed to fetch boundary data for: ${dataset}`);
-    return { type: "FeatureCollection", features: [] };
-  }
-
-  // Create lookup map from aggregated data
-  const column = layerConfig.column || layerConfig.geoid;
-  const statsMap = new Map<string, Record<string, unknown>>();
-  aggregated.forEach((row) => {
-    const key = String(row[column]);
-    statsMap.set(key, row);
-  });
-
-  // Join with boundary features
-  const joinedFeatures = boundaryData.features.map((boundaryFeature) => {
-    const geoid = String(boundaryFeature.properties[layerConfig.geoid!]);
-    const stats = statsMap.get(geoid) || {
-      total_shootings: 0,
-      fatal: 0,
-      nonfatal: 0,
-    };
-
-    return {
-      type: "Feature" as const,
-      geometry: boundaryFeature.geometry,
-      properties: {
-        ...boundaryFeature.properties,
-        total_shootings: stats.total_shootings ?? 0,
-        fatal: stats.fatal ?? 0,
-        nonfatal: stats.nonfatal ?? 0,
-      },
-    };
-  });
-
-  return {
-    type: "FeatureCollection",
-    features: joinedFeatures,
-  };
-}
-
-/**
- * Convert features to CSV format.
- * Extracts properties from each feature and formats as CSV.
- *
- * @param features - Array of GeoJSON features
- * @returns CSV string
- */
-function convertToCSV(features: Feature[]): string {
-  if (features.length === 0) return "";
-
-  // Get all unique property keys from all features
-  const allKeys = new Set<string>();
-  features.forEach((f) => {
-    if (f.properties) {
-      Object.keys(f.properties).forEach((key) => allKeys.add(key));
-    }
-  });
-
-  // Add lat/lng if geometry exists
-  const hasGeometry = features.some((f) => f.geometry?.type === "Point");
-  if (hasGeometry) {
-    allKeys.add("latitude");
-    allKeys.add("longitude");
-  }
-
-  const headers = Array.from(allKeys);
-
-  // Build rows
-  const rows = features.map((f) => {
-    return headers.map((header) => {
-      let value: unknown;
-
-      if (header === "latitude" && f.geometry?.type === "Point") {
-        value = (f.geometry as GeoJSON.Point).coordinates[1];
-      } else if (header === "longitude" && f.geometry?.type === "Point") {
-        value = (f.geometry as GeoJSON.Point).coordinates[0];
-      } else {
-        value = f.properties?.[header];
-      }
-
-      // Handle null/undefined
-      if (value === null || value === undefined) return "";
-
-      // Escape strings with commas or quotes
-      const str = String(value);
-      if (str.includes(",") || str.includes('"') || str.includes("\n")) {
-        return `"${str.replace(/"/g, '""')}"`;
-      }
-      return str;
-    });
-  });
-
-  // Combine headers and rows
-  return [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
-}
-
-/**
  * Handle map ready event.
  * Called when MapLibre GL map is initialized.
  * Bubbles event up to parent for overlay control.
@@ -749,129 +446,6 @@ function handleMapReady(): void {
     mapInstance.value.on("move", updateMarkerPosition);
     mapInstance.value.on("zoom", updateMarkerPosition);
   }
-}
-
-/**
- * Handle layer visibility change from sidebar.
- * Toggles layer visibility on the map.
- * When overlay is active, updates savedToggleableLayers instead of activeLayers.
- *
- * @param layerName - Layer name to toggle
- * @param visible - Whether layer should be visible
- */
-function handleLayerChange(layerName: string, visible: boolean): void {
-  // When overlay is active, update savedToggleableLayers (what will restore when cleared)
-  if (currentOverlay.value) {
-    if (visible) {
-      if (!savedToggleableLayers.value.includes(layerName)) {
-        savedToggleableLayers.value = [
-          ...savedToggleableLayers.value,
-          layerName,
-        ];
-      }
-    } else {
-      savedToggleableLayers.value = savedToggleableLayers.value.filter(
-        (l) => l !== layerName
-      );
-    }
-    return;
-  }
-
-  // No overlay - update activeLayers directly
-  if (visible) {
-    if (!activeLayers.value.includes(layerName)) {
-      activeLayers.value = [...activeLayers.value, layerName];
-    }
-  } else {
-    activeLayers.value = activeLayers.value.filter((l) => l !== layerName);
-  }
-}
-
-// Parse initial overlay from URL (if layers param contains an overlay layer)
-function getInitialOverlayFromUrl(): string | null {
-  const layersParam = route.query.layers;
-
-  if (layersParam && typeof layersParam === "string") {
-    const urlIds = layersParam
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean);
-
-    // Find the first URL ID that matches an overlay layer name
-    for (const urlId of urlIds) {
-      const matchedName = urlIdToLayerName(urlId, overlayLayerNames.value);
-      if (matchedName) {
-        return matchedName;
-      }
-    }
-  }
-  return null;
-}
-
-// Track currently selected overlay layer - initialize from URL if present
-const currentOverlay = ref<string | null>(getInitialOverlayFromUrl());
-
-// Track saved toggleable layers (to restore when overlay is cleared)
-// If we're loading with an overlay from URL, save the default toggleable layers
-const savedToggleableLayers = ref<string[]>(
-  currentOverlay.value ? [...defaultToggledLayerNames.value] : []
-);
-
-// Compute the toggleable layers for checkbox state
-// When overlay is active, show the saved layers; otherwise show active toggleable layers
-const initialToggleableLayers = computed(() => {
-  if (currentOverlay.value) {
-    // Overlay is active - show saved toggleable layers (what will restore when cleared)
-    return savedToggleableLayers.value.length > 0
-      ? savedToggleableLayers.value
-      : defaultToggledLayerNames.value;
-  }
-  // No overlay - filter activeLayers to only include toggleable layers
-  return activeLayers.value.filter((l) =>
-    toggleableLayerNames.value.includes(l)
-  );
-});
-
-/**
- * Handle overlay layer change from sidebar.
- * Shows/hides choropleth overlay layers.
- * Only one overlay can be visible at a time.
- * When an overlay is selected, toggleable layers are hidden and saved.
- * When overlay is cleared, toggleable layers are restored.
- *
- * @param layerName - Overlay layer name or null to clear
- */
-function handleOverlayChange(layerName: string | null): void {
-  // Remove current overlay from active layers (if any)
-  if (currentOverlay.value) {
-    activeLayers.value = activeLayers.value.filter(
-      (l) => l !== currentOverlay.value
-    );
-  }
-
-  if (layerName) {
-    // Selecting an overlay - save current toggleable layers and remove them
-    const currentToggleable = activeLayers.value.filter((l) =>
-      toggleableLayerNames.value.includes(l)
-    );
-    if (currentToggleable.length > 0) {
-      savedToggleableLayers.value = currentToggleable;
-    }
-    // Remove toggleable layers, add overlay
-    activeLayers.value = [layerName];
-  } else {
-    // Clearing overlay - restore saved toggleable layers
-    if (savedToggleableLayers.value.length > 0) {
-      activeLayers.value = [...savedToggleableLayers.value];
-      savedToggleableLayers.value = [];
-    } else {
-      // Fallback to defaults if nothing was saved
-      activeLayers.value = [...defaultToggledLayerNames.value];
-    }
-  }
-
-  // Update current overlay
-  currentOverlay.value = layerName;
 }
 
 /**
@@ -891,33 +465,13 @@ function handleOpacityChange(layerName: string, opacity: number): void {
   }
 }
 
-/**
- * Download blob as file.
- * Creates temporary anchor element and triggers download.
- *
- * @param blob - Data blob to download
- * @param filename - Output filename
- */
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 // Lifecycle hooks
 /**
  * Reset active layers to defaults when year changes.
  * This matches the legacy behavior where changing years resets the layer selection.
  */
 watch(selectedYear, () => {
-  activeLayers.value = [...defaultToggledLayerNames.value];
-  // Also clear any overlay selection
-  currentOverlay.value = null;
+  resetOverlayState();
   // Reset sidebar layer panel UI
   sidebarRef.value?.resetLayers();
   // Hide the legend
