@@ -60,9 +60,17 @@ just data-sync
 ```
 
 ## Data flow (high level)
-1) ETL jobs write processed data to S3.
-2) The API reads from S3 and caches in memory.
-3) GitHub Actions trigger ETL + Fly restart for freshness.
+1. **ETL** jobs write processed data to S3 (`processed/*.geojson`, `processed/*_meta.json`)
+2. **API** loads data from S3 at startup, indexes by year, and caches in memory
+3. **Frontend** fetches metadata, then loads year-specific NDJSON data on demand
+4. **GitHub Actions** trigger ETL + Fly restart on schedules for freshness
+
+## API design
+The shootings endpoint uses a versioned, content-addressed caching strategy:
+- `GET /shootings/meta` — Returns version hash, available years, and per-year URLs
+- `GET /shootings/rows/{version}/{year}.ndjson` — Year-specific data (immutable, cached 1 year)
+
+The frontend builds GeoJSON client-side from the NDJSON rows, avoiding duplicate data transfer.
 
 ## Repo structure
 ```
@@ -81,6 +89,7 @@ The dashboard UI is a Vue 3 single-page application with interactive maps and ch
 - **Vuetify 3** for Material Design components
 - **MapLibre GL** for interactive mapping
 - **D3.js** for data visualizations and charts
+- **Arquero** for in-browser data filtering
 - **Pinia** for state management
 - **Vite** for build tooling
 

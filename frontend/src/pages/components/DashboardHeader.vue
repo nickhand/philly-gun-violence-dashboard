@@ -5,15 +5,15 @@
     <div>
       <v-overlay
         :model-value="showOverlay || isLoadingHomicides"
-        :opacity="overlayOpacity"
-        :scrim="overlayColor"
+        :opacity="OVERLAY_OPACITY"
+        :scrim="OVERLAY_COLOR"
       />
 
       <div style="position: relative">
         <v-overlay
           :model-value="showOverlay || isLoadingHomicides"
-          :opacity="overlayOpacityInner"
-          :scrim="overlayColor"
+          :opacity="OVERLAY_OPACITY_INNER"
+          :scrim="OVERLAY_COLOR"
           absolute
         />
 
@@ -38,13 +38,18 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { format } from "d3-format";
 import { useHomicidesStore } from "@/shared/stores/homicides";
+import {
+  OVERLAY_OPACITY,
+  OVERLAY_OPACITY_INNER,
+  OVERLAY_COLOR,
+} from "@/shared/config/overlay";
 
 const props = defineProps<{
   fatal?: number;
   nonfatal?: number;
   selectedYear: number | null | undefined;
   currentYear: number;
-  minYear: number;
+  minYear: number | null;
   latestDataDate?: Date | null;
   showOverlay: boolean;
 }>();
@@ -55,11 +60,6 @@ const homicidesStore = useHomicidesStore();
 const isLoadingHomicides = ref(false);
 // Counter to track which load operation is current (prevents race conditions)
 let loadOperationId = 0;
-
-// Overlay constants (matches Vue 2 legacy)
-const overlayOpacity = 0.3;
-const overlayOpacityInner = 0.9;
-const overlayColor = "background"; // Uses Vuetify theme color
 
 /**
  * Format a number with comma separators and zero decimal places.
@@ -73,6 +73,8 @@ function formatNumber(value: number | undefined): string {
  * Fetch and sum homicide totals across all years from minYear to currentYear.
  */
 async function fetchAllYearsTotals(): Promise<number | null> {
+  if (props.minYear === null) return null;
+
   let total = 0;
   try {
     for (let year = props.minYear; year <= props.currentYear; year++) {
@@ -98,12 +100,22 @@ async function fetchAllYearsTotals(): Promise<number | null> {
  * Uses operation ID to prevent race conditions from overlapping calls.
  */
 async function loadHomicideData() {
+  // Don't load if minYear isn't set yet (data not loaded)
+  if (props.minYear === null) {
+    if (import.meta.env.DEV) {
+      console.log(
+        "[DashboardHeader] loadHomicideData skipped - minYear is null"
+      );
+    }
+    return;
+  }
+
   const currentOperationId = ++loadOperationId;
   isLoadingHomicides.value = true;
 
   if (import.meta.env.DEV) {
     console.log(
-      `[DashboardHeader] loadHomicideData started (op #${currentOperationId}, year=${props.selectedYear})`
+      `[DashboardHeader] loadHomicideData started (op #${currentOperationId}, year=${props.selectedYear}, minYear=${props.minYear})`
     );
   }
 
@@ -112,15 +124,25 @@ async function loadHomicideData() {
       // For "All Years", pre-fetch all years data
       await fetchAllYearsTotals();
     } else {
-      // Fetch selected year and previous year in parallel to avoid race condition
+      // Fetch selected year and previous year in parallel to ensure change can be calculated
       const fetches: Promise<unknown>[] = [
         homicidesStore.fetchTotals(props.selectedYear),
       ];
       if (props.selectedYear > props.minYear) {
         fetches.push(homicidesStore.fetchTotals(props.selectedYear - 1));
       }
-      await Promise.all(fetches);
+
+      // Wait for all fetches to complete
+      const results = await Promise.all(fetches);
+
+      if (import.meta.env.DEV) {
+        console.log(
+          `[DashboardHeader] fetched years - selected: ${results[0] ? "OK" : "FAILED"}, previous: ${results[1] !== undefined ? (results[1] ? "OK" : "FAILED") : "N/A"}`
+        );
+      }
     }
+  } catch (error) {
+    console.error("[DashboardHeader] Error loading homicide data:", error);
   } finally {
     // Only clear loading state if this is still the current operation
     if (currentOperationId === loadOperationId) {
@@ -142,16 +164,31 @@ async function loadHomicideData() {
 
 /**
  * Check if homicide data is available for the current selection.
- * Also checks loading state to prevent showing partial data.
+ * For single year views, also checks that previous year data is loaded
+ * to ensure the year-over-year change can be calculated.
  */
 const hasHomicideData = computed(() => {
   // Don't show data while loading to prevent partial renders
   if (isLoadingHomicides.value) return false;
 
+  // Don't show data if minYear isn't loaded yet
+  if (props.minYear === null) return false;
+
   if (props.selectedYear === null || props.selectedYear === undefined) {
     return Object.keys(homicidesStore.totalsCache).length > 0;
   }
-  return props.selectedYear in homicidesStore.totalsCache;
+
+  // For single year, check that selected year is in cache
+  const hasSelectedYear = props.selectedYear in homicidesStore.totalsCache;
+
+  // For years after minYear, also check previous year is loaded (for change calculation)
+  if (props.selectedYear > props.minYear) {
+    const hasPreviousYear =
+      props.selectedYear - 1 in homicidesStore.totalsCache;
+    return hasSelectedYear && hasPreviousYear;
+  }
+
+  return hasSelectedYear;
 });
 
 /**
@@ -160,6 +197,8 @@ const hasHomicideData = computed(() => {
 const homicideTotalValue = computed((): number => {
   if (props.selectedYear === null || props.selectedYear === undefined) {
     // Sum across all years
+    if (props.minYear === null) return 0;
+
     let total = 0;
     for (let year = props.minYear; year <= props.currentYear; year++) {
       const data = homicidesStore.totalsCache[year];
@@ -287,11 +326,14 @@ watch(
 );
 
 // Reload homicide data when minYear changes (dataYears loaded)
-// This handles the case where "All Years" is selected before dataYears is populated
+// This handles the case where data loads after initial mount,
+// and we need to fetch previous year data for year-over-year change
 watch(
   () => props.minYear,
-  () => {
-    if (props.selectedYear === null || props.selectedYear === undefined) {
+  (newMinYear, oldMinYear) => {
+    // Reload if minYear changed and we now need previous year data
+    // This happens when dataYears loads after initial mount
+    if (newMinYear !== oldMinYear) {
       loadHomicideData();
     }
   }

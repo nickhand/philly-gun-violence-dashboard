@@ -112,11 +112,16 @@ Tracked events:
 
 ## API Integration
 
-The frontend consumes a FastAPI backend. Key endpoints:
+The frontend consumes a FastAPI backend with a versioned caching strategy:
 
-- `GET /shootings/{year}` - Shooting victims GeoJSON by year
-- `GET /boundaries/{type}` - Boundary polygons (districts, neighborhoods, etc.)
-- `GET /streets` - Street segments for hot spot analysis
+1. **Fetch metadata**: `GET /shootings/meta` returns version hash and per-year URLs
+2. **Load year data**: `GET /shootings/rows/{version}/{year}.ndjson` (cached for 1 year)
+3. **Build GeoJSON client-side**: Rows are converted to GeoJSON for map rendering
+
+Other endpoints:
+- `GET /boundaries/{dataset}` - Boundary polygons (districts, neighborhoods, etc.)
+- `GET /streets?segment_ids=...` - Street segments for hot spot analysis
+- `GET /homicides/{year}` - Annual and YTD homicide totals
 - `GET /meta` - Data freshness metadata
 
 ## Build Output

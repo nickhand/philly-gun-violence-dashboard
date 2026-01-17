@@ -200,8 +200,10 @@ const showOverlay = computed(() => {
   return result;
 });
 const currentYear = computed(() => new Date().getFullYear());
-const minYear = computed(
-  () => dataYears.value[dataYears.value.length - 1] ?? currentYear.value
+const minYear = computed(() =>
+  dataYears.value.length > 0
+    ? dataYears.value[dataYears.value.length - 1]
+    : null
 );
 const latestDataDate = computed(() => null as Date | null);
 

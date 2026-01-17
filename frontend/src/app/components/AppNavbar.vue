@@ -3,8 +3,8 @@
     <!-- Overlay when data is loading -->
     <v-overlay
       :model-value="showOverlay"
-      :opacity="overlayOpacity"
-      :scrim="overlayColor"
+      :opacity="OVERLAY_OPACITY"
+      :scrim="OVERLAY_COLOR"
     />
 
     <!-- Back button (for About page) -->
@@ -64,6 +64,7 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { track } from "@/shared/analytics";
+import { OVERLAY_OPACITY, OVERLAY_COLOR } from "@/shared/config/overlay";
 
 const props = withDefaults(
   defineProps<{
@@ -110,10 +111,6 @@ const yearOptions = computed(() => [
   "All Years",
   ...props.dataYears.map((year) => String(year)),
 ]);
-
-// Overlay constants (matches Vue 2 legacy)
-const overlayOpacity = 0.3;
-const overlayColor = "background"; // Uses Vuetify theme color
 
 // Local state for the dropdown value.
 const value = ref<string | null>(null);
