@@ -10,7 +10,10 @@
 import { ref, computed, type Ref, type ComputedRef, markRaw } from "vue";
 import * as aq from "arquero";
 import { bin } from "d3-array";
-import type { FilterConfig, HistogramBin } from "../types";
+import type {
+  FilterConfig,
+  HistogramBin,
+} from "@/features/filterableMap/types";
 import type { ShootingRow } from "@/shared/types/shootings";
 import {
   rowsToGeoJSON,
@@ -119,7 +122,7 @@ export function useArquero(): UseArqueroReturn {
     baseTable.value = markRaw(aq.from(rows));
     if (import.meta.env.DEV) {
       console.log(
-        `[Arquero] Table created from ${rows.length} rows in ${(performance.now() - tableStart).toFixed(1)}ms`
+        `[Arquero] Table created from ${rows.length} rows in ${(performance.now() - tableStart).toFixed(1)}ms`,
       );
     }
 
@@ -158,7 +161,7 @@ export function useArquero(): UseArqueroReturn {
 
     if (import.meta.env.DEV) {
       console.log(
-        `[Arquero] Initialization complete in ${(performance.now() - startTime).toFixed(1)}ms`
+        `[Arquero] Initialization complete in ${(performance.now() - startTime).toFixed(1)}ms`,
       );
     }
   }
@@ -201,7 +204,7 @@ export function useArquero(): UseArqueroReturn {
    */
   function applyAllFilters(
     table: ColumnTable,
-    excludeDimension?: string
+    excludeDimension?: string,
   ): ColumnTable {
     let result = table;
 
@@ -242,8 +245,8 @@ export function useArquero(): UseArqueroReturn {
         // Custom filter function - apply as predicate
         result = result.filter(
           aq.escape((d: Record<string, unknown>) =>
-            transformedValue(d[dimensionId])
-          )
+            transformedValue(d[dimensionId]),
+          ),
         );
       } else if (Array.isArray(transformedValue)) {
         if (
@@ -257,31 +260,31 @@ export function useArquero(): UseArqueroReturn {
             aq.escape(
               (d: Record<string, unknown>) =>
                 (d[dimensionId] as number) >= min &&
-                (d[dimensionId] as number) <= max
-            )
+                (d[dimensionId] as number) <= max,
+            ),
           );
         } else {
           // Multiselect filter: array of values
           const allowedValues = new Set(transformedValue);
           result = result.filter(
             aq.escape((d: Record<string, unknown>) =>
-              allowedValues.has(d[dimensionId] as string | number)
-            )
+              allowedValues.has(d[dimensionId] as string | number),
+            ),
           );
         }
       } else if (typeof transformedValue === "boolean") {
         // Boolean exact match
         result = result.filter(
           aq.escape(
-            (d: Record<string, unknown>) => d[dimensionId] === transformedValue
-          )
+            (d: Record<string, unknown>) => d[dimensionId] === transformedValue,
+          ),
         );
       } else {
         // Single value exact match
         result = result.filter(
           aq.escape(
-            (d: Record<string, unknown>) => d[dimensionId] === transformedValue
-          )
+            (d: Record<string, unknown>) => d[dimensionId] === transformedValue,
+          ),
         );
       }
     }
@@ -333,7 +336,7 @@ export function useArquero(): UseArqueroReturn {
    */
   function getHistogramData(
     dimensionId: string,
-    numBins: number = 30
+    numBins: number = 30,
   ): HistogramBin[] {
     // Read filterVersion to establish reactive dependency
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
@@ -349,7 +352,7 @@ export function useArquero(): UseArqueroReturn {
     // Extract numeric values for this dimension
     const column = filteredData.array(dimensionId) as (number | null)[];
     const values = column.filter(
-      (v): v is number => typeof v === "number" && !isNaN(v)
+      (v): v is number => typeof v === "number" && !isNaN(v),
     );
 
     if (values.length === 0) {
@@ -376,7 +379,7 @@ export function useArquero(): UseArqueroReturn {
    * @returns Map of category value to count
    */
   function getCategoryCounts(
-    dimensionId: string
+    dimensionId: string,
   ): Map<string | number, number> {
     // Read filterVersion to establish reactive dependency
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions

@@ -14,30 +14,11 @@
       :show-year-selector="true"
       @update:selected-year="handleSelectedYearChange"
     />
-    <dashboard-header
-      :fatal="fatalCount"
-      :nonfatal="nonfatalCount"
-      :current-year="currentYear"
-      :min-year="minYear"
-      :selected-year="selectedYear"
-      :show-overlay="showOverlay"
-    />
 
-    <!-- Screen reader announcement for filter changes -->
-    <div aria-live="polite" aria-atomic="true" class="sr-only" role="status">
-      {{ filterAnnouncement }}
-    </div>
-
-    <!-- Map dashboard with filters -->
+    <!-- Map dashboard with filters, header, and charts -->
     <main id="main-content" v-if="dataReady">
-      <mapping-dashboard
-        @map-ready="handleMapReady"
-        @filtered-features="handleFilteredFeatures"
-      />
+      <mapping-dashboard />
     </main>
-
-    <!-- Chart dashboard showing breakdowns by category -->
-    <chart-dashboard id="charts" :features="filteredFeatures" />
 
     <!-- Error modal -->
     <v-dialog v-model="showErrorDialog" max-width="500" persistent>
@@ -75,9 +56,7 @@ import { useHead } from "@unhead/vue";
 import { useShootingsStore } from "@/shared/stores/shootings";
 import AppNavbar from "@/app/components/AppNavbar.vue";
 import AppFooter from "@/app/components/AppFooter.vue";
-import DashboardHeader from "@/pages/components/DashboardHeader.vue";
-import MappingDashboard from "@/features/map/components/MappingDashboard.vue";
-import ChartDashboard from "@/features/charts/components/ChartDashboard.vue";
+import MappingDashboard from "@/pages/components/MappingDashboard.vue";
 
 // SEO Meta Tags
 useHead({
@@ -103,12 +82,7 @@ useHead({
   ],
 });
 
-// Types
-interface Feature {
-  properties: Record<string, unknown> | null;
-}
-
-// Access shootings store (Arquero-based).
+// Access shootings store.
 const shootingsStore = useShootingsStore();
 const {
   sortedYears: dataYears,
@@ -123,15 +97,6 @@ const {
 // Access route for URL query params
 const route = useRoute();
 
-// Track whether the map component is ready (initialized and sources loaded)
-const mapReady = ref(false);
-
-// Filtered features from MappingDashboard for chart dashboard
-const filteredFeatures = ref<Feature[]>([]);
-
-// Previous count for announcement comparison
-const previousCount = ref<number | null>(null);
-
 // Error handling
 const showErrorDialog = ref(false);
 const defaultErrorMessage =
@@ -141,7 +106,7 @@ const defaultErrorMessage =
  * Current error message to display.
  */
 const currentError = computed(
-  () => loadError.value || (metaError.value ? defaultErrorMessage : null)
+  () => loadError.value || (metaError.value ? defaultErrorMessage : null),
 );
 
 /**
@@ -153,61 +118,21 @@ watch(
   (error) => {
     showErrorDialog.value = !!error;
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 /**
- * Announcement text for screen readers when filters change.
- * Uses aria-live region to announce without interrupting.
- */
-const filterAnnouncement = computed(() => {
-  const count = filteredFeatures.value.length;
-  if (previousCount.value !== null && previousCount.value !== count) {
-    return `Showing ${count.toLocaleString()} shooting victim${
-      count !== 1 ? "s" : ""
-    }`;
-  }
-  return "";
-});
-
-/**
- * Whether to show the loading overlay.
- * Show overlay if loading data, loading additional year data, overlay hold is set,
- * there's an error, or the map is still initializing.
+ * Whether to show the loading overlay in navbar.
+ * This is needed because DashboardHeader (inside MappingDashboard) handles its own overlay,
+ * but the navbar also needs to know if we're loading.
  */
 const showOverlay = computed(() => {
-  const result =
+  return (
     isLoading.value ||
     isLoadingYear.value ||
     !!loadError.value ||
-    metaError.value ||
-    (dataReady.value && !mapReady.value);
-
-  return result;
-});
-const currentYear = computed(() => new Date().getFullYear());
-const minYear = computed(() =>
-  dataYears.value.length > 0
-    ? dataYears.value[dataYears.value.length - 1]
-    : null
-);
-
-/**
- * Count fatal shooting victims for the selected year.
- * Uses filteredFeatures from MappingDashboard (pre-filtered by year and user filters).
- */
-const fatalCount = computed(() => {
-  return filteredFeatures.value.filter((f) => f.properties?.fatal === true)
-    .length;
-});
-
-/**
- * Count nonfatal shooting victims for the selected year.
- * Uses filteredFeatures from MappingDashboard (pre-filtered by year and user filters).
- */
-const nonfatalCount = computed(() => {
-  return filteredFeatures.value.filter((f) => f.properties?.fatal !== true)
-    .length;
+    metaError.value
+  );
 });
 
 onMounted(async () => {
@@ -236,7 +161,7 @@ onMounted(async () => {
 
   if (import.meta.env.DEV) {
     console.log(
-      `[DashboardPage] Data load complete in ${(performance.now() - mountStart).toFixed(1)}ms`
+      `[DashboardPage] Data load complete in ${(performance.now() - mountStart).toFixed(1)}ms`,
     );
   }
 });
@@ -246,23 +171,6 @@ onMounted(async () => {
  */
 function handleSelectedYearChange(next: number | null) {
   shootingsStore.setSelectedYear(next);
-}
-
-/**
- * Handle map ready event from MappingDashboard.
- * Sets mapReady to true so overlay can hide.
- */
-function handleMapReady() {
-  mapReady.value = true;
-}
-
-/**
- * Handle filtered features update from MappingDashboard.
- * Stores features for chart dashboard to visualize.
- */
-function handleFilteredFeatures(features: Feature[]) {
-  previousCount.value = filteredFeatures.value.length;
-  filteredFeatures.value = features;
 }
 
 /**

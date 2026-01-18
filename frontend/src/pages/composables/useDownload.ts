@@ -9,8 +9,8 @@
 
 import type { Ref, ComputedRef } from "vue";
 import { useBoundariesStore } from "@/shared/stores/boundaries";
-import { sourceIdToDataset } from "../config/sources";
-import type { LayerConfig } from "../types";
+import { sourceIdToDataset } from "@/features/filterableMap/config/sources";
+import type { LayerConfig } from "@/features/filterableMap/types";
 
 // Types
 interface Feature {
@@ -129,7 +129,7 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
    * Convert aggregated data to CSV format.
    */
   function convertAggregatedToCSV(
-    data: Array<Record<string, unknown>>
+    data: Array<Record<string, unknown>>,
   ): string {
     if (data.length === 0) return "";
 
@@ -143,7 +143,7 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
           return `"${str.replace(/"/g, '""')}"`;
         }
         return str;
-      })
+      }),
     );
 
     return [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
@@ -155,7 +155,7 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
    */
   function aggregateByBoundary(
     features: Feature[],
-    layerName: string
+    layerName: string,
   ): Array<Record<string, unknown>> {
     // Find the layer config to get the column name
     const layerConfig = layers.value.find((l) => l.name === layerName);
@@ -204,7 +204,7 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
 
     // Sort by total descending
     results.sort(
-      (a, b) => (b.total_shootings as number) - (a.total_shootings as number)
+      (a, b) => (b.total_shootings as number) - (a.total_shootings as number),
     );
 
     return results;
@@ -216,7 +216,7 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
    */
   async function joinAggregatedWithBoundaries(
     aggregated: Array<Record<string, unknown>>,
-    layerName: string
+    layerName: string,
   ): Promise<GeoJSON.FeatureCollection> {
     // Find the layer config to get source and geoid column
     const layerConfig = layers.value.find((l) => l.name === layerName);
@@ -229,7 +229,7 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
     const dataset = sourceIdToDataset(layerConfig.source);
     if (!dataset) {
       console.warn(
-        `Could not extract dataset from source: ${layerConfig.source}`
+        `Could not extract dataset from source: ${layerConfig.source}`,
       );
       return { type: "FeatureCollection", features: [] };
     }
@@ -310,20 +310,20 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
         const blob = new Blob([csv], { type: "text/csv" });
         downloadBlob(
           blob,
-          `shootings-by-${aggSlug}-${suffix}-${timestamp}.csv`
+          `shootings-by-${aggSlug}-${suffix}-${timestamp}.csv`,
         );
       } else {
         // GeoJSON format - join with boundary geometries
         const geojson = await joinAggregatedWithBoundaries(
           aggregated,
-          options.aggregateBy
+          options.aggregateBy,
         );
         const blob = new Blob([JSON.stringify(geojson, null, 2)], {
           type: "application/json",
         });
         downloadBlob(
           blob,
-          `shootings-by-${aggSlug}-${suffix}-${timestamp}.geojson`
+          `shootings-by-${aggSlug}-${suffix}-${timestamp}.geojson`,
         );
       }
       return;

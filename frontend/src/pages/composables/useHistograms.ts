@@ -9,7 +9,10 @@
  */
 
 import { ref, type Ref } from "vue";
-import type { FilterConfig, HistogramBin } from "../types";
+import type {
+  FilterConfig,
+  HistogramBin,
+} from "@/features/filterableMap/types";
 
 /**
  * Return type for the useHistograms composable.
@@ -20,11 +23,11 @@ interface UseHistogramsReturn {
   /** Initialize histograms for filters with showHistogram enabled */
   initializeHistograms: (
     filters: FilterConfig[],
-    getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[]
+    getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[],
   ) => void;
   /** Update all histograms (call when filters change) */
   updateHistograms: (
-    getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[]
+    getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[],
   ) => void;
 }
 
@@ -62,7 +65,7 @@ export function useHistograms(numBins: number = 30): UseHistogramsReturn {
    */
   function initializeHistograms(
     filters: FilterConfig[],
-    getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[]
+    getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[],
   ): void {
     histograms.value.clear();
     histogramFilterNames.value = [];
@@ -85,7 +88,7 @@ export function useHistograms(numBins: number = 30): UseHistogramsReturn {
    * @param getHistogramData - Function to get histogram data from Arquero table
    */
   function updateHistograms(
-    getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[]
+    getHistogramData: (dimensionId: string, numBins?: number) => HistogramBin[],
   ): void {
     for (const filterName of histogramFilterNames.value) {
       const bins = getHistogramData(filterName, numBins);

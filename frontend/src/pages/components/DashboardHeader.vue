@@ -359,6 +359,7 @@ watch(
   justify-content: center;
   align-items: center;
   margin-top: 40px;
+  margin-bottom: 60px;
   color: rgb(var(--v-theme-primary));
 }
 

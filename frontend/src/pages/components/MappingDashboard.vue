@@ -1,66 +1,87 @@
 <template>
-  <div class="mapping-dashboard">
-    <!-- Screen reader description of map content -->
-    <div class="sr-only" role="region" aria-label="Map data summary">
-      <h2>Map Summary</h2>
-      <p>{{ mapSummaryText }}</p>
+  <div class="mapping-dashboard-wrapper">
+    <!-- Dashboard Header with stats -->
+    <dashboard-header
+      :fatal="fatalCount"
+      :nonfatal="nonfatalCount"
+      :current-year="currentYear"
+      :min-year="minYear"
+      :selected-year="selectedYear"
+      :show-overlay="showOverlay"
+    />
+
+    <!-- Screen reader announcement for filter changes -->
+    <div aria-live="polite" aria-atomic="true" class="sr-only" role="status">
+      {{ filterAnnouncement }}
     </div>
 
-    <!-- Map container with sidebar -->
-    <div
-      class="map-container"
-      role="application"
-      aria-label="Interactive map showing shooting locations in Philadelphia"
-    >
-      <filterable-map
-        ref="mapRef"
-        :filtered-features="filteredFeatures"
-        :layer-configs="layers"
-        :active-layers="activeLayers"
-        @map-ready="handleMapReady"
-      />
+    <!-- Map and sidebar container -->
+    <div class="mapping-dashboard" v-if="dataReady">
+      <!-- Screen reader description of map content -->
+      <div class="sr-only" role="region" aria-label="Map data summary">
+        <h2>Map Summary</h2>
+        <p>{{ mapSummaryText }}</p>
+      </div>
 
-      <!-- Address search overlay -->
-      <div class="address-search-container">
-        <address-search
-          ref="addressSearchRef"
-          @select="handleAddressSelect"
-          @clear="handleAddressClear"
+      <!-- Map container with sidebar -->
+      <div
+        class="map-container"
+        role="application"
+        aria-label="Interactive map showing shooting locations in Philadelphia"
+      >
+        <filterable-map
+          ref="mapRef"
+          :filtered-features="filteredFeatures"
+          :layer-configs="layers"
+          :active-layers="activeLayers"
+          @map-ready="handleMapReady"
+        />
+
+        <!-- Address search overlay -->
+        <div class="address-search-container">
+          <address-search
+            ref="addressSearchRef"
+            @select="handleAddressSelect"
+            @clear="handleAddressClear"
+          />
+        </div>
+
+        <!-- Search marker (shows when address is selected) -->
+        <search-marker
+          v-if="searchMarkerPosition"
+          :x="searchMarkerPosition.x"
+          :y="searchMarkerPosition.y"
         />
       </div>
 
-      <!-- Search marker (shows when address is selected) -->
-      <search-marker
-        v-if="searchMarkerPosition"
-        :x="searchMarkerPosition.x"
-        :y="searchMarkerPosition.y"
+      <!-- Sidebar with filters -->
+      <map-sidebar
+        id="filters"
+        ref="sidebarRef"
+        :filters="filters"
+        :active-filters="activeFilters"
+        :slider-limits="sliderLimits"
+        :feature-count="filteredFeatures.length"
+        :total-count="totalFeatures"
+        :points-on-map="pointsOnMap"
+        :toggleable-layer-names="toggleableLayerNames"
+        :overlay-layer-names="overlayLayerNames"
+        :default-toggled-layer-names="defaultToggledLayerNames"
+        :initial-active-layers="initialToggleableLayers"
+        :initial-overlay="currentOverlay"
+        :histograms="histograms"
+        @filter-change="handleFilterChange"
+        @filter-reset="handleFilterReset"
+        @reset-all="handleResetAll"
+        @download="handleDownload"
+        @layer-change="handleLayerChange"
+        @overlay-change="handleOverlayChange"
+        @opacity-change="handleOpacityChange"
       />
     </div>
 
-    <!-- Sidebar with filters -->
-    <map-sidebar
-      id="filters"
-      ref="sidebarRef"
-      :filters="filters"
-      :active-filters="activeFilters"
-      :slider-limits="sliderLimits"
-      :feature-count="filteredFeatures.length"
-      :total-count="totalFeatures"
-      :points-on-map="pointsOnMap"
-      :toggleable-layer-names="toggleableLayerNames"
-      :overlay-layer-names="overlayLayerNames"
-      :default-toggled-layer-names="defaultToggledLayerNames"
-      :initial-active-layers="initialToggleableLayers"
-      :initial-overlay="currentOverlay"
-      :histograms="histograms"
-      @filter-change="handleFilterChange"
-      @filter-reset="handleFilterReset"
-      @reset-all="handleResetAll"
-      @download="handleDownload"
-      @layer-change="handleLayerChange"
-      @overlay-change="handleOverlayChange"
-      @opacity-change="handleOpacityChange"
-    />
+    <!-- Chart dashboard showing breakdowns by category -->
+    <chart-dashboard id="charts" :features="filteredFeatures" />
   </div>
 </template>
 
@@ -68,50 +89,50 @@
 /**
  * MappingDashboard Component
  *
- * Main container for the interactive map dashboard.
- * Orchestrates map rendering, data filtering, and sidebar controls.
+ * Main container for the interactive map dashboard with header and charts.
+ * Orchestrates map rendering, data filtering, sidebar controls, and statistics.
  *
  * Architecture:
  * - Uses Arquero for multi-dimensional filtering
  * - FilterableMap handles MapLibre GL rendering and layer management
  * - MapSidebar provides filter controls and statistics
- * - Filtered features flow: data → Arquero → map/sidebar
+ * - DashboardHeader displays fatal/nonfatal counts
+ * - ChartDashboard shows breakdown charts
+ * - Filtered features flow: store → Arquero → all components
  *
  * @component
  */
 
 import { ref, computed, watch } from "vue";
 import { storeToRefs } from "pinia";
-import FilterableMap from "./FilterableMap.vue";
-import MapSidebar from "./MapSidebar/MapSidebar.vue";
-import AddressSearch from "./AddressSearch.vue";
-import SearchMarker from "./SearchMarker.vue";
-import { useArquero } from "../composables/useArquero";
-import { useDownload } from "../composables/useDownload";
-import { useHistograms } from "../composables/useHistograms";
-import { useMapConfig } from "../composables/useMapConfig";
-import { useOverlayState } from "../composables/useOverlayState";
-import { useUrlState } from "../composables/useUrlState";
+import FilterableMap from "@/features/filterableMap/components/FilterableMap.vue";
+import MapSidebar from "@/features/filterableMap/components/MapSidebar/MapSidebar.vue";
+import AddressSearch from "@/features/filterableMap/components/AddressSearch.vue";
+import SearchMarker from "@/features/filterableMap/components/SearchMarker.vue";
+import DashboardHeader from "@/pages/components/DashboardHeader.vue";
+import ChartDashboard from "@/features/charts/components/ChartDashboard.vue";
+import { useArquero } from "@/pages/composables/useArquero";
+import { useDownload } from "@/pages/composables/useDownload";
+import { useHistograms } from "@/pages/composables/useHistograms";
+import { useMapConfig } from "@/features/filterableMap/composables/useMapConfig";
+import { useOverlayState } from "@/features/filterableMap/composables/useOverlayState";
+import { useUrlState } from "@/pages/composables/useUrlState";
 import { useShootingsStore } from "@/shared/stores/shootings";
-import type { AddressResult } from "../composables/useGeocoding";
+import type { AddressResult } from "@/features/filterableMap/composables/useGeocoding";
 import type { ShootingRow } from "@/shared/types/shootings";
 
-// Types
-interface Feature {
-  type: "Feature";
-  properties: Record<string, unknown> | null;
-  geometry: GeoJSON.Geometry | null;
-}
-
-// Emit events to parent
-const emit = defineEmits<{
-  "map-ready": [];
-  "filtered-features": [features: Feature[]];
-}>();
-
-// Store access - using new Arquero-based data store
+// Store access
 const shootingsStore = useShootingsStore();
-const { selectedYear, rowsByYear } = storeToRefs(shootingsStore);
+const {
+  selectedYear,
+  rowsByYear,
+  sortedYears: dataYears,
+  hasData: dataReady,
+  isLoading,
+  isLoadingYear,
+  loadError,
+  metaError,
+} = storeToRefs(shootingsStore);
 
 // Normalize selectedYear to exclude undefined
 const normalizedYear = computed(() => selectedYear.value ?? null);
@@ -153,7 +174,7 @@ const { handleDownload } = useDownload({ filteredFeatures, layers });
  */
 function urlIdToLayerName(
   urlId: string,
-  allLayerNames: string[]
+  allLayerNames: string[],
 ): string | null {
   // Convert URL ID to comparable format (lowercase, spaces instead of hyphens)
   const urlNormalized = urlId.toLowerCase().replace(/-/g, " ");
@@ -161,7 +182,7 @@ function urlIdToLayerName(
   // Find matching layer name (case-insensitive)
   return (
     allLayerNames.find(
-      (name) => name.toLowerCase().replace(/\s+/g, " ") === urlNormalized
+      (name) => name.toLowerCase().replace(/\s+/g, " ") === urlNormalized,
     ) ?? null
   );
 }
@@ -181,15 +202,90 @@ const {
   urlIdToLayerName,
 });
 
-// Map instance ref for URL state sync
+// Map instance refs
 const mapRef = ref<any>(null);
 const sidebarRef = ref<InstanceType<typeof MapSidebar> | null>(null);
 const addressSearchRef = ref<{ clear: () => void } | null>(null);
 const mapInstance = computed(() => mapRef.value?.mapInstance ?? null);
 
+// Track whether the map component is ready
+const mapReady = ref(false);
+
 // Search marker state for address geocoding
 const searchMarkerPosition = ref<{ x: number; y: number } | null>(null);
 const searchMarkerLngLat = ref<{ lng: number; lat: number } | null>(null);
+
+// Previous count for announcement comparison
+const previousFilteredCount = ref<number | null>(null);
+
+// ============================================================================
+// Header Statistics
+// ============================================================================
+
+const currentYear = computed(() => new Date().getFullYear());
+
+const minYear = computed(() =>
+  dataYears.value.length > 0
+    ? dataYears.value[dataYears.value.length - 1]
+    : null,
+);
+
+/**
+ * Whether to show the loading overlay.
+ */
+const showOverlay = computed(() => {
+  return (
+    isLoading.value ||
+    isLoadingYear.value ||
+    !!loadError.value ||
+    metaError.value ||
+    (dataReady.value && !mapReady.value)
+  );
+});
+
+/**
+ * Count fatal shooting victims from filtered features.
+ */
+const fatalCount = computed(() => {
+  return filteredFeatures.value.filter((f) => f.properties?.fatal === true)
+    .length;
+});
+
+/**
+ * Count nonfatal shooting victims from filtered features.
+ */
+const nonfatalCount = computed(() => {
+  return filteredFeatures.value.filter((f) => f.properties?.fatal !== true)
+    .length;
+});
+
+/**
+ * Announcement text for screen readers when filters change.
+ */
+const filterAnnouncement = computed(() => {
+  const count = filteredFeatures.value.length;
+  if (
+    previousFilteredCount.value !== null &&
+    previousFilteredCount.value !== count
+  ) {
+    return `Showing ${count.toLocaleString()} shooting victim${
+      count !== 1 ? "s" : ""
+    }`;
+  }
+  return "";
+});
+
+// Update previous count when filtered features change
+watch(
+  () => filteredFeatures.value.length,
+  (_, oldCount) => {
+    previousFilteredCount.value = oldCount;
+  },
+);
+
+// ============================================================================
+// Address Search
+// ============================================================================
 
 /**
  * Handle address selection from the AddressSearch component.
@@ -257,7 +353,9 @@ const allLayerNames = computed(() => [
 // Sync state with URL (year, layers, map view)
 useUrlState(normalizedYear, activeLayers, mapInstance, allLayerNames.value);
 
-// Note: filteredFeatures is now a computed ref from useArquero, not a local computed
+// ============================================================================
+// Map Statistics
+// ============================================================================
 
 /**
  * Total feature count for current year.
@@ -269,7 +367,7 @@ const totalFeatures = computed(() => {
     // All years: sum all loaded years
     return Object.values(rowsByYear.value).reduce(
       (sum, rows) => sum + rows.length,
-      0
+      0,
     );
   }
   return rowsByYear.value[year]?.length ?? 0;
@@ -282,10 +380,8 @@ const totalFeatures = computed(() => {
 const mapSummaryText = computed(() => {
   const total = filteredFeatures.value.length;
   const onMap = pointsOnMap.value;
-  const fatal = filteredFeatures.value.filter(
-    (f) => f.properties?.fatal === true
-  ).length;
-  const nonfatal = total - fatal;
+  const fatal = fatalCount.value;
+  const nonfatal = nonfatalCount.value;
 
   // Build year description
   const yearText =
@@ -372,10 +468,9 @@ function handleResetAll(): void {
 /**
  * Handle map ready event.
  * Called when MapLibre GL map is initialized.
- * Bubbles event up to parent for overlay control.
  */
 function handleMapReady(): void {
-  emit("map-ready");
+  mapReady.value = true;
 
   // Add listeners to update search marker position when map moves
   if (mapInstance.value) {
@@ -439,7 +534,7 @@ watch(
 
       if (import.meta.env.DEV) {
         console.log(
-          `[MappingDashboard] Using ${rowsToUse.length} rows (year=${year ?? "all"}, load=${(startTime - loadStart).toFixed(1)}ms)`
+          `[MappingDashboard] Using ${rowsToUse.length} rows (year=${year ?? "all"}, load=${(startTime - loadStart).toFixed(1)}ms)`,
         );
       }
 
@@ -450,12 +545,12 @@ watch(
 
       if (import.meta.env.DEV) {
         console.log(
-          `[MappingDashboard] Total data initialization in ${(performance.now() - startTime).toFixed(1)}ms`
+          `[MappingDashboard] Total data initialization in ${(performance.now() - startTime).toFixed(1)}ms`,
         );
       }
     }
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 /**
@@ -467,19 +562,7 @@ watch(
   () => {
     updateHistograms(getHistogramData);
   },
-  { deep: true }
-);
-
-/**
- * Emit filtered features to parent for chart dashboard.
- * Triggered whenever the filtered features change.
- */
-watch(
-  filteredFeatures,
-  (features) => {
-    emit("filtered-features", features as Feature[]);
-  },
-  { immediate: true }
+  { deep: true },
 );
 </script>
 
@@ -487,7 +570,6 @@ watch(
 .mapping-dashboard {
   position: relative;
   display: flex;
-  margin-top: 100px;
   margin-bottom: 20px;
   border: 5px solid #868b8e;
 }

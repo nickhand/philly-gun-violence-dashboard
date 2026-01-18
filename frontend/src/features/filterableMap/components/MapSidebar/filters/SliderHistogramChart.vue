@@ -47,7 +47,7 @@
 
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { scaleLinear } from "d3-scale";
-import type { HistogramBin } from "@/features/map/types";
+import type { HistogramBin } from "@/features/filterableMap/types";
 
 const props = withDefaults(
   defineProps<{
@@ -66,7 +66,7 @@ const props = withDefaults(
   }>(),
   {
     height: 60,
-  }
+  },
 );
 
 // Container ref for responsive width
