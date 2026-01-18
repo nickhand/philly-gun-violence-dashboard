@@ -8,4 +8,5 @@
 export * from "./useArquero";
 export * from "./useDownload";
 export * from "./useHistograms";
+export * from "./useLoadingState";
 export * from "./useUrlState";

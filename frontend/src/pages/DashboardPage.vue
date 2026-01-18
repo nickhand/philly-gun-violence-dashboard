@@ -54,6 +54,7 @@ import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
 import { useHead } from "@unhead/vue";
 import { useShootingsStore } from "@/shared/stores/shootings";
+import { useLoadingState } from "@/pages/composables/useLoadingState";
 import AppNavbar from "@/app/components/AppNavbar.vue";
 import AppFooter from "@/app/components/AppFooter.vue";
 import MappingDashboard from "@/pages/components/MappingDashboard.vue";
@@ -88,11 +89,12 @@ const {
   sortedYears: dataYears,
   selectedYear,
   hasData: dataReady,
-  isLoading,
-  isLoadingYear,
   loadError,
   metaError,
 } = storeToRefs(shootingsStore);
+
+// Centralized loading state (navbar doesn't need mapReady check)
+const { showOverlay } = useLoadingState();
 
 // Access route for URL query params
 const route = useRoute();
@@ -120,20 +122,6 @@ watch(
   },
   { immediate: true },
 );
-
-/**
- * Whether to show the loading overlay in navbar.
- * This is needed because DashboardHeader (inside MappingDashboard) handles its own overlay,
- * but the navbar also needs to know if we're loading.
- */
-const showOverlay = computed(() => {
-  return (
-    isLoading.value ||
-    isLoadingYear.value ||
-    !!loadError.value ||
-    metaError.value
-  );
-});
 
 onMounted(async () => {
   const mountStart = performance.now();

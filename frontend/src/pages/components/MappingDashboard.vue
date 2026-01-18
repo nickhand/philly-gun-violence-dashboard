@@ -114,6 +114,7 @@ import ChartDashboard from "@/features/charts/components/ChartDashboard.vue";
 import { useArquero } from "@/pages/composables/useArquero";
 import { useDownload } from "@/pages/composables/useDownload";
 import { useHistograms } from "@/pages/composables/useHistograms";
+import { useLoadingState } from "@/pages/composables/useLoadingState";
 import { useMapConfig } from "@/features/filterableMap/composables/useMapConfig";
 import { useOverlayState } from "@/features/filterableMap/composables/useOverlayState";
 import { useUrlState } from "@/pages/composables/useUrlState";
@@ -127,12 +128,17 @@ const {
   selectedYear,
   rowsByYear,
   sortedYears: dataYears,
-  hasData: dataReady,
-  isLoading,
-  isLoadingYear,
-  loadError,
-  metaError,
+  fatalCount,
+  nonfatalCount,
 } = storeToRefs(shootingsStore);
+
+// Track whether the map component is ready
+const mapReady = ref(false);
+
+// Centralized loading state (includes mapReady check for overlay)
+const { showOverlay, hasData: dataReady } = useLoadingState({
+  componentReady: mapReady,
+});
 
 // Normalize selectedYear to exclude undefined
 const normalizedYear = computed(() => selectedYear.value ?? null);
@@ -208,9 +214,6 @@ const sidebarRef = ref<InstanceType<typeof MapSidebar> | null>(null);
 const addressSearchRef = ref<{ clear: () => void } | null>(null);
 const mapInstance = computed(() => mapRef.value?.mapInstance ?? null);
 
-// Track whether the map component is ready
-const mapReady = ref(false);
-
 // Search marker state for address geocoding
 const searchMarkerPosition = ref<{ x: number; y: number } | null>(null);
 const searchMarkerLngLat = ref<{ lng: number; lat: number } | null>(null);
@@ -231,30 +234,17 @@ const minYear = computed(() =>
 );
 
 /**
- * Whether to show the loading overlay.
+ * Count fatal shooting victims from filtered features (for a11y summary).
  */
-const showOverlay = computed(() => {
-  return (
-    isLoading.value ||
-    isLoadingYear.value ||
-    !!loadError.value ||
-    metaError.value ||
-    (dataReady.value && !mapReady.value)
-  );
-});
-
-/**
- * Count fatal shooting victims from filtered features.
- */
-const fatalCount = computed(() => {
+const filteredFatalCount = computed(() => {
   return filteredFeatures.value.filter((f) => f.properties?.fatal === true)
     .length;
 });
 
 /**
- * Count nonfatal shooting victims from filtered features.
+ * Count nonfatal shooting victims from filtered features (for a11y summary).
  */
-const nonfatalCount = computed(() => {
+const filteredNonfatalCount = computed(() => {
   return filteredFeatures.value.filter((f) => f.properties?.fatal !== true)
     .length;
 });
@@ -380,8 +370,8 @@ const totalFeatures = computed(() => {
 const mapSummaryText = computed(() => {
   const total = filteredFeatures.value.length;
   const onMap = pointsOnMap.value;
-  const fatal = fatalCount.value;
-  const nonfatal = nonfatalCount.value;
+  const fatal = filteredFatalCount.value;
+  const nonfatal = filteredNonfatalCount.value;
 
   // Build year description
   const yearText =

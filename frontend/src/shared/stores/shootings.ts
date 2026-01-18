@@ -29,6 +29,11 @@ const STORAGE_KEY_GENERATED_AT = "shootings_data_generated_at";
 const defaultLoadErrorMessage =
   "We couldn't load the shootings data right now. Please retry or try again later.";
 
+interface YearCounts {
+  fatal: number;
+  nonfatal: number;
+}
+
 interface ShootingsDataState {
   /** Current dataset version (content hash) */
   datasetVersion: string | null;
@@ -40,12 +45,12 @@ interface ShootingsDataState {
   totalRows: number;
   /** Raw row data indexed by year (for Arquero table initialization) */
   rowsByYear: Record<number, ShootingRow[]>;
+  /** Pre-computed fatal/nonfatal counts per year */
+  countsByYear: Record<number, YearCounts>;
   /** Set of years that have been loaded */
   loadedYears: Set<number>;
-  /** True if currently loading initial data */
+  /** True if currently loading any data (initial or additional years) */
   isLoading: boolean;
-  /** True if currently loading additional year data */
-  isLoadingYear: boolean;
   /** Error message if loading failed */
   loadError: string | null;
   /** True if there was an error fetching metadata */
@@ -63,9 +68,9 @@ export const useShootingsStore = defineStore("shootings", {
     dataYears: [],
     totalRows: 0,
     rowsByYear: {},
+    countsByYear: {},
     loadedYears: new Set(),
     isLoading: false,
-    isLoadingYear: false,
     loadError: null,
     metaError: false,
     selectedYear: undefined,
@@ -79,6 +84,32 @@ export const useShootingsStore = defineStore("shootings", {
 
     /** Whether any year data has been loaded */
     hasData: (state): boolean => state.loadedYears.size > 0,
+
+    /** Count of fatal shooting victims for selected year (unfiltered) */
+    fatalCount(state): number {
+      const year = state.selectedYear;
+      if (year === null || year === undefined) {
+        // All years: sum all loaded years
+        return Object.values(state.countsByYear).reduce(
+          (sum, counts) => sum + counts.fatal,
+          0,
+        );
+      }
+      return state.countsByYear[year]?.fatal ?? 0;
+    },
+
+    /** Count of nonfatal shooting victims for selected year (unfiltered) */
+    nonfatalCount(state): number {
+      const year = state.selectedYear;
+      if (year === null || year === undefined) {
+        // All years: sum all loaded years
+        return Object.values(state.countsByYear).reduce(
+          (sum, counts) => sum + counts.nonfatal,
+          0,
+        );
+      }
+      return state.countsByYear[year]?.nonfatal ?? 0;
+    },
   },
 
   actions: {
@@ -114,7 +145,7 @@ export const useShootingsStore = defineStore("shootings", {
         if (this.datasetGeneratedAt) {
           localStorage.setItem(
             STORAGE_KEY_GENERATED_AT,
-            this.datasetGeneratedAt
+            this.datasetGeneratedAt,
           );
         }
       } catch {
@@ -126,7 +157,7 @@ export const useShootingsStore = defineStore("shootings", {
      * Load a specific year's data.
      *
      * @param year - The year to load
-     * @param setLoadingState - Whether to manage isLoadingYear state (default true)
+     * @param setLoadingState - Whether to manage isLoading state (default true)
      * @returns Promise resolving to true if data was loaded
      */
     async loadYear(year: number, setLoadingState = true): Promise<boolean> {
@@ -148,7 +179,7 @@ export const useShootingsStore = defineStore("shootings", {
       }
 
       if (setLoadingState) {
-        this.isLoadingYear = true;
+        this.isLoading = true;
       }
       const startTime = performance.now();
 
@@ -157,7 +188,7 @@ export const useShootingsStore = defineStore("shootings", {
 
         if (import.meta.env.DEV) {
           console.log(
-            `[ShootingsData] Year ${year} fetch: ${(performance.now() - startTime).toFixed(1)}ms (${rows.length} rows)`
+            `[ShootingsData] Year ${year} fetch: ${(performance.now() - startTime).toFixed(1)}ms (${rows.length} rows)`,
           );
         }
 
@@ -165,13 +196,20 @@ export const useShootingsStore = defineStore("shootings", {
         this.rowsByYear[year] = markRaw(rows as unknown as ShootingRow[]);
         this.loadedYears.add(year);
 
+        // Pre-compute counts for O(1) lookup
+        const fatalCount = rows.filter((row) => row.fatal === true).length;
+        this.countsByYear[year] = {
+          fatal: fatalCount,
+          nonfatal: rows.length - fatalCount,
+        };
+
         return true;
       } catch (error) {
         console.error(`Failed to load year ${year}`, error);
         return false;
       } finally {
         if (setLoadingState) {
-          this.isLoadingYear = false;
+          this.isLoading = false;
         }
       }
     },
@@ -188,16 +226,16 @@ export const useShootingsStore = defineStore("shootings", {
       }
 
       const yearsToLoad = this.dataYears.filter(
-        (y) => !this.loadedYears.has(y)
+        (y) => !this.loadedYears.has(y),
       );
       if (yearsToLoad.length === 0) {
         return true;
       }
 
-      this.isLoadingYear = true;
+      this.isLoading = true;
       if (import.meta.env.DEV) {
         console.log(
-          `[ShootingsData] loadAllYears: setting isLoadingYear=true, yearsToLoad=${yearsToLoad.join(",")}`
+          `[ShootingsData] loadAllYears: setting isLoading=true, yearsToLoad=${yearsToLoad.join(",")}`,
         );
       }
       const startTime = performance.now();
@@ -205,22 +243,20 @@ export const useShootingsStore = defineStore("shootings", {
       try {
         // Load all remaining years in parallel (don't let individual loads manage state)
         await Promise.all(
-          yearsToLoad.map((year) => this.loadYear(year, false))
+          yearsToLoad.map((year) => this.loadYear(year, false)),
         );
 
         if (import.meta.env.DEV) {
           console.log(
-            `[ShootingsData] All years fetch: ${(performance.now() - startTime).toFixed(1)}ms`
+            `[ShootingsData] All years fetch: ${(performance.now() - startTime).toFixed(1)}ms`,
           );
         }
 
         return true;
       } finally {
-        this.isLoadingYear = false;
+        this.isLoading = false;
         if (import.meta.env.DEV) {
-          console.log(
-            `[ShootingsData] loadAllYears: setting isLoadingYear=false`
-          );
+          console.log(`[ShootingsData] loadAllYears: setting isLoading=false`);
         }
       }
     },
@@ -257,7 +293,7 @@ export const useShootingsStore = defineStore("shootings", {
         const metaTime = performance.now();
         if (import.meta.env.DEV) {
           console.log(
-            `[ShootingsData] Meta fetch: ${(metaTime - startTime).toFixed(1)}ms`
+            `[ShootingsData] Meta fetch: ${(metaTime - startTime).toFixed(1)}ms`,
           );
         }
 
@@ -265,7 +301,7 @@ export const useShootingsStore = defineStore("shootings", {
         if (!metaResult.modified && this.loadedYears.size > 0) {
           if (import.meta.env.DEV) {
             console.log(
-              `[ShootingsData] Data unchanged (304), using cached version`
+              `[ShootingsData] Data unchanged (304), using cached version`,
             );
           }
           return false;
@@ -275,7 +311,7 @@ export const useShootingsStore = defineStore("shootings", {
         if (!metaResult.modified && this.loadedYears.size === 0) {
           if (import.meta.env.DEV) {
             console.log(
-              `[ShootingsData] Got 304 but no data in memory, refetching without version`
+              `[ShootingsData] Got 304 but no data in memory, refetching without version`,
             );
           }
           metaResult = await fetchShootingsMeta(null);
@@ -317,7 +353,7 @@ export const useShootingsStore = defineStore("shootings", {
         const totalTime = performance.now();
         if (import.meta.env.DEV) {
           console.log(
-            `[ShootingsData] Total load time: ${(totalTime - startTime).toFixed(1)}ms`
+            `[ShootingsData] Total load time: ${(totalTime - startTime).toFixed(1)}ms`,
           );
         }
 
@@ -342,7 +378,7 @@ export const useShootingsStore = defineStore("shootings", {
     async ensureYearLoaded(year: number | null): Promise<boolean> {
       if (import.meta.env.DEV) {
         console.log(
-          `[ShootingsData] ensureYearLoaded called (year=${year}, isLoadingYear before=${this.isLoadingYear})`
+          `[ShootingsData] ensureYearLoaded called (year=${year}, isLoading before=${this.isLoading})`,
         );
       }
       if (year === null) {
