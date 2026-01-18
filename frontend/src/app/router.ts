@@ -16,15 +16,6 @@ export function createAppRouter() {
         path: "/about",
         component: AboutPage,
       },
-      {
-        path: "/:selectedYear",
-        // Preserve legacy URL style by converting to query params.
-        redirect: (to) => {
-          const yearParam = String(to.params.selectedYear);
-          const year = yearParam === "all" ? "All Years" : yearParam;
-          return { path: "/", query: { year } };
-        },
-      },
     ],
   });
 }

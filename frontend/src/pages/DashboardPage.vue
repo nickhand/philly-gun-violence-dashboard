@@ -9,7 +9,7 @@
 
     <app-navbar
       :data-years="dataYears"
-      :selected-year="selectedYearLocal"
+      :selected-year="selectedYear"
       :show-overlay="showOverlay"
       :show-year-selector="true"
       @update:selected-year="handleSelectedYearChange"
@@ -19,8 +19,7 @@
       :nonfatal="nonfatalCount"
       :current-year="currentYear"
       :min-year="minYear"
-      :selected-year="selectedYearLocal"
-      :latest-data-date="latestDataDate"
+      :selected-year="selectedYear"
       :show-overlay="showOverlay"
     />
 
@@ -73,7 +72,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
 import { useHead } from "@unhead/vue";
-import { useShootingsDataStore } from "@/shared/stores/shootingsData";
+import { useShootingsStore } from "@/shared/stores/shootings";
 import AppNavbar from "@/app/components/AppNavbar.vue";
 import AppFooter from "@/app/components/AppFooter.vue";
 import DashboardHeader from "@/pages/components/DashboardHeader.vue";
@@ -110,26 +109,19 @@ interface Feature {
 }
 
 // Access shootings store (Arquero-based).
-const shootingsStore = useShootingsDataStore();
+const shootingsStore = useShootingsStore();
 const {
   sortedYears: dataYears,
   selectedYear,
-  rows,
+  hasData: dataReady,
   isLoading,
   isLoadingYear,
-  overlayHold,
   loadError,
   metaError,
 } = storeToRefs(shootingsStore);
 
-// Computed to check if data is ready (replaces currentData !== null check)
-const dataReady = computed(() => rows.value !== null && rows.value.length > 0);
-
 // Access route for URL query params
 const route = useRoute();
-
-// Local selected year state for the dropdown.
-const selectedYearLocal = ref<number | null | undefined>(selectedYear.value);
 
 // Track whether the map component is ready (initialized and sources loaded)
 const mapReady = ref(false);
@@ -187,16 +179,10 @@ const showOverlay = computed(() => {
   const result =
     isLoading.value ||
     isLoadingYear.value ||
-    overlayHold.value ||
     !!loadError.value ||
     metaError.value ||
     (dataReady.value && !mapReady.value);
 
-  if (import.meta.env.DEV) {
-    console.log(
-      `[DashboardPage] showOverlay=${result} (isLoading=${isLoading.value}, isLoadingYear=${isLoadingYear.value}, overlayHold=${overlayHold.value}, loadError=${!!loadError.value}, metaError=${metaError.value}, dataReady=${dataReady.value}, mapReady=${mapReady.value})`
-    );
-  }
   return result;
 });
 const currentYear = computed(() => new Date().getFullYear());
@@ -205,7 +191,6 @@ const minYear = computed(() =>
     ? dataYears.value[dataYears.value.length - 1]
     : null
 );
-const latestDataDate = computed(() => null as Date | null);
 
 /**
  * Count fatal shooting victims for the selected year.
@@ -237,13 +222,11 @@ onMounted(async () => {
     if (urlYear === "All Years") {
       // "All Years" means null
       shootingsStore.setSelectedYear(null);
-      selectedYearLocal.value = null;
     } else {
       const parsedYear = parseInt(urlYear, 10);
       if (!isNaN(parsedYear)) {
         // Set year in store before loading to prevent default override
         shootingsStore.setSelectedYear(parsedYear);
-        selectedYearLocal.value = parsedYear;
       }
     }
   }
@@ -258,20 +241,11 @@ onMounted(async () => {
   }
 });
 
-watch(selectedYear, (next) => {
-  selectedYearLocal.value = next;
-});
-
-watch(selectedYearLocal, (next) => {
-  // Just update the store - Arquero filters in-memory, no data refetch needed
-  shootingsStore.setSelectedYear(next);
-});
-
 /**
  * Handle selected year change from navbar dropdown.
  */
 function handleSelectedYearChange(next: number | null) {
-  selectedYearLocal.value = next;
+  shootingsStore.setSelectedYear(next);
 }
 
 /**

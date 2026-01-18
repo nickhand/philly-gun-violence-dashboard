@@ -12,7 +12,7 @@
       role="application"
       aria-label="Interactive map showing shooting locations in Philadelphia"
     >
-      <FilterableMap
+      <filterable-map
         ref="mapRef"
         :filtered-features="filteredFeatures"
         :layer-configs="layers"
@@ -22,7 +22,7 @@
 
       <!-- Address search overlay -->
       <div class="address-search-container">
-        <AddressSearch
+        <address-search
           ref="addressSearchRef"
           @select="handleAddressSelect"
           @clear="handleAddressClear"
@@ -30,80 +30,15 @@
       </div>
 
       <!-- Search marker (shows when address is selected) -->
-      <div
+      <search-marker
         v-if="searchMarkerPosition"
-        class="search-marker"
-        :style="searchMarkerStyle"
-        aria-label="Searched location marker"
-      >
-        <div class="marker-pin">
-          <!-- Crosshair/target marker matching theme -->
-          <svg viewBox="0 0 48 48" width="32" height="32">
-            <!-- Outer ring with glow -->
-            <circle
-              cx="24"
-              cy="24"
-              r="18"
-              fill="none"
-              stroke="#7ab5e5"
-              stroke-width="2"
-              opacity="0.4"
-            />
-            <!-- Inner ring -->
-            <circle
-              cx="24"
-              cy="24"
-              r="12"
-              fill="none"
-              stroke="#7ab5e5"
-              stroke-width="2.5"
-            />
-            <!-- Center dot -->
-            <circle cx="24" cy="24" r="4" fill="#7ab5e5" />
-            <!-- Crosshairs -->
-            <line
-              x1="24"
-              y1="6"
-              x2="24"
-              y2="12"
-              stroke="#7ab5e5"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-            <line
-              x1="24"
-              y1="36"
-              x2="24"
-              y2="42"
-              stroke="#7ab5e5"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-            <line
-              x1="6"
-              y1="24"
-              x2="12"
-              y2="24"
-              stroke="#7ab5e5"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-            <line
-              x1="36"
-              y1="24"
-              x2="42"
-              y2="24"
-              stroke="#7ab5e5"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </svg>
-        </div>
-      </div>
+        :x="searchMarkerPosition.x"
+        :y="searchMarkerPosition.y"
+      />
     </div>
 
     <!-- Sidebar with filters -->
-    <MapSidebar
+    <map-sidebar
       id="filters"
       ref="sidebarRef"
       :filters="filters"
@@ -150,13 +85,14 @@ import { storeToRefs } from "pinia";
 import FilterableMap from "./FilterableMap.vue";
 import MapSidebar from "./MapSidebar/MapSidebar.vue";
 import AddressSearch from "./AddressSearch.vue";
+import SearchMarker from "./SearchMarker.vue";
 import { useArquero } from "../composables/useArquero";
 import { useDownload } from "../composables/useDownload";
 import { useHistograms } from "../composables/useHistograms";
 import { useMapConfig } from "../composables/useMapConfig";
 import { useOverlayState } from "../composables/useOverlayState";
 import { useUrlState } from "../composables/useUrlState";
-import { useShootingsDataStore } from "@/shared/stores/shootingsData";
+import { useShootingsStore } from "@/shared/stores/shootings";
 import type { AddressResult } from "../composables/useGeocoding";
 import type { ShootingRow } from "@/shared/types/shootings";
 
@@ -174,7 +110,7 @@ const emit = defineEmits<{
 }>();
 
 // Store access - using new Arquero-based data store
-const shootingsStore = useShootingsDataStore();
+const shootingsStore = useShootingsStore();
 const { selectedYear, rowsByYear } = storeToRefs(shootingsStore);
 
 // Normalize selectedYear to exclude undefined
@@ -311,16 +247,6 @@ function updateMarkerPosition() {
   ]);
   searchMarkerPosition.value = { x: point.x, y: point.y };
 }
-
-// Computed style for marker positioning (center the 32x32 crosshair on the point)
-const searchMarkerStyle = computed(() => {
-  if (!searchMarkerPosition.value) return {};
-  return {
-    transform: `translate(${searchMarkerPosition.value.x - 16}px, ${
-      searchMarkerPosition.value.y - 16
-    }px)`,
-  };
-});
 
 // All known layer names for URL parsing
 const allLayerNames = computed(() => [
@@ -580,35 +506,6 @@ watch(
   top: 10px;
   left: 10px;
   z-index: 10;
-}
-
-/* Search marker crosshair */
-.search-marker {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 5;
-  pointer-events: none;
-  filter: drop-shadow(0 0 8px rgba(122, 181, 229, 0.6));
-}
-
-.marker-pin {
-  animation: pulse-in 0.4s ease-out forwards;
-}
-
-@keyframes pulse-in {
-  0% {
-    transform: scale(0.3);
-    opacity: 0;
-  }
-  60% {
-    transform: scale(1.1);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
 }
 
 @media screen and (max-width: 767.98px) {

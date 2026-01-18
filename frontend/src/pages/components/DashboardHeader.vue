@@ -50,7 +50,6 @@ const props = defineProps<{
   selectedYear: number | null | undefined;
   currentYear: number;
   minYear: number | null;
-  latestDataDate?: Date | null;
   showOverlay: boolean;
 }>();
 
