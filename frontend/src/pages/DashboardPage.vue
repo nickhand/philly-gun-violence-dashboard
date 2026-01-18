@@ -16,7 +16,7 @@
     />
 
     <!-- Map dashboard with filters, header, and charts -->
-    <main id="main-content" v-if="dataReady">
+    <main id="main-content">
       <mapping-dashboard />
     </main>
 
@@ -88,7 +88,6 @@ const shootingsStore = useShootingsStore();
 const {
   sortedYears: dataYears,
   selectedYear,
-  hasData: dataReady,
   loadError,
   metaError,
 } = storeToRefs(shootingsStore);
