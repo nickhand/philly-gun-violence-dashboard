@@ -84,7 +84,7 @@ import type { ShootingRow } from "@/shared/types/shootings";
 const shootingsStore = useShootingsStore();
 const {
   selectedYear,
-  rowsByYear,
+  loadedYears,
   sortedYears: dataYears,
   fatalCount,
   nonfatalCount,
@@ -203,16 +203,18 @@ useUrlState(normalizedYear, activeLayers, mapInstance, [
 
 /**
  * Total feature count for current year.
+ * Uses loadedYears.size as dependency to trigger recalculation when data loads.
  */
 const totalFeatures = computed(() => {
+  // Reference loadedYears to make this reactive to data loading
+  void loadedYears.value.size;
   const year = selectedYear.value;
+  const yearData = shootingsStore.rowsByYear;
+
   if (year === null || year === undefined) {
-    return Object.values(rowsByYear.value).reduce(
-      (sum, rows) => sum + rows.length,
-      0,
-    );
+    return Object.values(yearData).reduce((sum, rows) => sum + rows.length, 0);
   }
-  return rowsByYear.value[year]?.length ?? 0;
+  return yearData[year]?.length ?? 0;
 });
 
 /**
@@ -281,46 +283,56 @@ function handleMapReady(): void {
 // ============================================================================
 
 /**
- * Reset active layers to defaults when year changes.
- * MapExplorer handles the internal state reset via resetLayers().
- */
-watch(selectedYear, () => {
-  mapExplorerRef.value?.resetLayers();
-});
-
-/**
  * Initialize Arquero filtering when data loads or year changes.
+ *
+ * We watch loadedYears.size (reactive) to detect when data is loaded,
+ * since rowsByYear object mutations with markRaw() arrays don't trigger reactivity.
+ * Also resets map layers and loads data for the selected year if needed.
  */
 watch(
-  [rowsByYear, selectedYear],
-  async ([yearData, year]) => {
-    const loadStart = performance.now();
+  [() => loadedYears.value.size, selectedYear],
+  async ([loadedCount, year], [, prevYear]) => {
+    if (import.meta.env.DEV) {
+      console.log(
+        `[MappingDashboard] Watcher: year=${year}, loadedYears=${loadedCount}`,
+      );
+    }
+
+    // Reset map layers when year changes (not on initial load)
+    if (prevYear !== undefined && year !== prevYear) {
+      mapExplorerRef.value?.resetLayers();
+    }
+
+    // Skip if no data loaded yet (initial page load before DashboardPage loads data)
+    if (loadedCount === 0) {
+      return;
+    }
+
+    // Ensure the selected year's data is loaded (handles switching years)
     await shootingsStore.ensureYearLoaded(year ?? null);
 
-    let rowsToUse: ShootingRow[];
-    if (year === null || year === undefined) {
-      rowsToUse = Object.values(yearData).flat() as ShootingRow[];
-    } else {
-      rowsToUse = (yearData[year] as ShootingRow[]) ?? [];
-    }
+    // Read data directly from store after ensuring it's loaded
+    const yearData = shootingsStore.rowsByYear;
+
+    const rowsToUse: ShootingRow[] =
+      year === null || year === undefined
+        ? (Object.values(yearData).flat() as ShootingRow[])
+        : ((yearData[year] as ShootingRow[]) ?? []);
 
     if (rowsToUse.length > 0) {
       const startTime = performance.now();
-
-      if (import.meta.env.DEV) {
-        console.log(
-          `[MappingDashboard] Using ${rowsToUse.length} rows (year=${year ?? "all"}, load=${(startTime - loadStart).toFixed(1)}ms)`,
-        );
-      }
-
       initializeArquero(rowsToUse, filters.value);
       initializeHistograms(filters.value, getHistogramData);
 
       if (import.meta.env.DEV) {
         console.log(
-          `[MappingDashboard] Total data initialization in ${(performance.now() - startTime).toFixed(1)}ms`,
+          `[MappingDashboard] Initialized ${rowsToUse.length} rows → ${filteredFeatures.value.length} features (${(performance.now() - startTime).toFixed(1)}ms)`,
         );
       }
+    } else if (import.meta.env.DEV) {
+      console.warn(
+        `[MappingDashboard] No rows for year=${year}! Available: ${Object.keys(yearData).join(",")}`,
+      );
     }
   },
   { immediate: true },

@@ -123,32 +123,27 @@ watch(
 );
 
 onMounted(async () => {
-  const mountStart = performance.now();
-  if (import.meta.env.DEV) {
-    console.log("[DashboardPage] Component mounted, starting data load...");
-  }
+  const startTime = import.meta.env.DEV ? performance.now() : 0;
 
   // Read year from URL BEFORE loading data (which sets default year)
   const urlYear = route.query.year;
   if (urlYear && typeof urlYear === "string") {
     if (urlYear === "All Years") {
-      // "All Years" means null
       shootingsStore.setSelectedYear(null);
     } else {
       const parsedYear = parseInt(urlYear, 10);
       if (!isNaN(parsedYear)) {
-        // Set year in store before loading to prevent default override
         shootingsStore.setSelectedYear(parsedYear);
       }
     }
   }
 
-  // Load dataset - this fetches meta + rows in one go
+  // Load dataset - this fetches meta + rows
   await shootingsStore.loadDatasetIfNeeded();
 
   if (import.meta.env.DEV) {
     console.log(
-      `[DashboardPage] Data load complete in ${(performance.now() - mountStart).toFixed(1)}ms`,
+      `[DashboardPage] Loaded in ${(performance.now() - startTime).toFixed(1)}ms (year=${shootingsStore.selectedYear}, loaded=${[...shootingsStore.loadedYears].join(",")})`,
     );
   }
 });

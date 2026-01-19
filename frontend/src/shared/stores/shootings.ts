@@ -341,10 +341,16 @@ export const useShootingsStore = defineStore("shootings", {
           this.loadedYears = new Set();
         }
 
-        // Load only the selected year's data for fast initial load
-        const yearToLoad = this.selectedYear ?? this.dataYears[0];
-        if (yearToLoad) {
-          await this.loadYear(yearToLoad);
+        // Load data based on selected year
+        if (this.selectedYear === null) {
+          // "All Years" selected - load all years
+          await this.loadAllYears();
+        } else {
+          // Load only the selected year's data for fast initial load
+          const yearToLoad = this.selectedYear ?? this.dataYears[0];
+          if (yearToLoad) {
+            await this.loadYear(yearToLoad);
+          }
         }
 
         // Save version to localStorage for future conditional requests
@@ -376,11 +382,6 @@ export const useShootingsStore = defineStore("shootings", {
      * @returns Promise resolving to true if data is available
      */
     async ensureYearLoaded(year: number | null): Promise<boolean> {
-      if (import.meta.env.DEV) {
-        console.log(
-          `[ShootingsData] ensureYearLoaded called (year=${year}, isLoading before=${this.isLoading})`,
-        );
-      }
       if (year === null) {
         // "All Years" selected - load all
         return this.loadAllYears();

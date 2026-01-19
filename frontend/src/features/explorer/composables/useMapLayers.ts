@@ -116,15 +116,27 @@ export function useMapLayers(
     const visibility = visible ? "visible" : "none";
     const paint = buildPaintObject(config);
 
+    // Resolve beforeId to actual layer ID if specified
+    const beforeId = config.beforeId
+      ? layerNameToId(config.beforeId)
+      : undefined;
+
+    // Only use beforeId if that layer actually exists on the map
+    const resolvedBeforeId =
+      beforeId && hasLayer(beforeId) ? beforeId : undefined;
+
     // Add layer based on type
     // Using type assertion to satisfy MapLibre's strict layer type union
-    mapInstance.value.addLayer({
-      id: layerId,
-      type: config.type,
-      source: config.source,
-      layout: { visibility },
-      paint,
-    } as LayerSpecification);
+    mapInstance.value.addLayer(
+      {
+        id: layerId,
+        type: config.type,
+        source: config.source,
+        layout: { visibility },
+        paint,
+      } as LayerSpecification,
+      resolvedBeforeId,
+    );
 
     // Add hover cursor for interactive point layers
     if (config.type === "circle") {
