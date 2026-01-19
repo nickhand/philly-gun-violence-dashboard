@@ -287,11 +287,10 @@ function handleMapReady(): void {
  *
  * We watch loadedYears.size (reactive) to detect when data is loaded,
  * since rowsByYear object mutations with markRaw() arrays don't trigger reactivity.
- * We also watch isLoading to reinitialize when loading completes.
  * Also resets map layers and loads data for the selected year if needed.
  */
 watch(
-  [() => loadedYears.value.size, selectedYear, () => shootingsStore.isLoading],
+  [() => loadedYears.value.size, selectedYear],
   async ([loadedCount, year], [, prevYear]) => {
     const yearChanged = year !== prevYear;
 
@@ -310,9 +309,22 @@ watch(
       await shootingsStore.ensureYearLoaded(year ?? null);
     }
 
-    // Skip Arquero init while loading is in progress - we'll run again when it finishes
-    if (shootingsStore.isLoading) {
-      return;
+    // Check if we have the data we need before initializing
+    // For "All Years", wait until all years are loaded
+    // For specific year, wait until that year is loaded
+    if (year === null || year === undefined) {
+      // "All Years" - need all years loaded
+      const allYearsLoaded = dataYears.value.every((y) =>
+        loadedYears.value.has(y),
+      );
+      if (!allYearsLoaded) {
+        return;
+      }
+    } else {
+      // Specific year - need that year loaded
+      if (!loadedYears.value.has(year)) {
+        return;
+      }
     }
 
     // Read data directly from store after ensuring it's loaded

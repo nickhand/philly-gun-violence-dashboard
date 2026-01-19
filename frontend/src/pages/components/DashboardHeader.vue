@@ -17,18 +17,26 @@
           absolute
         />
 
-        <!-- Homicide summary -->
+        <!-- Homicide summary (only show when data is available) -->
         <div
           v-if="displayHasHomicideData"
           class="header-submessage"
+          :style="{
+            opacity: isDataReady ? 1 : 0,
+            transition: 'opacity 0.2s ease-in',
+          }"
           v-html="displayHomicideMessage"
         />
-        <div v-else class="header-submessage">
-          Homicide totals are currently unavailable.
-        </div>
 
         <!-- Shooting victims summary -->
-        <div class="header-submessage" v-html="shootingMessage" />
+        <div
+          class="header-submessage"
+          :style="{
+            opacity: isDataReady ? 1 : 0,
+            transition: 'opacity 0.2s ease-in',
+          }"
+          v-html="displayShootingMessage"
+        />
       </div>
     </div>
   </div>
@@ -58,32 +66,24 @@ const homicidesStore = useHomicidesStore();
 // Track loading state to prevent showing partial data
 const isLoadingHomicides = ref(false);
 
+// Watch showLoading prop changes
+if (import.meta.env.DEV) {
+  watch(
+    () => props.showLoading,
+    (newVal, oldVal) => {
+      console.log(
+        `[DashboardHeader] props.showLoading changed: ${oldVal} → ${newVal}`,
+      );
+    },
+  );
+}
+
 // Cache previous homicide message to prevent showing 'unavailable' during loading
 const cachedHomicideMessage = ref<string | null>(null);
 const cachedHasHomicideData = ref(false);
 
-// Cache previous counts to prevent showing 0 during loading
-const cachedFatal = ref<number | undefined>(undefined);
-const cachedNonfatal = ref<number | undefined>(undefined);
-
-// Update cached values only when not loading and values are valid
-watch(
-  [() => props.fatal, () => props.nonfatal, () => props.showLoading],
-  ([fatal, nonfatal, loading]) => {
-    if (!loading && fatal !== undefined && nonfatal !== undefined) {
-      // Only update cache if values are meaningful (not 0 when we had real data)
-      if (fatal > 0 || nonfatal > 0 || cachedFatal.value === undefined) {
-        cachedFatal.value = fatal;
-        cachedNonfatal.value = nonfatal;
-      }
-    }
-  },
-  { immediate: true },
-);
-
-// Use cached values that persist during loading
-const displayFatal = computed(() => cachedFatal.value ?? props.fatal);
-const displayNonfatal = computed(() => cachedNonfatal.value ?? props.nonfatal);
+// Cache previous shooting message to prevent text changes during loading
+const cachedShootingMessage = ref<string | null>(null);
 
 // Counter to track which load operation is current (prevents race conditions)
 let loadOperationId = 0;
@@ -313,7 +313,7 @@ const homicideMessage = computed((): string => {
 
   if (props.selectedYear === null || props.selectedYear === undefined) {
     const dateSpan = `<span class="date-color">since ${props.minYear}</span>`;
-    return `In total, there ${hasHave} been ${fatalSpan} ${dateSpan}.`;
+    return `There ${hasHave} been ${fatalSpan} ${dateSpan}.`;
   }
 
   const dateSpan = `<span class="date-color">${props.selectedYear}</span>`;
@@ -352,13 +352,18 @@ const displayHomicideMessage = computed(
       ? homicideMessage.value
       : cachedHomicideMessage.value) ?? "",
 );
+
 /**
  * Build the shooting victims summary message HTML.
- * Uses cached display values to prevent showing 0 during loading.
  */
 const shootingMessage = computed((): string => {
-  const nonfatalText = `<span class="nonfatal">${formatNumber(displayNonfatal.value)} nonfatal</span>`;
-  const fatalText = `<span class="fatal">${formatNumber(displayFatal.value)} fatal</span>`;
+  if (import.meta.env.DEV) {
+    console.log(
+      `[DashboardHeader] shootingMessage computed: fatal=${props.fatal}, nonfatal=${props.nonfatal}, selectedYear=${props.selectedYear}`,
+    );
+  }
+  const nonfatalText = `<span class="nonfatal">${formatNumber(props.nonfatal)} nonfatal</span>`;
+  const fatalText = `<span class="fatal">${formatNumber(props.fatal)} fatal</span>`;
 
   let dateText: string;
   if (props.selectedYear === props.currentYear) {
@@ -372,6 +377,42 @@ const shootingMessage = computed((): string => {
   return `This map shows the victims of gun violence: ${nonfatalText} and ${fatalText} shooting victims ${dateText}`;
 });
 
+const displayShootingMessage = computed(() => {
+  const result = cachedShootingMessage.value ?? shootingMessage.value;
+  if (import.meta.env.DEV) {
+    console.log(
+      `[DashboardHeader] displayShootingMessage computed: cached="${cachedShootingMessage.value?.slice(0, 50)}...", current="${shootingMessage.value.slice(0, 50)}...", using cached=${cachedShootingMessage.value !== null}`,
+    );
+  }
+  return result;
+});
+
+/**
+ * Whether data is ready to be displayed (not loading and has valid counts).
+ */
+const isDataReady = computed(() => {
+  const notLoading = !props.showLoading && !isLoadingHomicides.value;
+  const hasValidCounts = (props.fatal ?? 0) > 0 || (props.nonfatal ?? 0) > 0;
+  return notLoading && hasValidCounts;
+});
+
+/**
+ * Update cached shooting message when not loading.
+ */
+watch(
+  [shootingMessage, () => props.showLoading, isLoadingHomicides],
+  ([message, loadingMain, loadingHomicides]) => {
+    const isLoading = loadingMain || loadingHomicides;
+    if (!isLoading) {
+      if (import.meta.env.DEV) {
+        console.log(`[DashboardHeader] Caching shooting message: "${message}"`);
+      }
+      cachedShootingMessage.value = message;
+    }
+  },
+  { immediate: true },
+);
+
 // Load initial homicide data on mount
 onMounted(() => {
   loadHomicideData();
@@ -380,7 +421,14 @@ onMounted(() => {
 // Reload homicide data when selected year changes
 watch(
   () => props.selectedYear,
-  () => {
+  (newYear, oldYear) => {
+    if (import.meta.env.DEV) {
+      console.log(
+        `[DashboardHeader] selectedYear changed: ${oldYear} → ${newYear}. Keeping cachedShootingMessage during load.`,
+      );
+    }
+    // KEEP cachedShootingMessage so the old message stays visible during loading
+    // It will be updated by the shooting message cache watcher when loading completes
     loadHomicideData();
   },
 );
