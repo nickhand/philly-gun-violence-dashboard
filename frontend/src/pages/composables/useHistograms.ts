@@ -9,10 +9,7 @@
  */
 
 import { ref, type Ref } from "vue";
-import type {
-  FilterConfig,
-  HistogramBin,
-} from "@/features/filterableMap/types";
+import type { FilterConfig, HistogramBin } from "@/features/explorer/types";
 
 /**
  * Return type for the useHistograms composable.

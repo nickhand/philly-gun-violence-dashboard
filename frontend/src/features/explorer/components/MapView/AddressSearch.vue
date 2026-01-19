@@ -66,7 +66,10 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
-import { useGeocoding, type AddressResult } from "../composables/useGeocoding";
+import {
+  useGeocoding,
+  type AddressResult,
+} from "../../composables/useGeocoding";
 import { track } from "@/shared/analytics";
 
 const emit = defineEmits<{
@@ -201,7 +204,10 @@ defineExpose({
 .address-search {
   position: relative;
   width: 280px;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
 }
 
 @media screen and (max-width: 767.98px) {
@@ -224,7 +230,9 @@ defineExpose({
 .address-search--open .search-input-wrapper,
 .search-input-wrapper:focus-within {
   border-color: rgba(122, 181, 229, 0.8);
-  box-shadow: 0 2px 16px rgba(122, 181, 229, 0.3), 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 2px 16px rgba(122, 181, 229, 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .search-icon {

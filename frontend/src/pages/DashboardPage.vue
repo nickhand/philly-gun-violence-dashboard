@@ -10,7 +10,7 @@
     <app-navbar
       :data-years="dataYears"
       :selected-year="selectedYear"
-      :show-overlay="showOverlay"
+      :show-loading="showLoading"
       :show-year-selector="true"
       @update:selected-year="handleSelectedYearChange"
     />
@@ -93,7 +93,7 @@ const {
 } = storeToRefs(shootingsStore);
 
 // Centralized loading state (navbar doesn't need mapReady check)
-const { showOverlay } = useLoadingState();
+const { showLoading } = useLoadingState();
 
 // Access route for URL query params
 const route = useRoute();

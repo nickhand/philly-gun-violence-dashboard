@@ -4,9 +4,9 @@
     role="complementary"
     aria-label="Map filters and controls"
   >
-    <!-- Loading overlay -->
+    <!-- Loading indicator -->
     <v-overlay
-      :model-value="showOverlay"
+      :model-value="showLoading"
       contained
       persistent
       class="sidebar-overlay"
@@ -31,7 +31,7 @@
 
       <div class="buttons-section">
         <DownloadDialog
-          :overlay-layer-names="overlayLayerNames"
+          :choropleth-layer-names="choroplethLayerNames"
           :filtered-count="featureCount"
           :total-count="totalCount"
           @download="(options) => $emit('download', options)"
@@ -61,14 +61,14 @@
         <MapLayersPanel
           ref="layersPanelRef"
           :toggleable-layer-names="toggleableLayerNames"
-          :overlay-layer-names="overlayLayerNames"
+          :choropleth-layer-names="choroplethLayerNames"
           :default-toggled-layer-names="defaultToggledLayerNames"
           :initial-active-layers="initialActiveLayers"
-          :initial-overlay="initialOverlay"
+          :selected-choropleth="selectedChoropleth"
           @layer-change="
             (name, visible) => $emit('layer-change', name, visible)
           "
-          @overlay-change="(name) => $emit('overlay-change', name)"
+          @choropleth-change="(name) => $emit('choropleth-change', name)"
           @opacity-change="
             (name, opacity) => $emit('opacity-change', name, opacity)
           "
@@ -131,7 +131,7 @@
               handleSliderValueChange(
                 filter.name,
                 $event,
-                filter.excludeMissing
+                filter.excludeMissing,
               )
             "
             @update:exclude-missing="
@@ -181,13 +181,13 @@ interface Props {
   totalCount: number;
   pointsOnMap?: number;
   toggleableLayerNames?: string[];
-  overlayLayerNames?: string[];
+  choroplethLayerNames?: string[];
   defaultToggledLayerNames?: string[];
   /** Initial active layers from URL state */
   initialActiveLayers?: string[];
-  /** Initial overlay layer from URL state */
-  initialOverlay?: string | null;
-  showOverlay?: boolean;
+  /** Selected choropleth layer from URL state */
+  selectedChoropleth?: string | null;
+  showLoading?: boolean;
   markerTitle?: string;
   markerShortTitle?: string;
   /** Histogram data for slider filters (keyed by filter name) */
@@ -198,11 +198,11 @@ const props = withDefaults(defineProps<Props>(), {
   pointsOnMap: 0,
   sliderLimits: () => new Map(),
   toggleableLayerNames: () => [],
-  overlayLayerNames: () => [],
+  choroplethLayerNames: () => [],
   defaultToggledLayerNames: () => [],
   initialActiveLayers: () => [],
-  initialOverlay: null,
-  showOverlay: false,
+  selectedChoropleth: null,
+  showLoading: false,
   markerTitle: "shooting victim",
   markerShortTitle: "victim",
   histograms: () => new Map(),
@@ -215,7 +215,7 @@ const emit = defineEmits<{
   "reset-all": [];
   download: [options: DownloadOptions];
   "layer-change": [layerName: string, visible: boolean];
-  "overlay-change": [layerName: string | null];
+  "choropleth-change": [layerName: string | null];
   "opacity-change": [layerName: string, opacity: number];
 }>();
 
@@ -223,7 +223,7 @@ const emit = defineEmits<{
 const filterHelpers = useFilterHelpers(
   () => props.filters,
   () => props.activeFilters,
-  () => props.sliderLimits
+  () => props.sliderLimits,
 );
 
 // Local state
@@ -243,13 +243,13 @@ const formatNumber = (n: number) => format(",.0f")(n);
 const missingPoints = computed(() => props.featureCount - props.pointsOnMap);
 
 const switchFilters = computed(() =>
-  props.filters.filter((f) => f.kind === "switch")
+  props.filters.filter((f) => f.kind === "switch"),
 );
 const checkboxFilters = computed(() =>
-  props.filters.filter((f) => f.kind === "checkbox")
+  props.filters.filter((f) => f.kind === "checkbox"),
 );
 const sliderFilters = computed(() =>
-  props.filters.filter((f) => f.kind === "slider")
+  props.filters.filter((f) => f.kind === "slider"),
 );
 
 // Event handlers
@@ -267,12 +267,12 @@ function handleSwitchChange(filterId: string, value: boolean | null): void {
 function handleCheckboxChange(
   filterId: string,
   value: any,
-  checked: boolean
+  checked: boolean,
 ): void {
   const newValue = filterHelpers.computeCheckboxChange(
     filterId,
     value,
-    checked
+    checked,
   );
 
   // Track filter change
@@ -289,7 +289,7 @@ function handleCheckboxChange(
 function handleSliderValueChange(
   filterId: string,
   value: [number, number],
-  hasExcludeMissing?: boolean
+  hasExcludeMissing?: boolean,
 ): void {
   // Track slider filter change
   track("filter_toggled", {
@@ -311,7 +311,7 @@ function handleSliderValueChange(
 
 function handleExcludeMissingChange(
   filterId: string,
-  value: boolean | null
+  value: boolean | null,
 ): void {
   excludeMissingValues.value[filterId] = value ?? false;
   // Get current slider value, falling back to the filter's default/limits

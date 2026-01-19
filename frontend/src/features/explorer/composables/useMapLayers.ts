@@ -30,7 +30,7 @@ import type { LayerConfig } from "../types";
 export function useMapLayers(
   mapInstance: Ref<MapLibreMap | null>,
   mapLoaded: Ref<boolean>,
-  setCursor: (cursor: string) => void
+  setCursor: (cursor: string) => void,
 ) {
   /**
    * Check if a layer exists on the map.
@@ -64,7 +64,7 @@ export function useMapLayers(
     mapInstance.value.setLayoutProperty(
       layerId,
       "visibility",
-      visible ? "visible" : "none"
+      visible ? "visible" : "none",
     );
   }
 
@@ -83,8 +83,8 @@ export function useMapLayers(
       paint[colorKey] = ["get", "color"];
     }
 
-    // Add opacity for overlay fill layers
-    if (config.overlay && config.type === "fill") {
+    // Add opacity for choropleth fill layers
+    if (config.choropleth && config.type === "fill") {
       paint["fill-opacity"] = 0.5;
     }
 
@@ -108,7 +108,7 @@ export function useMapLayers(
     // Skip if source doesn't exist
     if (!mapInstance.value.getSource(config.source)) {
       console.warn(
-        `Cannot add layer ${layerId}: source ${config.source} not found`
+        `Cannot add layer ${layerId}: source ${config.source} not found`,
       );
       return;
     }
@@ -162,7 +162,7 @@ export function useMapLayers(
     layerConfigs: LayerConfig[],
     addSourceForLayer: (config: LayerConfig) => Promise<void>,
     updateStreetsSource: (config: LayerConfig) => Promise<void>,
-    updateBoundarySource: (config: LayerConfig) => Promise<void>
+    updateBoundarySource: (config: LayerConfig) => Promise<void>,
   ): Promise<boolean> {
     if (!mapInstance.value || !mapLoaded.value) {
       return false;
@@ -219,7 +219,7 @@ export function useMapLayers(
   async function updateVisibleAggregatedLayers(
     layerConfigs: LayerConfig[],
     updateBoundarySource: (config: LayerConfig) => Promise<void>,
-    activeLayers?: string[]
+    activeLayers?: string[],
   ): Promise<void> {
     if (!mapInstance.value || !mapLoaded.value) return;
 
@@ -262,7 +262,7 @@ export function useMapLayers(
   function setPaintProperty(
     layerId: string,
     property: string,
-    value: unknown
+    value: unknown,
   ): void {
     if (!mapInstance.value || !hasLayer(layerId)) return;
     mapInstance.value.setPaintProperty(layerId, property, value as any);

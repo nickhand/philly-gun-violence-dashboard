@@ -10,10 +10,7 @@
 import { ref, computed, type Ref, type ComputedRef, markRaw } from "vue";
 import * as aq from "arquero";
 import { bin } from "d3-array";
-import type {
-  FilterConfig,
-  HistogramBin,
-} from "@/features/filterableMap/types";
+import type { FilterConfig, HistogramBin } from "@/features/explorer/types";
 import type { ShootingRow } from "@/shared/types/shootings";
 import {
   rowsToGeoJSON,

@@ -8,17 +8,17 @@
       :items="toggleableLayerNames"
       :selected-values="selectedLayers"
       :ncol="1"
-      :disabled="selectedOverlay !== null"
+      :disabled="localSelectedChoropleth !== null"
       @change="handleLayerToggle"
       @only="handleLayerOnly"
     />
 
-    <!-- Aggregation Layer Dropdown -->
-    <div v-if="overlayLayerNames.length > 0" class="overlay-section mt-4">
+    <!-- Choropleth Layer Dropdown -->
+    <div v-if="choroplethLayerNames.length > 0" class="choropleth-section mt-4">
       <v-select
-        v-model="selectedOverlay"
-        :items="overlayLayerNames"
-        label="Aggregation Layer"
+        v-model="localSelectedChoropleth"
+        :items="choroplethLayerNames"
+        label="Choropleth Layer"
         hint="Choose a geography to aggregate the data by"
         persistent-hint
         clearable
@@ -28,8 +28,8 @@
 
       <div class="opacity-control mt-2">
         <v-slider
-          v-model="overlayOpacity"
-          :disabled="selectedOverlay === null"
+          v-model="choroplethOpacity"
+          :disabled="localSelectedChoropleth === null"
           :min="0"
           :max="50"
           :step="1"
@@ -65,22 +65,22 @@ import { track } from "@/shared/analytics";
 const props = defineProps<{
   /** Names of toggleable layers */
   toggleableLayerNames: string[];
-  /** Names of overlay layers for aggregation */
-  overlayLayerNames: string[];
+  /** Names of choropleth layers for geographic aggregation */
+  choroplethLayerNames: string[];
   /** Default toggled layer names (used for reset) */
   defaultToggledLayerNames: string[];
   /** Initial active layers from URL state */
   initialActiveLayers?: string[];
-  /** Initial overlay layer from URL state */
-  initialOverlay?: string | null;
+  /** Selected choropleth layer from URL state */
+  selectedChoropleth?: string | null;
 }>();
 
 const emit = defineEmits<{
   /** Emitted when a layer's visibility changes */
   "layer-change": [layerName: string, visible: boolean];
-  /** Emitted when overlay layer changes */
-  "overlay-change": [layerName: string | null];
-  /** Emitted when overlay opacity changes */
+  /** Emitted when choropleth layer changes */
+  "choropleth-change": [layerName: string | null];
+  /** Emitted when choropleth opacity changes */
   "opacity-change": [layerName: string, opacity: number];
 }>();
 
@@ -88,10 +88,12 @@ const emit = defineEmits<{
 const selectedLayers = ref<string[]>(
   props.initialActiveLayers && props.initialActiveLayers.length > 0
     ? [...props.initialActiveLayers]
-    : [...props.defaultToggledLayerNames]
+    : [...props.defaultToggledLayerNames],
 );
-const selectedOverlay = ref<string | null>(props.initialOverlay ?? null);
-const overlayOpacity = ref(50);
+const localSelectedChoropleth = ref<string | null>(
+  props.selectedChoropleth ?? null,
+);
+const choroplethOpacity = ref(50);
 
 /** Handle layer checkbox toggle */
 function handleLayerToggle(layerName: string, visible: boolean): void {
@@ -128,28 +130,28 @@ function handleLayerOnly(layerName: string): void {
   }
 }
 
-// Watch for overlay changes
-watch(selectedOverlay, (newValue, oldValue) => {
-  // Track aggregation layer change
-  track("aggregation_changed", {
+// Watch for choropleth changes
+watch(localSelectedChoropleth, (newValue, oldValue) => {
+  // Track choropleth layer change
+  track("choropleth_changed", {
     layer: newValue,
     previous_layer: oldValue,
   });
 
-  emit("overlay-change", newValue);
+  emit("choropleth-change", newValue);
 });
 
-watch(overlayOpacity, (newValue) => {
-  if (selectedOverlay.value) {
-    emit("opacity-change", selectedOverlay.value, newValue / 100);
+watch(choroplethOpacity, (newValue) => {
+  if (localSelectedChoropleth.value) {
+    emit("opacity-change", localSelectedChoropleth.value, newValue / 100);
   }
 });
 
-/** Reset layers and overlay to defaults */
+/** Reset layers and choropleth to defaults */
 function resetToDefaults(): void {
   selectedLayers.value = [...props.defaultToggledLayerNames];
-  selectedOverlay.value = null;
-  overlayOpacity.value = 50;
+  localSelectedChoropleth.value = null;
+  choroplethOpacity.value = 50;
 }
 
 // Expose methods for parent components
@@ -157,10 +159,10 @@ defineExpose({
   resetToDefaults,
 });
 
-// Emit initial overlay change if set from URL
+// Emit initial choropleth change if set from URL
 onMounted(() => {
-  if (props.initialOverlay) {
-    emit("overlay-change", props.initialOverlay);
+  if (props.selectedChoropleth) {
+    emit("choropleth-change", props.selectedChoropleth);
   }
 });
 </script>
@@ -180,7 +182,7 @@ onMounted(() => {
   margin: 0 auto 16px auto !important;
 }
 
-.overlay-section {
+.choropleth-section {
   margin-top: 24px;
 }
 

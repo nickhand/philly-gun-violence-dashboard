@@ -4,14 +4,14 @@
 
     <div>
       <v-overlay
-        :model-value="showOverlay || isLoadingHomicides"
+        :model-value="showLoading || isLoadingHomicides"
         :opacity="OVERLAY_OPACITY"
         :scrim="OVERLAY_COLOR"
       />
 
       <div style="position: relative">
         <v-overlay
-          :model-value="showOverlay || isLoadingHomicides"
+          :model-value="showLoading || isLoadingHomicides"
           :opacity="OVERLAY_OPACITY_INNER"
           :scrim="OVERLAY_COLOR"
           absolute
@@ -50,7 +50,7 @@ const props = defineProps<{
   selectedYear: number | null | undefined;
   currentYear: number;
   minYear: number | null;
-  showOverlay: boolean;
+  showLoading: boolean;
 }>();
 
 const homicidesStore = useHomicidesStore();
@@ -87,7 +87,7 @@ async function fetchAllYearsTotals(): Promise<number | null> {
   } catch (error) {
     console.error(
       "Failed to calculate total homicides across all years",
-      error
+      error,
     );
     return null;
   }
@@ -103,7 +103,7 @@ async function loadHomicideData() {
   if (props.minYear === null) {
     if (import.meta.env.DEV) {
       console.log(
-        "[DashboardHeader] loadHomicideData skipped - minYear is null"
+        "[DashboardHeader] loadHomicideData skipped - minYear is null",
       );
     }
     return;
@@ -114,7 +114,7 @@ async function loadHomicideData() {
 
   if (import.meta.env.DEV) {
     console.log(
-      `[DashboardHeader] loadHomicideData started (op #${currentOperationId}, year=${props.selectedYear}, minYear=${props.minYear})`
+      `[DashboardHeader] loadHomicideData started (op #${currentOperationId}, year=${props.selectedYear}, minYear=${props.minYear})`,
     );
   }
 
@@ -136,7 +136,7 @@ async function loadHomicideData() {
 
       if (import.meta.env.DEV) {
         console.log(
-          `[DashboardHeader] fetched years - selected: ${results[0] ? "OK" : "FAILED"}, previous: ${results[1] !== undefined ? (results[1] ? "OK" : "FAILED") : "N/A"}`
+          `[DashboardHeader] fetched years - selected: ${results[0] ? "OK" : "FAILED"}, previous: ${results[1] !== undefined ? (results[1] ? "OK" : "FAILED") : "N/A"}`,
         );
       }
     }
@@ -148,13 +148,13 @@ async function loadHomicideData() {
       isLoadingHomicides.value = false;
       if (import.meta.env.DEV) {
         console.log(
-          `[DashboardHeader] loadHomicideData completed (op #${currentOperationId}, year=${props.selectedYear})`
+          `[DashboardHeader] loadHomicideData completed (op #${currentOperationId}, year=${props.selectedYear})`,
         );
       }
     } else {
       if (import.meta.env.DEV) {
         console.log(
-          `[DashboardHeader] loadHomicideData STALE - ignoring (op #${currentOperationId}, current=#${loadOperationId})`
+          `[DashboardHeader] loadHomicideData STALE - ignoring (op #${currentOperationId}, current=#${loadOperationId})`,
         );
       }
     }
@@ -321,7 +321,7 @@ watch(
   () => props.selectedYear,
   () => {
     loadHomicideData();
-  }
+  },
 );
 
 // Reload homicide data when minYear changes (dataYears loaded)
@@ -335,7 +335,7 @@ watch(
     if (newMinYear !== oldMinYear) {
       loadHomicideData();
     }
-  }
+  },
 );
 </script>
 

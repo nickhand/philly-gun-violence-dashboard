@@ -49,7 +49,7 @@
             {{
               dataSelection === "filtered"
                 ? `Export ${formatNumber(
-                    filteredCount
+                    filteredCount,
                   )} records matching current filters`
                 : `Export all ${formatNumber(totalCount)} records`
             }}
@@ -84,7 +84,7 @@
         </div>
 
         <!-- Aggregation (optional) -->
-        <div v-if="overlayLayerNames.length > 0" class="option-group">
+        <div v-if="choroplethLayerNames.length > 0" class="option-group">
           <div class="option-group__label">
             Aggregate By
             <span class="option-group__optional">(Optional)</span>
@@ -157,8 +157,8 @@ export interface DownloadOptions {
 }
 
 interface Props {
-  /** Names of overlay layers available for aggregation */
-  overlayLayerNames?: string[];
+  /** Names of choropleth layers available for aggregation */
+  choroplethLayerNames?: string[];
   /** Current filtered record count */
   filteredCount?: number;
   /** Total record count (unfiltered) */
@@ -166,7 +166,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  overlayLayerNames: () => [],
+  choroplethLayerNames: () => [],
   filteredCount: 0,
   totalCount: 0,
 });
@@ -189,10 +189,10 @@ const formatNumber = (n: number) => format(",.0f")(n);
 
 // Aggregation options for select
 const aggregationOptions = computed(() =>
-  props.overlayLayerNames.map((name) => ({
+  props.choroplethLayerNames.map((name) => ({
     title: name,
     value: name,
-  }))
+  })),
 );
 
 // Reset form when dialog closes

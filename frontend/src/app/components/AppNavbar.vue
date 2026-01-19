@@ -2,7 +2,7 @@
   <div class="app-navbar">
     <!-- Overlay when data is loading -->
     <v-overlay
-      :model-value="showOverlay"
+      :model-value="showLoading"
       :opacity="OVERLAY_OPACITY"
       :scrim="OVERLAY_COLOR"
     />
@@ -77,9 +77,9 @@ const props = withDefaults(
      */
     selectedYear?: number | null;
     /**
-     * Whether to show the loading overlay.
+     * Whether to show the loading indicator.
      */
-    showOverlay?: boolean;
+    showLoading?: boolean;
     /**
      * Whether to show the year selector dropdown.
      */
@@ -92,10 +92,10 @@ const props = withDefaults(
   {
     dataYears: () => [],
     selectedYear: null,
-    showOverlay: false,
+    showLoading: false,
     showYearSelector: false,
     showBackButton: false,
-  }
+  },
 );
 
 // Emit event to update selected year in the parent component.
@@ -125,7 +125,7 @@ watch(
     value.value =
       newYear === null || newYear === undefined ? "All Years" : String(newYear);
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 /**

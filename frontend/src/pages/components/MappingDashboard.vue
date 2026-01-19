@@ -7,7 +7,7 @@
       :current-year="currentYear"
       :min-year="minYear"
       :selected-year="selectedYear"
-      :show-overlay="showOverlay"
+      :show-loading="showLoading"
     />
 
     <!-- Screen reader announcement for filter changes -->
@@ -15,70 +15,33 @@
       {{ filterAnnouncement }}
     </div>
 
-    <!-- Map and sidebar container -->
-    <div class="mapping-dashboard" v-if="dataReady">
+    <!-- Map Explorer (map + sidebar + address search) -->
+    <template v-if="dataReady">
       <!-- Screen reader description of map content -->
       <div class="sr-only" role="region" aria-label="Map data summary">
         <h2>Map Summary</h2>
         <p>{{ mapSummaryText }}</p>
       </div>
 
-      <!-- Map container with sidebar -->
-      <div
-        class="map-container"
-        role="application"
-        aria-label="Interactive map showing shooting locations in Philadelphia"
-      >
-        <filterable-map
-          ref="mapRef"
-          :filtered-features="filteredFeatures"
-          :layer-configs="layers"
-          :active-layers="activeLayers"
-          @map-ready="handleMapReady"
-        />
-
-        <!-- Address search overlay -->
-        <div class="address-search-container">
-          <address-search
-            ref="addressSearchRef"
-            @select="handleAddressSelect"
-            @clear="handleAddressClear"
-          />
-        </div>
-
-        <!-- Search marker (shows when address is selected) -->
-        <search-marker
-          v-if="searchMarkerPosition"
-          :x="searchMarkerPosition.x"
-          :y="searchMarkerPosition.y"
-        />
-      </div>
-
-      <!-- Sidebar with filters -->
-      <map-sidebar
-        id="filters"
-        ref="sidebarRef"
+      <map-explorer
+        ref="mapExplorerRef"
+        :filtered-features="filteredFeatures"
+        :layer-configs="layers"
         :filters="filters"
         :active-filters="activeFilters"
         :slider-limits="sliderLimits"
-        :feature-count="filteredFeatures.length"
         :total-count="totalFeatures"
-        :points-on-map="pointsOnMap"
         :toggleable-layer-names="toggleableLayerNames"
-        :overlay-layer-names="overlayLayerNames"
+        :choropleth-layer-names="choroplethLayerNames"
         :default-toggled-layer-names="defaultToggledLayerNames"
-        :initial-active-layers="initialToggleableLayers"
-        :initial-overlay="currentOverlay"
         :histograms="histograms"
+        @map-ready="handleMapReady"
         @filter-change="handleFilterChange"
         @filter-reset="handleFilterReset"
         @reset-all="handleResetAll"
         @download="handleDownload"
-        @layer-change="handleLayerChange"
-        @overlay-change="handleOverlayChange"
-        @opacity-change="handleOpacityChange"
       />
-    </div>
+    </template>
 
     <!-- Chart dashboard showing breakdowns by category -->
     <chart-dashboard id="charts" :features="filteredFeatures" />
@@ -90,12 +53,12 @@
  * MappingDashboard Component
  *
  * Main container for the interactive map dashboard with header and charts.
- * Orchestrates map rendering, data filtering, sidebar controls, and statistics.
+ * Orchestrates data filtering and passes filtered data to child components.
  *
  * Architecture:
  * - Uses Arquero for multi-dimensional filtering
- * - FilterableMap handles MapLibre GL rendering and layer management
- * - MapSidebar provides filter controls and statistics
+ * - MapExplorer handles map + sidebar + address search as a unit
+ *   (including all layer visibility state)
  * - DashboardHeader displays fatal/nonfatal counts
  * - ChartDashboard shows breakdown charts
  * - Filtered features flow: store → Arquero → all components
@@ -105,21 +68,16 @@
 
 import { ref, computed, watch } from "vue";
 import { storeToRefs } from "pinia";
-import FilterableMap from "@/features/filterableMap/components/FilterableMap.vue";
-import MapSidebar from "@/features/filterableMap/components/MapSidebar/MapSidebar.vue";
-import AddressSearch from "@/features/filterableMap/components/AddressSearch.vue";
-import SearchMarker from "@/features/filterableMap/components/SearchMarker.vue";
+import MapExplorer from "@/features/explorer/components/MapExplorer.vue";
 import DashboardHeader from "@/pages/components/DashboardHeader.vue";
 import ChartDashboard from "@/features/charts/components/ChartDashboard.vue";
 import { useArquero } from "@/pages/composables/useArquero";
 import { useDownload } from "@/pages/composables/useDownload";
 import { useHistograms } from "@/pages/composables/useHistograms";
 import { useLoadingState } from "@/pages/composables/useLoadingState";
-import { useMapConfig } from "@/features/filterableMap/composables/useMapConfig";
-import { useOverlayState } from "@/features/filterableMap/composables/useOverlayState";
+import { useMapConfig } from "@/features/explorer/composables/useMapConfig";
 import { useUrlState } from "@/pages/composables/useUrlState";
 import { useShootingsStore } from "@/shared/stores/shootings";
-import type { AddressResult } from "@/features/filterableMap/composables/useGeocoding";
 import type { ShootingRow } from "@/shared/types/shootings";
 
 // Store access
@@ -135,8 +93,8 @@ const {
 // Track whether the map component is ready
 const mapReady = ref(false);
 
-// Centralized loading state (includes mapReady check for overlay)
-const { showOverlay, hasData: dataReady } = useLoadingState({
+// Centralized loading state
+const { showLoading, hasData: dataReady } = useLoadingState({
   componentReady: mapReady,
 });
 
@@ -148,7 +106,7 @@ const {
   filters,
   layers,
   toggleableLayerNames,
-  overlayLayerNames,
+  choroplethLayerNames,
   defaultToggledLayerNames,
 } = useMapConfig(normalizedYear);
 
@@ -170,53 +128,12 @@ const { histograms, initializeHistograms, updateHistograms } = useHistograms();
 // Download composable for export functionality
 const { handleDownload } = useDownload({ filteredFeatures, layers });
 
-/**
- * Convert URL layer ID to actual layer name by matching against known layer names.
- * Does case-insensitive matching to handle "pa-senate-districts" → "PA Senate Districts".
- *
- * @param urlId - URL-friendly layer ID (e.g., "pa-senate-districts")
- * @param allLayerNames - Array of all known layer names to match against
- * @returns Matched layer name or null if no match found
- */
-function urlIdToLayerName(
-  urlId: string,
-  allLayerNames: string[],
-): string | null {
-  // Convert URL ID to comparable format (lowercase, spaces instead of hyphens)
-  const urlNormalized = urlId.toLowerCase().replace(/-/g, " ");
+// Map Explorer ref (layer state is managed internally by MapExplorer)
+const mapExplorerRef = ref<InstanceType<typeof MapExplorer> | null>(null);
+const mapInstance = computed(() => mapExplorerRef.value?.mapInstance ?? null);
 
-  // Find matching layer name (case-insensitive)
-  return (
-    allLayerNames.find(
-      (name) => name.toLowerCase().replace(/\s+/g, " ") === urlNormalized,
-    ) ?? null
-  );
-}
-
-// Overlay state composable for managing layer visibility
-const {
-  activeLayers,
-  currentOverlay,
-  initialToggleableLayers,
-  handleLayerChange,
-  handleOverlayChange,
-  resetLayers: resetOverlayState,
-} = useOverlayState({
-  toggleableLayerNames,
-  overlayLayerNames,
-  defaultToggledLayerNames,
-  urlIdToLayerName,
-});
-
-// Map instance refs
-const mapRef = ref<any>(null);
-const sidebarRef = ref<InstanceType<typeof MapSidebar> | null>(null);
-const addressSearchRef = ref<{ clear: () => void } | null>(null);
-const mapInstance = computed(() => mapRef.value?.mapInstance ?? null);
-
-// Search marker state for address geocoding
-const searchMarkerPosition = ref<{ x: number; y: number } | null>(null);
-const searchMarkerLngLat = ref<{ lng: number; lat: number } | null>(null);
+// Get active layers from MapExplorer for URL syncing
+const activeLayers = computed(() => mapExplorerRef.value?.activeLayers ?? []);
 
 // Previous count for announcement comparison
 const previousFilteredCount = ref<number | null>(null);
@@ -234,19 +151,20 @@ const minYear = computed(() =>
 );
 
 /**
- * Count fatal shooting victims from filtered features (for a11y summary).
+ * Combined fatal/nonfatal counts for screen reader summary.
+ * Single pass over filteredFeatures for efficiency.
  */
-const filteredFatalCount = computed(() => {
-  return filteredFeatures.value.filter((f) => f.properties?.fatal === true)
-    .length;
-});
-
-/**
- * Count nonfatal shooting victims from filtered features (for a11y summary).
- */
-const filteredNonfatalCount = computed(() => {
-  return filteredFeatures.value.filter((f) => f.properties?.fatal !== true)
-    .length;
+const filteredCounts = computed(() => {
+  let fatal = 0;
+  let nonfatal = 0;
+  for (const f of filteredFeatures.value) {
+    if (f.properties?.fatal === true) {
+      fatal++;
+    } else {
+      nonfatal++;
+    }
+  }
+  return { fatal, nonfatal };
 });
 
 /**
@@ -273,75 +191,11 @@ watch(
   },
 );
 
-// ============================================================================
-// Address Search
-// ============================================================================
-
-/**
- * Handle address selection from the AddressSearch component.
- * Flies to the selected location and shows a marker.
- */
-function handleAddressSelect(result: AddressResult) {
-  if (!mapInstance.value) return;
-
-  const lng = result.lon;
-  const lat = result.lat;
-
-  // Fly to the selected address
-  mapInstance.value.flyTo({
-    center: [lng, lat],
-    zoom: 16,
-    duration: 1500,
-  });
-
-  // Store the lng/lat for marker positioning
-  searchMarkerLngLat.value = { lng, lat };
-
-  // Update marker position on map move
-  updateMarkerPosition();
-
-  // Clear marker after 10 seconds
-  setTimeout(() => {
-    searchMarkerPosition.value = null;
-    searchMarkerLngLat.value = null;
-    // Also clear the search bar
-    addressSearchRef.value?.clear();
-  }, 10000);
-}
-
-/**
- * Handle clearing the address search.
- * Removes the marker from the map.
- */
-function handleAddressClear() {
-  searchMarkerPosition.value = null;
-  searchMarkerLngLat.value = null;
-}
-
-/**
- * Update the search marker's screen position based on map projection.
- */
-function updateMarkerPosition() {
-  if (!mapInstance.value || !searchMarkerLngLat.value) {
-    searchMarkerPosition.value = null;
-    return;
-  }
-
-  const point = mapInstance.value.project([
-    searchMarkerLngLat.value.lng,
-    searchMarkerLngLat.value.lat,
-  ]);
-  searchMarkerPosition.value = { x: point.x, y: point.y };
-}
-
-// All known layer names for URL parsing
-const allLayerNames = computed(() => [
-  ...toggleableLayerNames.value,
-  ...overlayLayerNames.value,
-]);
-
 // Sync state with URL (year, layers, map view)
-useUrlState(normalizedYear, activeLayers, mapInstance, allLayerNames.value);
+useUrlState(normalizedYear, activeLayers, mapInstance, [
+  ...toggleableLayerNames.value,
+  ...choroplethLayerNames.value,
+]);
 
 // ============================================================================
 // Map Statistics
@@ -349,12 +203,10 @@ useUrlState(normalizedYear, activeLayers, mapInstance, allLayerNames.value);
 
 /**
  * Total feature count for current year.
- * Used for statistics display in sidebar.
  */
 const totalFeatures = computed(() => {
   const year = selectedYear.value;
   if (year === null || year === undefined) {
-    // All years: sum all loaded years
     return Object.values(rowsByYear.value).reduce(
       (sum, rows) => sum + rows.length,
       0,
@@ -364,31 +216,30 @@ const totalFeatures = computed(() => {
 });
 
 /**
+ * Number of features with valid coordinates.
+ * Retrieved from MapExplorer to avoid duplicate computation.
+ */
+const pointsOnMap = computed(() => mapExplorerRef.value?.pointsOnMap ?? 0);
+
+/**
  * Generate a text summary of map data for screen readers.
- * Provides key statistics about the displayed shooting data.
  */
 const mapSummaryText = computed(() => {
   const total = filteredFeatures.value.length;
   const onMap = pointsOnMap.value;
-  const fatal = filteredFatalCount.value;
-  const nonfatal = filteredNonfatalCount.value;
+  const { fatal, nonfatal } = filteredCounts.value;
 
-  // Build year description
   const yearText =
     normalizedYear.value === null
       ? "all years"
       : `the year ${normalizedYear.value}`;
 
-  // Build active filters description
   const activeFilterCount = activeFilters.value.size;
   const filterText =
     activeFilterCount > 0
-      ? ` with ${activeFilterCount} filter${
-          activeFilterCount > 1 ? "s" : ""
-        } applied`
+      ? ` with ${activeFilterCount} filter${activeFilterCount > 1 ? "s" : ""} applied`
       : "";
 
-  // Build active layer description
   const layerText =
     activeLayers.value.length > 0
       ? ` Currently showing: ${activeLayers.value.join(", ")}.`
@@ -405,115 +256,49 @@ const mapSummaryText = computed(() => {
   } shown on the map.${layerText} Use the filters in the sidebar to narrow the data by date, outcome, demographics, and other criteria.`;
 });
 
-/**
- * Number of features with valid coordinates.
- * Used to show missing location note in sidebar.
- */
-const pointsOnMap = computed(() => {
-  return filteredFeatures.value.filter((f) => {
-    const geom = f.geometry;
-    if (!geom || geom.type !== "Point") return false;
-    const coords = (geom as GeoJSON.Point).coordinates;
-    return (
-      coords &&
-      coords.length >= 2 &&
-      typeof coords[0] === "number" &&
-      typeof coords[1] === "number" &&
-      !isNaN(coords[0]) &&
-      !isNaN(coords[1])
-    );
-  }).length;
-});
+// ============================================================================
+// Event Handlers
+// ============================================================================
 
-// Event handlers
-/**
- * Handle filter value change from sidebar controls.
- * Applies filter to Arquero table and triggers map update.
- *
- * @param dimensionId - Filter dimension ID
- * @param value - New filter value
- */
 function handleFilterChange(dimensionId: string, value: any): void {
   applyFilter(dimensionId, value);
 }
 
-/**
- * Handle single filter reset.
- * Clears filter for specified dimension.
- *
- * @param dimensionId - Filter dimension ID to reset
- */
 function handleFilterReset(dimensionId: string): void {
   resetFilter(dimensionId);
 }
 
-/**
- * Handle reset all filters.
- * Clears all active filters and returns to unfiltered state.
- */
 function handleResetAll(): void {
   resetAllFilters();
 }
 
-/**
- * Handle map ready event.
- * Called when MapLibre GL map is initialized.
- */
 function handleMapReady(): void {
   mapReady.value = true;
-
-  // Add listeners to update search marker position when map moves
-  if (mapInstance.value) {
-    mapInstance.value.on("move", updateMarkerPosition);
-    mapInstance.value.on("zoom", updateMarkerPosition);
-  }
 }
 
-/**
- * Handle overlay opacity change from sidebar.
- *
- * @param layerName - Overlay layer name
- * @param opacity - Opacity value (0-1, already normalized by MapLayersPanel)
- */
-function handleOpacityChange(layerName: string, opacity: number): void {
-  const map = mapRef.value?.mapInstance;
-  if (map && map.getLayer) {
-    // Convert layer name to layer ID (matches FilterableMap's layerNameToId)
-    const layerId = layerName.toLowerCase().replace(/\s+/g, "-");
-    if (map.getLayer(layerId)) {
-      map.setPaintProperty(layerId, "fill-opacity", opacity);
-    }
-  }
-}
+// ============================================================================
+// Lifecycle Hooks
+// ============================================================================
 
-// Lifecycle hooks
 /**
  * Reset active layers to defaults when year changes.
- * This matches the legacy behavior where changing years resets the layer selection.
+ * MapExplorer handles the internal state reset via resetLayers().
  */
 watch(selectedYear, () => {
-  resetOverlayState();
-  // Reset sidebar layer panel UI
-  sidebarRef.value?.resetLayers();
-  // Hide the legend
-  mapRef.value?.hideLegend();
+  mapExplorerRef.value?.resetLayers();
 });
 
 /**
  * Initialize Arquero filtering when data loads or year changes.
- * Loads year data on demand, then initializes Arquero.
  */
 watch(
   [rowsByYear, selectedYear],
   async ([yearData, year]) => {
-    // Ensure the required year(s) are loaded
     const loadStart = performance.now();
     await shootingsStore.ensureYearLoaded(year ?? null);
 
-    // Get the rows for the selected year(s)
     let rowsToUse: ShootingRow[];
     if (year === null || year === undefined) {
-      // "All Years" - combine all loaded years
       rowsToUse = Object.values(yearData).flat() as ShootingRow[];
     } else {
       rowsToUse = (yearData[year] as ShootingRow[]) ?? [];
@@ -528,9 +313,7 @@ watch(
         );
       }
 
-      // Initialize Arquero with row data
       initializeArquero(rowsToUse, filters.value);
-      // Initialize histograms after Arquero is ready
       initializeHistograms(filters.value, getHistogramData);
 
       if (import.meta.env.DEV) {
@@ -545,7 +328,6 @@ watch(
 
 /**
  * Update histograms when filters change.
- * Histograms show distribution excluding their own filter.
  */
 watch(
   activeFilters,
@@ -557,42 +339,5 @@ watch(
 </script>
 
 <style scoped>
-.mapping-dashboard {
-  position: relative;
-  display: flex;
-  margin-bottom: 20px;
-  border: 5px solid #868b8e;
-}
-
-.map-container {
-  flex: 1 1;
-  display: flex;
-  width: 100%;
-  position: relative;
-  height: 800px;
-}
-
-/* Address search positioned top-left above map controls */
-.address-search-container {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 10;
-}
-
-@media screen and (max-width: 767.98px) {
-  .mapping-dashboard {
-    flex-direction: column !important;
-  }
-
-  .map-container {
-    height: 60vh !important;
-  }
-
-  .address-search-container {
-    left: 5px;
-    right: 5px;
-    top: 5px;
-  }
-}
+/* MapExplorer now handles its own styling */
 </style>

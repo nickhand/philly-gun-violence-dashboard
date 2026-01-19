@@ -20,26 +20,26 @@
 
 <script setup lang="ts">
 /**
- * FilterableMap Component
+ * MapCanvas Component
  *
  * MapLibre GL map wrapper with reactive data source updates.
- * Refactored to use composables for better maintainability.
+ * This is the core map rendering component used by MapExplorer.
  *
  * @component
  */
 
 import { ref, watch, toRef, onMounted } from "vue";
 import MapLegend from "./MapLegend.vue";
-import { SOURCES } from "../config/sources";
-import { injectTooltipStyles } from "../config/tooltips";
+import { SOURCES } from "../../config/sources";
+import { injectTooltipStyles } from "../../config/tooltips";
 import {
   useMapInstance,
   useMapSources,
   useMapLayers,
   useMapTooltips,
   useAggregation,
-} from "../composables";
-import type { LayerConfig } from "../types";
+} from "../../composables";
+import type { LayerConfig } from "../../types";
 
 // Props
 interface Props {
@@ -108,7 +108,7 @@ const {
   filteredFeaturesRef,
   applyAggregationColors,
   showLoader,
-  hideLoader
+  hideLoader,
 );
 
 // 5. Layer management (depends on sources)
@@ -127,7 +127,7 @@ watch(
   (newVal) => {
     emit("show-overlay", newVal);
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 // --- Map Initialization ---
@@ -166,7 +166,7 @@ async function setActiveLayers(layerNames: string[]): Promise<void> {
     props.layerConfigs,
     addSourceForLayer,
     updateStreetsSource,
-    updateBoundarySource
+    updateBoundarySource,
   );
 
   // Show/hide legend based on whether any aggregated layer is visible
@@ -197,7 +197,7 @@ watch(
     // Update streets source if it exists
     if (hasSource(SOURCES.STREETS)) {
       const streetsConfig = props.layerConfigs.find(
-        (c) => c.source === SOURCES.STREETS
+        (c) => c.source === SOURCES.STREETS,
       );
       if (streetsConfig) {
         await updateStreetsSource(streetsConfig);
@@ -218,7 +218,7 @@ watch(
     await updateVisibleAggregatedLayers(
       props.layerConfigs,
       updateBoundarySource,
-      props.activeLayers
+      props.activeLayers,
     );
 
     // Show legend if any aggregated boundary layer is active and legendConfig is set
@@ -226,7 +226,7 @@ watch(
       (c) =>
         c.aggregated &&
         c.source !== SOURCES.STREETS &&
-        props.activeLayers.includes(c.name)
+        props.activeLayers.includes(c.name),
     );
     if (
       hasActiveAggregatedBoundary &&
@@ -236,7 +236,7 @@ watch(
       mapLegendRef.value.show(legendConfig.value);
     }
   },
-  { deep: true }
+  { deep: true },
 );
 
 /**
@@ -247,7 +247,7 @@ watch(
   async (newLayers) => {
     if (!mapLoaded.value) return;
     await setActiveLayers(newLayers);
-  }
+  },
 );
 
 /**
@@ -272,12 +272,12 @@ watch(
         map.setPaintProperty(
           layerId,
           "circle-radius",
-          paint["circle-radius"] as any
+          paint["circle-radius"] as any,
         );
       }
     }
   },
-  { deep: true }
+  { deep: true },
 );
 
 // --- Expose for parent component ---
@@ -366,15 +366,15 @@ defineExpose({
   }
 
   :deep(
-      .maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show)
-        .maplibregl-ctrl-attrib-inner
-    ) {
+    .maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show)
+      .maplibregl-ctrl-attrib-inner
+  ) {
     display: none;
   }
 
   :deep(
-      .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button
-    ) {
+    .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button
+  ) {
     display: block;
   }
 }

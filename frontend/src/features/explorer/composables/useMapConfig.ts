@@ -14,9 +14,9 @@ import {
  * Wraps the configuration functions to integrate with Vue's reactivity system.
  *
  * Layer categories:
- * - **toggleableLayers**: User-toggleable layers (not overlays, not static)
- * - **overlayLayers**: Choropleth overlay layers (overlay: true)
- * - **aggregatedLayers**: Layers requiring data aggregation (aggregated: true)
+ * - **toggleableLayers**: User-toggleable layers (not choropleth, not static)
+ * - **choroplethLayers**: Choropleth boundary layers (choropleth: true in config)
+ * - **aggregatedLayers**: Layers requiring data aggregation/joins (aggregated: true)
  * - **staticLayers**: Fixed layers like city limits (static: true)
  * - **defaultLayers**: Layers shown on map load (showOnStart: true)
  *
@@ -32,7 +32,7 @@ import {
  *   filters,
  *   layers,
  *   toggleableLayers,
- *   overlayLayers,
+ *   choroplethLayers,
  *   defaultLayerNames,
  * } = useMapConfig(selectedYear);
  *
@@ -40,8 +40,8 @@ import {
  * console.log(toggleableLayers.value.map(l => l.name));
  * // ['Point locations', 'Heat map', 'Hot spots by street block']
  *
- * // Overlay layers for choropleth selector
- * console.log(overlayLayers.value.map(l => l.name));
+ * // Choropleth layers for dropdown selector
+ * console.log(choroplethLayers.value.map(l => l.name));
  * // ['Police District', 'Council District', ...]
  * ```
  */
@@ -51,7 +51,7 @@ export function useMapConfig(selectedYear: Ref<number | null>) {
    * Recomputes when selectedYear changes (affects date tooltip formatting).
    */
   const filters = computed<FilterConfig[]>(() =>
-    getFilterConfigs(selectedYear.value)
+    getFilterConfigs(selectedYear.value),
   );
 
   /**
@@ -59,7 +59,7 @@ export function useMapConfig(selectedYear: Ref<number | null>) {
    * Recomputes when selectedYear changes (affects point sizes).
    */
   const layers = computed<LayerConfig[]>(() =>
-    getLayerConfigs(selectedYear.value)
+    getLayerConfigs(selectedYear.value),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -67,33 +67,33 @@ export function useMapConfig(selectedYear: Ref<number | null>) {
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Toggleable layers (not overlays, not static).
+   * Toggleable layers (not choropleth layers, not static).
    * These appear in the layer toggle UI in the sidebar.
    */
   const toggleableLayers = computed<LayerConfig[]>(() =>
-    layers.value.filter((l) => !l.overlay && !l.static)
+    layers.value.filter((l) => !l.choropleth && !l.static),
   );
 
   /**
    * Names of toggleable layers.
    */
   const toggleableLayerNames = computed<string[]>(() =>
-    toggleableLayers.value.map((l) => l.name)
+    toggleableLayers.value.map((l) => l.name),
   );
 
   /**
-   * Overlay layers (choropleth backgrounds).
-   * These appear in the overlay selector dropdown.
+   * Choropleth layers (boundary fill layers for geographic aggregation).
+   * These appear in the choropleth layer selector dropdown.
    */
-  const overlayLayers = computed<LayerConfig[]>(() =>
-    layers.value.filter((l) => l.overlay)
+  const choroplethLayers = computed<LayerConfig[]>(() =>
+    layers.value.filter((l) => l.choropleth),
   );
 
   /**
-   * Names of overlay layers.
+   * Names of choropleth layers.
    */
-  const overlayLayerNames = computed<string[]>(() =>
-    overlayLayers.value.map((l) => l.name)
+  const choroplethLayerNames = computed<string[]>(() =>
+    choroplethLayers.value.map((l) => l.name),
   );
 
   /**
@@ -101,14 +101,14 @@ export function useMapConfig(selectedYear: Ref<number | null>) {
    * Used for download options and computing aggregate statistics.
    */
   const aggregatedLayers = computed<LayerConfig[]>(() =>
-    layers.value.filter((l) => l.aggregated)
+    layers.value.filter((l) => l.aggregated),
   );
 
   /**
    * Names of aggregated layers.
    */
   const aggregatedLayerNames = computed<string[]>(() =>
-    aggregatedLayers.value.map((l) => l.name)
+    aggregatedLayers.value.map((l) => l.name),
   );
 
   /**
@@ -116,7 +116,7 @@ export function useMapConfig(selectedYear: Ref<number | null>) {
    * E.g., city limits boundary.
    */
   const staticLayers = computed<LayerConfig[]>(() =>
-    layers.value.filter((l) => l.static)
+    layers.value.filter((l) => l.static),
   );
 
   /**
@@ -124,14 +124,14 @@ export function useMapConfig(selectedYear: Ref<number | null>) {
    * Includes both toggleable and static layers with showOnStart: true.
    */
   const defaultLayers = computed<LayerConfig[]>(() =>
-    layers.value.filter((l) => l.showOnStart)
+    layers.value.filter((l) => l.showOnStart),
   );
 
   /**
    * Names of layers shown by default on map load.
    */
   const defaultLayerNames = computed<string[]>(() =>
-    defaultLayers.value.map((l) => l.name)
+    defaultLayers.value.map((l) => l.name),
   );
 
   /**
@@ -139,7 +139,7 @@ export function useMapConfig(selectedYear: Ref<number | null>) {
    * Used for initializing the layer toggle UI state.
    */
   const defaultToggledLayerNames = computed<string[]>(() =>
-    toggleableLayers.value.filter((l) => l.showOnStart).map((l) => l.name)
+    toggleableLayers.value.filter((l) => l.showOnStart).map((l) => l.name),
   );
 
   /**
@@ -169,8 +169,8 @@ export function useMapConfig(selectedYear: Ref<number | null>) {
     // Layer categories
     toggleableLayers,
     toggleableLayerNames,
-    overlayLayers,
-    overlayLayerNames,
+    choroplethLayers,
+    choroplethLayerNames,
     aggregatedLayers,
     aggregatedLayerNames,
     staticLayers,

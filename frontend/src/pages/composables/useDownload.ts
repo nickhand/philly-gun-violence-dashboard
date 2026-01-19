@@ -9,8 +9,8 @@
 
 import type { Ref, ComputedRef } from "vue";
 import { useBoundariesStore } from "@/shared/stores/boundaries";
-import { sourceIdToDataset } from "@/features/filterableMap/config/sources";
-import type { LayerConfig } from "@/features/filterableMap/types";
+import { sourceIdToDataset } from "@/features/explorer/config/sources";
+import type { LayerConfig } from "@/features/explorer/types";
 
 // Types
 interface Feature {

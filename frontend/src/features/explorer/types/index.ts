@@ -82,7 +82,7 @@ export interface LegendConfig {
  *   source: 'police-district-geo',
  *   type: 'fill',
  *   aggregated: true,
- *   overlay: true,
+ *   choropleth: true,
  *   column: 'police_district',
  *   geoid: 'police_district',
  *   tooltip: {
@@ -113,8 +113,8 @@ export interface LayerConfig {
   beforeId?: string;
   /** Whether to show this layer when map loads */
   showOnStart?: boolean;
-  /** Whether this layer can be toggled as an overlay */
-  overlay?: boolean;
+  /** Whether this is a choropleth layer (boundary fill for aggregation dropdown) */
+  choropleth?: boolean;
   /** Whether this is a static layer (not affected by filters) */
   static?: boolean;
   /** Data column name for aggregation joins */
@@ -208,7 +208,7 @@ export type FilterType =
  */
 export type FilterFunction = (
   value: any,
-  excludeMissing?: boolean
+  excludeMissing?: boolean,
 ) => any | ((d: any) => boolean);
 
 /**

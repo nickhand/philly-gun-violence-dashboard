@@ -1,42 +1,42 @@
 /**
- * useOverlayState Composable
+ * useLayerState Composable
  *
- * Manages overlay layer state and toggleable layer visibility.
- * Handles the interaction between choropleth overlays and point layers.
+ * Manages layer visibility state including toggleable layers and choropleth layers.
+ * Handles the interaction between choropleth (boundary fill) layers and point layers.
  *
- * When an overlay is selected:
+ * When a choropleth layer is selected:
  * - Current toggleable layers are saved
- * - Only the overlay layer is shown
+ * - Only the choropleth layer is shown
  *
- * When an overlay is cleared:
+ * When a choropleth layer is cleared:
  * - Saved toggleable layers are restored
  *
- * @module useOverlayState
+ * @module useLayerState
  */
 
 import { ref, computed } from "vue";
 import type { ComputedRef } from "vue";
 import { useRoute } from "vue-router";
 
-interface UseOverlayStateOptions {
+interface UseLayerStateOptions {
   toggleableLayerNames: ComputedRef<string[]>;
-  overlayLayerNames: ComputedRef<string[]>;
+  choroplethLayerNames: ComputedRef<string[]>;
   defaultToggledLayerNames: ComputedRef<string[]>;
   urlIdToLayerName: (urlId: string, allLayerNames: string[]) => string | null;
 }
 
 /**
- * Composable for managing overlay and layer state.
+ * Composable for managing layer visibility state.
  *
  * @param options - Configuration options
- * @returns Overlay state and handlers
+ * @returns Layer state and handlers
  */
-export function useOverlayState({
+export function useLayerState({
   toggleableLayerNames,
-  overlayLayerNames,
+  choroplethLayerNames,
   defaultToggledLayerNames,
   urlIdToLayerName,
-}: UseOverlayStateOptions) {
+}: UseLayerStateOptions) {
   const route = useRoute();
 
   /**
@@ -49,7 +49,7 @@ export function useOverlayState({
     if (layersParam && typeof layersParam === "string") {
       const allLayerNames = [
         ...toggleableLayerNames.value,
-        ...overlayLayerNames.value,
+        ...choroplethLayerNames.value,
       ];
 
       const layers = layersParam
@@ -68,9 +68,9 @@ export function useOverlayState({
   }
 
   /**
-   * Parse initial overlay from URL (if layers param contains an overlay layer).
+   * Parse initial choropleth layer from URL (if layers param contains one).
    */
-  function getInitialOverlayFromUrl(): string | null {
+  function getInitialChoroplethFromUrl(): string | null {
     const layersParam = route.query.layers;
 
     if (layersParam && typeof layersParam === "string") {
@@ -79,9 +79,9 @@ export function useOverlayState({
         .map((id) => id.trim())
         .filter(Boolean);
 
-      // Find the first URL ID that matches an overlay layer name
+      // Find the first URL ID that matches a choropleth layer name
       for (const urlId of urlIds) {
-        const matchedName = urlIdToLayerName(urlId, overlayLayerNames.value);
+        const matchedName = urlIdToLayerName(urlId, choroplethLayerNames.value);
         if (matchedName) {
           return matchedName;
         }
@@ -93,35 +93,35 @@ export function useOverlayState({
   // Active layers (names of layers to display on the map)
   const activeLayers = ref<string[]>(getInitialLayersFromUrl());
 
-  // Track currently selected overlay layer
-  const currentOverlay = ref<string | null>(getInitialOverlayFromUrl());
+  // Track currently selected choropleth layer
+  const selectedChoropleth = ref<string | null>(getInitialChoroplethFromUrl());
 
-  // Track saved toggleable layers (to restore when overlay is cleared)
+  // Track saved toggleable layers (to restore when choropleth is cleared)
   const savedToggleableLayers = ref<string[]>(
-    currentOverlay.value ? [...defaultToggledLayerNames.value] : []
+    selectedChoropleth.value ? [...defaultToggledLayerNames.value] : [],
   );
 
   // Compute the toggleable layers for checkbox state
   const initialToggleableLayers = computed(() => {
-    if (currentOverlay.value) {
-      // Overlay is active - show saved toggleable layers
+    if (selectedChoropleth.value) {
+      // Choropleth is active - show saved toggleable layers
       return savedToggleableLayers.value.length > 0
         ? savedToggleableLayers.value
         : defaultToggledLayerNames.value;
     }
-    // No overlay - filter activeLayers to only include toggleable layers
+    // No choropleth - filter activeLayers to only include toggleable layers
     return activeLayers.value.filter((l) =>
-      toggleableLayerNames.value.includes(l)
+      toggleableLayerNames.value.includes(l),
     );
   });
 
   /**
    * Handle layer visibility change.
-   * When overlay is active, updates savedToggleableLayers instead of activeLayers.
+   * When choropleth is active, updates savedToggleableLayers instead of activeLayers.
    */
   function handleLayerChange(layerName: string, visible: boolean): void {
-    // When overlay is active, update savedToggleableLayers
-    if (currentOverlay.value) {
+    // When choropleth is active, update savedToggleableLayers
+    if (selectedChoropleth.value) {
       if (visible) {
         if (!savedToggleableLayers.value.includes(layerName)) {
           savedToggleableLayers.value = [
@@ -131,13 +131,13 @@ export function useOverlayState({
         }
       } else {
         savedToggleableLayers.value = savedToggleableLayers.value.filter(
-          (l) => l !== layerName
+          (l) => l !== layerName,
         );
       }
       return;
     }
 
-    // No overlay - update activeLayers directly
+    // No choropleth - update activeLayers directly
     if (visible) {
       if (!activeLayers.value.includes(layerName)) {
         activeLayers.value = [...activeLayers.value, layerName];
@@ -148,30 +148,30 @@ export function useOverlayState({
   }
 
   /**
-   * Handle overlay layer change.
-   * When an overlay is selected, toggleable layers are hidden and saved.
-   * When overlay is cleared, toggleable layers are restored.
+   * Handle choropleth layer change.
+   * When a choropleth is selected, toggleable layers are hidden and saved.
+   * When choropleth is cleared, toggleable layers are restored.
    */
-  function handleOverlayChange(layerName: string | null): void {
-    // Remove current overlay from active layers (if any)
-    if (currentOverlay.value) {
+  function handleChoroplethChange(layerName: string | null): void {
+    // Remove current choropleth from active layers (if any)
+    if (selectedChoropleth.value) {
       activeLayers.value = activeLayers.value.filter(
-        (l) => l !== currentOverlay.value
+        (l) => l !== selectedChoropleth.value,
       );
     }
 
     if (layerName) {
-      // Selecting an overlay - save current toggleable layers and remove them
+      // Selecting a choropleth - save current toggleable layers and remove them
       const currentToggleable = activeLayers.value.filter((l) =>
-        toggleableLayerNames.value.includes(l)
+        toggleableLayerNames.value.includes(l),
       );
       if (currentToggleable.length > 0) {
         savedToggleableLayers.value = currentToggleable;
       }
-      // Remove toggleable layers, add overlay
+      // Remove toggleable layers, add choropleth
       activeLayers.value = [layerName];
     } else {
-      // Clearing overlay - restore saved toggleable layers
+      // Clearing choropleth - restore saved toggleable layers
       if (savedToggleableLayers.value.length > 0) {
         activeLayers.value = [...savedToggleableLayers.value];
         savedToggleableLayers.value = [];
@@ -181,8 +181,8 @@ export function useOverlayState({
       }
     }
 
-    // Update current overlay
-    currentOverlay.value = layerName;
+    // Update selected choropleth
+    selectedChoropleth.value = layerName;
   }
 
   /**
@@ -191,17 +191,17 @@ export function useOverlayState({
    */
   function resetLayers(): void {
     activeLayers.value = [...defaultToggledLayerNames.value];
-    currentOverlay.value = null;
+    selectedChoropleth.value = null;
     savedToggleableLayers.value = [];
   }
 
   return {
     activeLayers,
-    currentOverlay,
+    selectedChoropleth,
     savedToggleableLayers,
     initialToggleableLayers,
     handleLayerChange,
-    handleOverlayChange,
+    handleChoroplethChange,
     resetLayers,
   };
 }

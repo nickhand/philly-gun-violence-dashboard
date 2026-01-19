@@ -1,5 +1,5 @@
 /**
- * FilterableMap composables exports.
+ * MapExplorer composables exports.
  *
  * Centralized export point for map-related composables.
  * Orchestration composables (useArquero, useDownload, useHistograms, useUrlState)
@@ -14,7 +14,7 @@ export { useMapSources } from "./useMapSources";
 export { useMapLayers } from "./useMapLayers";
 export { useMapTooltips } from "./useMapTooltips";
 export { useAggregation } from "./useAggregation";
-export { useOverlayState } from "./useOverlayState";
+export { useLayerState } from "./useLayerState";
 export { useGeocoding } from "./useGeocoding";
 export type { LegendConfig } from "./useAggregation";
 export type { MapOptions } from "./useMapInstance";

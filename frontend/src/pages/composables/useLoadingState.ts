@@ -1,7 +1,7 @@
 /**
  * useLoadingState Composable
  *
- * Centralizes loading/overlay state logic for the dashboard.
+ * Centralizes loading state logic for the dashboard.
  * Combines store loading states with optional component-level ready states.
  *
  * @module useLoadingState
@@ -17,7 +17,7 @@ import { useShootingsStore } from "@/shared/stores/shootings";
 interface UseLoadingStateOptions {
   /**
    * Optional ref indicating if a component (e.g., map) is ready.
-   * When provided, overlay shows until this is true.
+   * When provided, loading indicator shows until this is true.
    */
   componentReady?: Ref<boolean>;
 }
@@ -31,11 +31,11 @@ interface UseLoadingStateOptions {
  * @example
  * ```typescript
  * // Basic usage (no component ready check)
- * const { showOverlay, isLoading, hasError } = useLoadingState();
+ * const { showLoading, isLoading, hasError } = useLoadingState();
  *
  * // With map ready check
  * const mapReady = ref(false);
- * const { showOverlay } = useLoadingState({ componentReady: mapReady });
+ * const { showLoading } = useLoadingState({ componentReady: mapReady });
  * ```
  */
 export function useLoadingState(options: UseLoadingStateOptions = {}) {
@@ -49,14 +49,14 @@ export function useLoadingState(options: UseLoadingStateOptions = {}) {
   const hasError = computed(() => !!loadError.value || metaError.value);
 
   /**
-   * Whether the overlay should be shown.
+   * Whether the loading indicator should be shown.
    *
-   * Shows overlay when:
+   * Shows loading when:
    * - Data is being fetched (initial load or year change)
    * - There's an error
    * - Data is ready but component isn't ready yet (if componentReady provided)
    */
-  const showOverlay = computed(() => {
+  const showLoading = computed(() => {
     // Always show if fetching or error
     if (isLoading.value || hasError.value) {
       return true;
@@ -79,12 +79,12 @@ export function useLoadingState(options: UseLoadingStateOptions = {}) {
     loadError: loadError.value,
     metaError: metaError.value,
     componentReady: options.componentReady?.value ?? "N/A",
-    showOverlay: showOverlay.value,
+    showLoading: showLoading.value,
   }));
 
   return {
-    /** Whether to show the loading overlay */
-    showOverlay,
+    /** Whether to show the loading indicator */
+    showLoading,
     /** Whether data is being fetched (alias for isLoading) */
     isLoading,
     /** Whether there's an error */

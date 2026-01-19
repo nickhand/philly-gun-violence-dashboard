@@ -43,12 +43,12 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       source: "boundary-police-districts",
       type: "fill",
       aggregated: true,
-      overlay: true,
+      choropleth: true,
       column: "police_district",
       geoid: "police_district",
       tooltip: {
         formatter: createAggregatedLayerTooltip(
-          (d) => `Police District #${d.police_district}`
+          (d) => `Police District #${d.police_district}`,
         ),
         on: "mousemove",
       },
@@ -58,12 +58,12 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       source: "boundary-council-districts",
       type: "fill",
       aggregated: true,
-      overlay: true,
+      choropleth: true,
       column: "council_district",
       geoid: "council_district",
       tooltip: {
         formatter: createAggregatedLayerTooltip(
-          (d) => `Council District #${d.council_district}`
+          (d) => `Council District #${d.council_district}`,
         ),
         on: "mousemove",
       },
@@ -73,7 +73,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       source: "boundary-zip-codes",
       type: "fill",
       aggregated: true,
-      overlay: true,
+      choropleth: true,
       column: "zip_code",
       geoid: "zip_code",
       tooltip: {
@@ -86,12 +86,12 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       source: "boundary-neighborhoods",
       type: "fill",
       aggregated: true,
-      overlay: true,
+      choropleth: true,
       column: "neighborhood",
       geoid: "neighborhood",
       tooltip: {
         formatter: createAggregatedLayerTooltip(
-          (d) => d.neighborhood as string
+          (d) => d.neighborhood as string,
         ),
         on: "mousemove",
       },
@@ -101,12 +101,12 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       source: "boundary-pa-house-districts",
       type: "fill",
       aggregated: true,
-      overlay: true,
+      choropleth: true,
       column: "house_district",
       geoid: "house_district",
       tooltip: {
         formatter: createAggregatedLayerTooltip(
-          (d) => `House District #${d.house_district}`
+          (d) => `House District #${d.house_district}`,
         ),
         on: "mousemove",
       },
@@ -116,12 +116,12 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       source: "boundary-pa-senate-districts",
       type: "fill",
       aggregated: true,
-      overlay: true,
+      choropleth: true,
       column: "senate_district",
       geoid: "senate_district",
       tooltip: {
         formatter: createAggregatedLayerTooltip(
-          (d) => `Senate District #${d.senate_district}`
+          (d) => `Senate District #${d.senate_district}`,
         ),
         on: "mousemove",
       },
@@ -131,7 +131,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
       source: "boundary-school-catchments",
       type: "fill",
       aggregated: true,
-      overlay: true,
+      choropleth: true,
       column: "school_name",
       geoid: "school_name",
       tooltip: {
