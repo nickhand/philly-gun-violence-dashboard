@@ -31,6 +31,7 @@ export const GEOJSON_PROPERTIES = [
   "block_number",
   "street_name",
   "age",
+  "age_group",
   "race",
   "sex",
   "has_court_case",

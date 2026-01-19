@@ -24,7 +24,6 @@ import {
 } from "@/shared/api/shootings";
 
 const STORAGE_KEY_VERSION = "shootings_data_version";
-const STORAGE_KEY_GENERATED_AT = "shootings_data_generated_at";
 
 const defaultLoadErrorMessage =
   "We couldn't load the shootings data right now. Please retry or try again later.";
@@ -37,12 +36,8 @@ interface YearCounts {
 interface ShootingsDataState {
   /** Current dataset version (content hash) */
   datasetVersion: string | null;
-  /** ISO timestamp when dataset was generated */
-  datasetGeneratedAt: string | null;
   /** Available years in the dataset */
   dataYears: number[];
-  /** Total number of rows in dataset */
-  totalRows: number;
   /** Raw row data indexed by year (for Arquero table initialization) */
   rowsByYear: Record<number, ShootingRow[]>;
   /** Pre-computed fatal/nonfatal counts per year */
@@ -64,9 +59,7 @@ interface ShootingsDataState {
 export const useShootingsStore = defineStore("shootings", {
   state: (): ShootingsDataState => ({
     datasetVersion: null,
-    datasetGeneratedAt: null,
     dataYears: [],
-    totalRows: 0,
     rowsByYear: {},
     countsByYear: {},
     loadedYears: new Set(),
@@ -115,11 +108,25 @@ export const useShootingsStore = defineStore("shootings", {
   actions: {
     /**
      * Sets the selected year for filtering shootings data.
+     * Immediately sets isLoading if data will need to be fetched.
      *
      * @param year - Year number, null (for all years), or undefined
      */
     setSelectedYear(year: number | null | undefined) {
       this.selectedYear = year;
+
+      // Set isLoading immediately if data needs to be fetched
+      // This ensures loading indicator shows before the async watcher runs
+      if (year === null) {
+        // "All Years" - check if any years need loading
+        const needsLoad = this.dataYears.some((y) => !this.loadedYears.has(y));
+        if (needsLoad) {
+          this.isLoading = true;
+        }
+      } else if (year !== undefined && !this.loadedYears.has(year)) {
+        // Specific year not yet loaded
+        this.isLoading = true;
+      }
     },
 
     /**
@@ -141,12 +148,6 @@ export const useShootingsStore = defineStore("shootings", {
       try {
         if (this.datasetVersion) {
           localStorage.setItem(STORAGE_KEY_VERSION, this.datasetVersion);
-        }
-        if (this.datasetGeneratedAt) {
-          localStorage.setItem(
-            STORAGE_KEY_GENERATED_AT,
-            this.datasetGeneratedAt,
-          );
         }
       } catch {
         // Ignore storage errors
@@ -326,9 +327,7 @@ export const useShootingsStore = defineStore("shootings", {
         // Update metadata state
         this.meta = meta;
         this.datasetVersion = meta.version;
-        this.datasetGeneratedAt = meta.generated_at;
         this.dataYears = [...meta.years].sort((a, b) => b - a);
-        this.totalRows = meta.rows;
 
         // If no year is selected yet, default to the most recent year
         if (this.dataYears.length && this.selectedYear === undefined) {
@@ -396,21 +395,6 @@ export const useShootingsStore = defineStore("shootings", {
      */
     async reloadDataset(): Promise<boolean> {
       return this.loadDatasetIfNeeded(true);
-    },
-
-    /**
-     * Check for dataset updates without blocking.
-     * Useful for periodic refresh checks.
-     *
-     * @returns Promise resolving to true if data was updated
-     */
-    async checkForUpdates(): Promise<boolean> {
-      // Don't check if already loading
-      if (this.isLoading) {
-        return false;
-      }
-
-      return this.loadDatasetIfNeeded(false);
     },
   },
 });

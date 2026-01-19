@@ -19,9 +19,9 @@
 
         <!-- Homicide summary -->
         <div
-          v-if="hasHomicideData"
+          v-if="displayHasHomicideData"
           class="header-submessage"
-          v-html="homicideMessage"
+          v-html="displayHomicideMessage"
         />
         <div v-else class="header-submessage">
           Homicide totals are currently unavailable.
@@ -57,6 +57,34 @@ const homicidesStore = useHomicidesStore();
 
 // Track loading state to prevent showing partial data
 const isLoadingHomicides = ref(false);
+
+// Cache previous homicide message to prevent showing 'unavailable' during loading
+const cachedHomicideMessage = ref<string | null>(null);
+const cachedHasHomicideData = ref(false);
+
+// Cache previous counts to prevent showing 0 during loading
+const cachedFatal = ref<number | undefined>(undefined);
+const cachedNonfatal = ref<number | undefined>(undefined);
+
+// Update cached values only when not loading and values are valid
+watch(
+  [() => props.fatal, () => props.nonfatal, () => props.showLoading],
+  ([fatal, nonfatal, loading]) => {
+    if (!loading && fatal !== undefined && nonfatal !== undefined) {
+      // Only update cache if values are meaningful (not 0 when we had real data)
+      if (fatal > 0 || nonfatal > 0 || cachedFatal.value === undefined) {
+        cachedFatal.value = fatal;
+        cachedNonfatal.value = nonfatal;
+      }
+    }
+  },
+  { immediate: true },
+);
+
+// Use cached values that persist during loading
+const displayFatal = computed(() => cachedFatal.value ?? props.fatal);
+const displayNonfatal = computed(() => cachedNonfatal.value ?? props.nonfatal);
+
 // Counter to track which load operation is current (prevents race conditions)
 let loadOperationId = 0;
 
@@ -293,11 +321,36 @@ const homicideMessage = computed((): string => {
 });
 
 /**
+ * Update cached homicide values when not loading and data is available.
+ */
+watch(
+  [hasHomicideData, homicideMessage, isLoadingHomicides, () => props.showLoading],
+  ([hasData, message, loadingHomicides, loadingMain]) => {
+    const isLoading = loadingHomicides || loadingMain;
+    if (!isLoading && hasData) {
+      cachedHasHomicideData.value = true;
+      cachedHomicideMessage.value = message;
+    }
+  },
+  { immediate: true },
+);
+
+/**
+ * Display values that persist during loading.
+ */
+const displayHasHomicideData = computed(
+  () => hasHomicideData.value || cachedHasHomicideData.value,
+);
+const displayHomicideMessage = computed(
+  () => (hasHomicideData.value ? homicideMessage.value : cachedHomicideMessage.value) ?? "",
+);
+/**
  * Build the shooting victims summary message HTML.
+ * Uses cached display values to prevent showing 0 during loading.
  */
 const shootingMessage = computed((): string => {
-  const nonfatalText = `<span class="nonfatal">${formatNumber(props.nonfatal)} nonfatal</span>`;
-  const fatalText = `<span class="fatal">${formatNumber(props.fatal)} fatal</span>`;
+  const nonfatalText = `<span class="nonfatal">${formatNumber(displayNonfatal.value)} nonfatal</span>`;
+  const fatalText = `<span class="fatal">${formatNumber(displayFatal.value)} fatal</span>`;
 
   let dateText: string;
   if (props.selectedYear === props.currentYear) {

@@ -292,14 +292,10 @@ function handleMapReady(): void {
 watch(
   [() => loadedYears.value.size, selectedYear],
   async ([loadedCount, year], [, prevYear]) => {
-    if (import.meta.env.DEV) {
-      console.log(
-        `[MappingDashboard] Watcher: year=${year}, loadedYears=${loadedCount}`,
-      );
-    }
+    const yearChanged = year !== prevYear;
 
     // Reset map layers when year changes (not on initial load)
-    if (prevYear !== undefined && year !== prevYear) {
+    if (prevYear !== undefined && yearChanged) {
       mapExplorerRef.value?.resetLayers();
     }
 
@@ -308,8 +304,15 @@ watch(
       return;
     }
 
-    // Ensure the selected year's data is loaded (handles switching years)
-    await shootingsStore.ensureYearLoaded(year ?? null);
+    // If year changed, ensure that year's data is loaded
+    if (yearChanged) {
+      await shootingsStore.ensureYearLoaded(year ?? null);
+    }
+
+    // Skip Arquero init while loading is in progress - we'll run again when it finishes
+    if (shootingsStore.isLoading) {
+      return;
+    }
 
     // Read data directly from store after ensuring it's loaded
     const yearData = shootingsStore.rowsByYear;
@@ -320,7 +323,7 @@ watch(
         : ((yearData[year] as ShootingRow[]) ?? []);
 
     if (rowsToUse.length > 0) {
-      const startTime = performance.now();
+      const startTime = import.meta.env.DEV ? performance.now() : 0;
       initializeArquero(rowsToUse, filters.value);
       initializeHistograms(filters.value, getHistogramData);
 
