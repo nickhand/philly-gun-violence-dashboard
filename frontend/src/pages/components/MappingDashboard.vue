@@ -287,10 +287,11 @@ function handleMapReady(): void {
  *
  * We watch loadedYears.size (reactive) to detect when data is loaded,
  * since rowsByYear object mutations with markRaw() arrays don't trigger reactivity.
+ * We also watch isLoading to reinitialize when loading completes.
  * Also resets map layers and loads data for the selected year if needed.
  */
 watch(
-  [() => loadedYears.value.size, selectedYear],
+  [() => loadedYears.value.size, selectedYear, () => shootingsStore.isLoading],
   async ([loadedCount, year], [, prevYear]) => {
     const yearChanged = year !== prevYear;
 

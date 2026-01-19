@@ -324,7 +324,12 @@ const homicideMessage = computed((): string => {
  * Update cached homicide values when not loading and data is available.
  */
 watch(
-  [hasHomicideData, homicideMessage, isLoadingHomicides, () => props.showLoading],
+  [
+    hasHomicideData,
+    homicideMessage,
+    isLoadingHomicides,
+    () => props.showLoading,
+  ],
   ([hasData, message, loadingHomicides, loadingMain]) => {
     const isLoading = loadingHomicides || loadingMain;
     if (!isLoading && hasData) {
@@ -342,7 +347,10 @@ const displayHasHomicideData = computed(
   () => hasHomicideData.value || cachedHasHomicideData.value,
 );
 const displayHomicideMessage = computed(
-  () => (hasHomicideData.value ? homicideMessage.value : cachedHomicideMessage.value) ?? "",
+  () =>
+    (hasHomicideData.value
+      ? homicideMessage.value
+      : cachedHomicideMessage.value) ?? "",
 );
 /**
  * Build the shooting victims summary message HTML.

@@ -59,7 +59,7 @@ interface FetchStreetsParams {
  * ```
  */
 async function fetchStreetsPage(
-  params: FetchStreetsParams = {}
+  params: FetchStreetsParams = {},
 ): Promise<StreetsResponse> {
   const queryParams = new URLSearchParams();
 
@@ -105,7 +105,7 @@ export async function fetchStreetsAllPages(
   params: {
     segment_ids?: string[];
     pageSize?: number;
-  } = {}
+  } = {},
 ): Promise<{ type: "FeatureCollection"; features: StreetFeature[] }> {
   return fetchAllPages(
     (paginationParams) =>
@@ -114,6 +114,6 @@ export async function fetchStreetsAllPages(
         ...paginationParams,
       }),
     {},
-    params.pageSize
+    params.pageSize,
   );
 }

@@ -166,7 +166,7 @@ class TooltipBuilder {
    */
   badge(text: string, type: "fatal" | "nonfatal" | "info" = "info"): this {
     this.sections.push(
-      `<span class="tooltip-badge tooltip-badge--${type}">${text}</span>`
+      `<span class="tooltip-badge tooltip-badge--${type}">${text}</span>`,
     );
     return this;
   }
@@ -197,7 +197,7 @@ function tooltip(): TooltipBuilder {
  * date/time, location, victim demographics, and case information.
  */
 export function createPointsLayerTooltip(
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): string {
   const props = data as unknown as ShootingProperties;
 
@@ -257,7 +257,7 @@ export function createPointsLayerTooltip(
  * ```
  */
 export function createAggregatedLayerTooltip(
-  titleFunc: (data: Record<string, unknown>) => string
+  titleFunc: (data: Record<string, unknown>) => string,
 ): (data: Record<string, unknown>) => string {
   return (data) => {
     const count = (data.count as number) ?? 0;
@@ -273,7 +273,7 @@ export function createAggregatedLayerTooltip(
  * Shows the block address and count for street segment aggregations.
  */
 export function createStreetBlockTooltip(
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): string {
   const blockNumber = data.block_number as number;
   const streetName = data.street_name as string;

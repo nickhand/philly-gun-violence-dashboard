@@ -44,7 +44,7 @@ export interface ShootingFeatureCollection {
  */
 function pickProperties(
   row: ShootingRow,
-  keys: readonly string[]
+  keys: readonly string[],
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const key of keys) {
