@@ -44,7 +44,9 @@
     </v-dialog>
 
     <!-- Footer -->
-    <app-footer />
+    <app-footer
+      :style="{ opacity: hasData ? 1 : 0, transition: 'opacity 0.3s ease-in' }"
+    />
   </section>
 </template>
 
@@ -90,6 +92,7 @@ const {
   selectedYear,
   loadError,
   metaError,
+  hasData,
 } = storeToRefs(shootingsStore);
 
 // Centralized loading state (navbar doesn't need mapReady check)

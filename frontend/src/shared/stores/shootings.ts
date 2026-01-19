@@ -270,7 +270,6 @@ export const useShootingsStore = defineStore("shootings", {
      * @returns Promise resolving to true if data was loaded/refreshed
      */
     async loadDatasetIfNeeded(forceReload: boolean = false): Promise<boolean> {
-      this.isLoading = true;
       this.loadError = null;
       this.metaError = false;
 
@@ -298,7 +297,7 @@ export const useShootingsStore = defineStore("shootings", {
           );
         }
 
-        // If not modified and we already have data, we're done
+        // If not modified and we already have data, we're done (no loading indicator needed)
         if (!metaResult.modified && this.loadedYears.size > 0) {
           if (import.meta.env.DEV) {
             console.log(
@@ -307,6 +306,9 @@ export const useShootingsStore = defineStore("shootings", {
           }
           return false;
         }
+
+        // Now we know we need to load data - set loading state
+        this.isLoading = true;
 
         // Edge case: Got 304 but we don't have data in memory
         if (!metaResult.modified && this.loadedYears.size === 0) {

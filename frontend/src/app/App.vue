@@ -1,7 +1,11 @@
 <template>
   <v-app theme="dark">
     <v-main>
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <keep-alive>
+          <component :is="Component" />
+        </keep-alive>
+      </router-view>
     </v-main>
   </v-app>
 </template>
