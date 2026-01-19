@@ -1,17 +1,4 @@
-import { timeParse, utcFormat } from "d3-time-format";
-
-const parseIsoLike = timeParse("%Y-%m-%d %H:%M:%S");
-const parseLegacy = timeParse("%Y/%m/%d %H:%M:%S");
-
-export function parseIncidentDate(dateString: string): Date | null {
-  const dt = parseIsoLike(dateString) ?? parseLegacy(dateString);
-  return dt ?? null;
-}
-
-export function getMsSinceMidnight(ms: number): number {
-  const dt = new Date(ms);
-  return ms - dt.setHours(0, 0, 0, 0);
-}
+import { utcFormat } from "d3-time-format";
 
 /**
  * Convert milliseconds since midnight to a time string.

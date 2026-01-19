@@ -36,21 +36,3 @@ export async function fetchAllMeta(): Promise<AllDatasetsMeta> {
 export async function fetchShootingsMeta(): Promise<DatasetMeta> {
   return apiFetch<DatasetMeta>("/meta/shootings");
 }
-
-/**
- * Fetch metadata for the homicides dataset.
- *
- * @returns Promise resolving to homicides metadata
- */
-export async function fetchHomicidesMeta(): Promise<DatasetMeta> {
-  return apiFetch<DatasetMeta>("/meta/homicides");
-}
-
-/**
- * Fetch metadata for the courts dataset.
- *
- * @returns Promise resolving to courts metadata
- */
-export async function fetchCourtsMeta(): Promise<DatasetMeta> {
-  return apiFetch<DatasetMeta>("/meta/courts");
-}

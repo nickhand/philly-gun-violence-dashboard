@@ -58,7 +58,7 @@ interface FetchStreetsParams {
  * });
  * ```
  */
-export async function fetchStreetsPage(
+async function fetchStreetsPage(
   params: FetchStreetsParams = {}
 ): Promise<StreetsResponse> {
   const queryParams = new URLSearchParams();

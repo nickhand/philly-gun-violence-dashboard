@@ -8,6 +8,7 @@
  */
 
 import { format } from "d3-format";
+import { msToTimeString } from "@/shared/utils/datetime";
 
 // ============================================================================
 // Types
@@ -42,18 +43,6 @@ export interface AggregatedProperties {
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-/**
- * Format milliseconds since midnight to time string (e.g., "2:30 PM").
- */
-function msToTimeString(ms: number): string {
-  const hours = Math.floor(ms / 3600000);
-  const minutes = Math.floor((ms % 3600000) / 60000);
-  const period = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 || 12;
-  const displayMinutes = minutes.toString().padStart(2, "0");
-  return `${displayHours}:${displayMinutes} ${period}`;
-}
 
 /**
  * Format date from milliseconds to readable date string.

@@ -61,7 +61,7 @@ function pickProperties(
  * @param row - The shooting row data
  * @returns GeoJSON Feature with Point geometry, or null if coordinates missing
  */
-export function rowToFeature(row: ShootingRow): ShootingFeature | null {
+function rowToFeature(row: ShootingRow): ShootingFeature | null {
   const { lon, lat } = row;
 
   // Skip rows without valid coordinates
