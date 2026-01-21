@@ -4,7 +4,7 @@ import pandas as pd
 from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.processed import read_processed_csv, write_processed_csv, write_processed_json
-from etl.courts.portal.schema import PortalResult
+from etl.courts.scraper.schema import PortalResult
 
 __all__ = ["read_existing_flags", "write_flags", "write_portal_results"]
 

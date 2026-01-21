@@ -3,7 +3,7 @@
 import pandas as pd
 from loguru import logger
 
-from etl.courts.portal.schema import PortalResult
+from etl.courts.scraper.schema import PortalResult
 
 __all__ = ["results_to_flags"]
 

@@ -1,12 +1,5 @@
 <template>
   <div class="app-navbar">
-    <!-- Overlay when data is loading -->
-    <v-overlay
-      :model-value="showLoading"
-      :opacity="OVERLAY_OPACITY"
-      :scrim="OVERLAY_COLOR"
-    />
-
     <!-- Back button (for About page) -->
     <v-btn
       v-if="showBackButton"
@@ -64,7 +57,6 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { track } from "@/shared/analytics";
-import { OVERLAY_OPACITY, OVERLAY_COLOR } from "@/shared/config/overlay";
 
 const props = withDefaults(
   defineProps<{
@@ -77,10 +69,6 @@ const props = withDefaults(
      */
     selectedYear?: number | null;
     /**
-     * Whether to show the loading indicator.
-     */
-    showLoading?: boolean;
-    /**
      * Whether to show the year selector dropdown.
      */
     showYearSelector?: boolean;
@@ -92,7 +80,6 @@ const props = withDefaults(
   {
     dataYears: () => [],
     selectedYear: null,
-    showLoading: false,
     showYearSelector: false,
     showBackButton: false,
   },

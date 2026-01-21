@@ -3,41 +3,26 @@
     <div class="header-message">Mapping Philadelphia's Gun Violence</div>
 
     <div>
-      <v-overlay
-        :model-value="showLoading || isLoadingHomicides"
-        :opacity="OVERLAY_OPACITY"
-        :scrim="OVERLAY_COLOR"
+      <!-- Homicide summary (only show when data is available) -->
+      <div
+        v-if="displayHasHomicideData"
+        class="header-submessage"
+        :style="{
+          opacity: isDataReady ? 1 : 0,
+          transition: 'opacity 0.2s ease-in',
+        }"
+        v-html="displayHomicideMessage"
       />
 
-      <div style="position: relative">
-        <v-overlay
-          :model-value="showLoading || isLoadingHomicides"
-          :opacity="OVERLAY_OPACITY_INNER"
-          :scrim="OVERLAY_COLOR"
-          absolute
-        />
-
-        <!-- Homicide summary (only show when data is available) -->
-        <div
-          v-if="displayHasHomicideData"
-          class="header-submessage"
-          :style="{
-            opacity: isDataReady ? 1 : 0,
-            transition: 'opacity 0.2s ease-in',
-          }"
-          v-html="displayHomicideMessage"
-        />
-
-        <!-- Shooting victims summary -->
-        <div
-          class="header-submessage"
-          :style="{
-            opacity: isDataReady ? 1 : 0,
-            transition: 'opacity 0.2s ease-in',
-          }"
-          v-html="displayShootingMessage"
-        />
-      </div>
+      <!-- Shooting victims summary -->
+      <div
+        class="header-submessage"
+        :style="{
+          opacity: isDataReady ? 1 : 0,
+          transition: 'opacity 0.2s ease-in',
+        }"
+        v-html="displayShootingMessage"
+      />
     </div>
   </div>
 </template>
@@ -46,11 +31,6 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { format } from "d3-format";
 import { useHomicidesStore } from "@/shared/stores/homicides";
-import {
-  OVERLAY_OPACITY,
-  OVERLAY_OPACITY_INNER,
-  OVERLAY_COLOR,
-} from "@/shared/config/overlay";
 
 const props = defineProps<{
   fatal?: number;

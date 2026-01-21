@@ -15,7 +15,7 @@ from mypy_boto3_s3.client import S3Client
 from dashboard_utils.aws import parse_s3_uri, read_csv_df, read_json, write_csv_df
 from dashboard_utils.env import s3_settings
 from etl.courts.batch.aws import AWS
-from etl.courts.portal.schema import PortalResult
+from etl.courts.scraper.schema import PortalResult
 
 
 @dataclass
@@ -48,6 +48,10 @@ class PortalBatchConfig:
         The S3 subfolder prefix to use; defaults to "courts-scraper".
     exclude_known_cases : bool
         If ``True``, exclude incident numbers already known to have court cases.
+    verify : bool
+        If ``True``, enable verification mode with audit logging.
+    no_retry : bool
+        If ``True``, disable retry mechanism (max_attempts=1) for debugging.
     """
 
     search_by: Literal["Incident Number", "Docket Number"] = "Incident Number"
@@ -62,15 +66,17 @@ class PortalBatchConfig:
     bucket: str = s3_settings.AWS_BUCKET_NAME
     subfolder_prefix: str = "courts-scraper"
     exclude_known_cases: bool = False
+    verify: bool = False
+    no_retry: bool = False
 
 
 def _upload_inputs_to_s3(
     s3: S3Client,
     df: pd.DataFrame,
     bucket: str,
-    subfolder: str,
+    run_folder: str,
 ) -> str:
-    """Write input values to S3 and return (input_key, output_prefix).
+    """Write input values to S3 and return the S3 path.
 
     Parameters
     ----------
@@ -80,16 +86,16 @@ def _upload_inputs_to_s3(
         DataFrame of incident numbers to upload.
     bucket : str
         The S3 bucket to upload to.
-    subfolder : str
-        The S3 subfolder within the bucket to upload to.
+    run_folder : str
+        The run folder path (e.g., 'courts-scraper/runs/{run_id}').
 
     Returns
     -------
     str
-        The S3 key of the uploaded CSV.
+        The S3 URI of the uploaded CSV.
     """
-    # The input key and output prefix
-    input_key = f"{subfolder}/incident_numbers.csv"
+    # The input key: {run_folder}/inputs/incident_numbers.csv
+    input_key = f"{run_folder}/inputs/incident_numbers.csv"
 
     # Upload csv
     write_csv_df(
@@ -107,11 +113,11 @@ def _upload_inputs_to_s3(
 
 def _download_results(
     s3: S3Client,
-    output_prefix: str,
+    run_folder: str,
 ) -> tuple[dict[str, list[PortalResult] | None], pd.DataFrame]:
     """Download scraping results from S3.
 
-    This function downloads:
+    This function downloads from the merged/ subfolder:
     1. The portal results JSON file.
     2. The echoed input CSV file.
 
@@ -119,8 +125,8 @@ def _download_results(
     ----------
     s3 : S3Client
         The S3 client to use for downloading.
-    output_prefix : str
-        The S3 prefix where the results are stored.
+    run_folder : str
+        The S3 URI to the run folder (e.g., 's3://bucket/courts-scraper/runs/{run_id}').
 
     Returns
     -------
@@ -129,11 +135,12 @@ def _download_results(
         result lists and ``input_df`` is the echoed input DataFrame.
     """
     # Strip s3://bucket/ from prefix
-    bucket, key_prefix = parse_s3_uri(output_prefix)
+    bucket, key_prefix = parse_s3_uri(run_folder)
+    merged_prefix = f"{key_prefix}/merged"
 
     # Get the results JSON
     # NOTE: this is a dict mapping dc_key to list of PortalResult dicts or None
-    results = read_json(s3, bucket=bucket, key=f"{key_prefix}/portal_results.json")
+    results = read_json(s3, bucket=bucket, key=f"{merged_prefix}/portal_results.json")
 
     # Validate the results
     parsed_results: dict[str, list[PortalResult] | None] = {}
@@ -147,7 +154,7 @@ def _download_results(
     input_df = read_csv_df(
         s3,
         bucket=bucket,
-        key=f"{key_prefix}/portal_input.csv",
+        key=f"{merged_prefix}/portal_input.csv",
         header=None,
         names=["dc_key"],
         dtype={"dc_key": "str"},
@@ -193,27 +200,29 @@ def extract_portal(
     logger.info(f"Scraping {len(incident_numbers)} incident numbers")
 
     # Upload the inputs to S3
-    date_string = datetime.now(UTC).strftime("%Y-%m-%dT%H%M%SZ")
-    s3_subfolder = f"{cfg.subfolder_prefix}/{date_string}"
+    # Structure: courts-scraper/runs/{run_id}/inputs/incident_numbers.csv
+    run_id = datetime.now(UTC).strftime("%Y-%m-%dT%H%M%SZ")
+    run_folder = f"{cfg.subfolder_prefix}/runs/{run_id}"
     input_filename = _upload_inputs_to_s3(
         s3,
         incident_numbers,
         cfg.bucket,
-        s3_subfolder,
+        run_folder,
     )
 
-    # The output folder where results will be stored
-    output_folder = f"s3://{cfg.bucket}/{s3_subfolder}/results"
+    # The shards folder where per-worker outputs will be stored
+    # Structure: courts-scraper/runs/{run_id}/shards/
+    shards_folder = f"s3://{cfg.bucket}/{run_folder}/shards"
 
     # Log it
     logger.info(f"Uploaded incident numbers to {input_filename}")
-    logger.info(f"Output will be saved to {output_folder}")
+    logger.info(f"Shard outputs will be saved to {shards_folder}")
 
     # Submit the batch job
     aws = AWS(debug=cfg.debug)
     aws.submit_jobs(
         input_filename=input_filename,
-        output_folder=output_folder,
+        output_folder=shards_folder,
         search_by=cfg.search_by,
         dry_run=cfg.dry_run,
         sample=cfg.sample,
@@ -223,8 +232,12 @@ def extract_portal(
         sleep=cfg.sleep,
         ntasks=cfg.ntasks,
         wait=True,
+        verify=cfg.verify,
+        run_id=run_id,
+        no_retry=cfg.no_retry,
     )
 
-    # Download the results from S3 and return them
-    results, echoed_input = _download_results(s3, output_folder)
+    # Download the results from S3 (from merged/ folder) and return them
+    run_folder_uri = f"s3://{cfg.bucket}/{run_folder}"
+    results, echoed_input = _download_results(s3, run_folder_uri)
     return results, echoed_input

@@ -8,29 +8,37 @@ from dashboard_utils.aws import exists_on_s3, parse_s3_uri, read_csv_df, write_c
 from etl.courts.batch.aws import AWS
 
 
-def get_output_paths(output_folder: str, chunk: int | None) -> tuple[str, str]:
-    """Get the output paths for a chunk.
+def get_output_paths(output_folder: str, shard_id: int | None) -> tuple[str, str]:
+    """Get the output paths for a shard.
 
     Parameters
     ----------
     output_folder : str
-        Base output folder (s3:// or local).
-    chunk : int | None
-        Chunk index, or None for no chunking.
+        Base shards folder (s3:// or local), e.g., 's3://bucket/runs/{run_id}/shards'.
+    shard_id : int | None
+        Shard index (0-based), or None for single-worker mode.
 
     Returns
     -------
     tuple[str, str]
-        Output folder and output filename.
-    """
-    if chunk is None:
-        outfile = "portal_results.json"
-    else:
-        output_folder = f"{output_folder}/chunks"
-        outfile = f"portal_results_{chunk}.json"
+        Shard output folder and results filename.
 
-    outfile = f"{output_folder}/{outfile}"
-    return output_folder, outfile
+    Notes
+    -----
+    Structure:
+    - Single worker: {output_folder}/results.json
+    - Multi-worker: {output_folder}/shard-{NN}/results.json
+    """
+    if shard_id is None:
+        # Single-worker mode: write directly to output_folder
+        shard_folder = output_folder
+        outfile = f"{output_folder}/results.json"
+    else:
+        # Multi-worker mode: shard-{NN}/results.json
+        shard_folder = f"{output_folder}/shard-{shard_id:02d}"
+        outfile = f"{shard_folder}/results.json"
+
+    return shard_folder, outfile
 
 
 def _path_exists(s3: S3Client, path: str) -> bool:

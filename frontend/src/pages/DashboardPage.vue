@@ -1,5 +1,8 @@
 <template>
   <section class="dashboard-view">
+    <!-- Loading overlay (simple div, not v-overlay which teleports) -->
+    <div v-if="showLoading" class="loading-overlay" />
+
     <!-- Skip Links for Keyboard Navigation -->
     <nav class="skip-links" aria-label="Skip navigation">
       <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -10,7 +13,6 @@
     <app-navbar
       :data-years="dataYears"
       :selected-year="selectedYear"
-      :show-loading="showLoading"
       :show-year-selector="true"
       @update:selected-year="handleSelectedYearChange"
     />
@@ -260,5 +262,16 @@ async function retryLoad() {
 .about-link:hover {
   color: rgb(var(--v-theme-primary));
   text-decoration: underline;
+}
+
+/* Loading overlay */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(53, 61, 66, 0.9);
+  z-index: 9999;
 }
 </style>

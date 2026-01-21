@@ -1,7 +1,6 @@
 import json
 import os
 import posixpath
-import sys
 from io import BytesIO, StringIO
 from typing import Any, Literal
 
@@ -96,7 +95,7 @@ class AWS:
         input_filename: str,
         output_folder: str,
         search_by: Literal["Incident Number", "Docket Number"] = "Incident Number",
-        pid: int | None = None,
+        shard_id: int | None = None,
         dry_run: bool = False,
         sample: int | None = None,
         log_freq: int = 50,
@@ -106,6 +105,9 @@ class AWS:
         debug: bool = False,
         ntasks: int = 1,
         wait: bool = False,
+        verify: bool = False,
+        run_id: str | None = None,
+        no_retry: bool = False,
     ) -> str | None:
         """Submit jobs to the ECS cluster.
 
@@ -114,10 +116,10 @@ class AWS:
         input_filename : str
             S3 path to the input filename.
         output_folder : str
-            S3 path to the output folder.
+            S3 path to the shards folder (e.g., 's3://bucket/runs/{run_id}/shards').
         search_by : str, optional
             Portal search field.
-        pid : int, optional
+        shard_id : int, optional
             Worker id (0-indexed).
         dry_run : bool, optional
             Do everything except write outputs.
@@ -137,6 +139,12 @@ class AWS:
             Total parallel splits.
         wait : bool, optional
             Wait for all tasks to complete.
+        verify : bool, optional
+            Enable verification mode with audit logging.
+        run_id : str, optional
+            Run identifier for audit logging.
+        no_retry : bool, optional
+            Disable retry mechanism (max_attempts=1) for debugging.
 
         Returns
         -------
@@ -168,7 +176,7 @@ class AWS:
             "courts",
             "batch",
             input_filename,  # This MUST be an s3 path
-            output_folder,  # This MUST be an s3 path
+            output_folder,  # This MUST be an s3 path (shards folder)
             f"--nprocs={ntasks}",
             f"--sleep={sleep}",
             f"--errors={errors}",
@@ -185,6 +193,12 @@ class AWS:
             base_command += ["--dry-run"]
         if debug:
             base_command += ["--debug"]
+        if verify:
+            base_command += ["--verify"]
+        if run_id is not None:
+            base_command += [f"--run-id={run_id}"]
+        if no_retry:
+            base_command += ["--no-retry"]
 
         # Pass settings via environment variables to ECS tasks
         # NOTE: skip AWS credentials since those are handled by the ECS task role
@@ -203,12 +217,12 @@ class AWS:
 
         # Run in parallel
         tasks = []
-        for pid in range(0, ntasks):
+        for shard_id in range(0, ntasks):
             # Log
-            logger.info(f"Submitting job #{pid}")
+            logger.info(f"Submitting job shard-{shard_id:02d}")
 
             # Build the final command
-            command = base_command + [f"--pid={pid}"]
+            command = base_command + [f"--shard-id={shard_id}"]
 
             # Submit job
             task = self.ecs.run_task(
@@ -266,71 +280,91 @@ class AWS:
         # Check for errors
         task_results = self.ecs.describe_tasks(cluster=self.cluster_name, tasks=task_ids)
 
-        # Check the exit codes
-        exit_codes = [task["containers"][0]["exitCode"] for task in task_results["tasks"]]
-        if any([code != 0 for code in exit_codes]):
-            logger.warning("One or more tasks failed!")
-            sys.exit(1)
+        # Check the exit codes and log failures
+        failed_shards = []
+        for i, task in enumerate(task_results["tasks"]):
+            exit_code = task["containers"][0].get("exitCode")
+            if exit_code != 0:
+                failed_shards.append(i)
+                reason = task["containers"][0].get("reason", "Unknown")
+                logger.warning(f"Shard {i} failed with exit code {exit_code}: {reason}")
 
-        # And combine
+        if failed_shards:
+            logger.warning(
+                f"{len(failed_shards)}/{ntasks} tasks failed. "
+                "Combining results from successful shards..."
+            )
+
+        # Still combine results from successful shards
         logger.info("Combining parallel results on AWS")
 
-        # Add "chunks" to the output folder
-        chunks_output_folder = f"{output_folder}/chunks"
-        outfile = self.combine_parallel_results(chunks_output_folder)
+        # Combine shards and write to merged/ folder
+        # output_folder is the shards folder: s3://bucket/runs/{run_id}/shards
+        outfile = self.combine_parallel_results(output_folder)
 
         return outfile
 
-    def combine_parallel_results(self, output_folder: str) -> str | None:
-        """Iterate through parallel, chunked scraping results from AWS.
+    def combine_parallel_results(self, shards_folder: str) -> str | None:
+        """Iterate through parallel, shard scraping results from AWS.
 
         Parameters
         ----------
-        output_folder : str
-            S3 path to the output folder containing chunked results.
+        shards_folder : str
+            S3 path to the shards folder containing per-shard results.
 
         Returns
         -------
         str | None
             S3 path to the combined output file or None if not waiting.
         """
-        if not exists_on_s3(self.s3, output_folder.rstrip("/")):
+        if not exists_on_s3(self.s3, shards_folder.rstrip("/")):
             raise FileNotFoundError(
-                f"Output folder does not exist for parallel results: '{output_folder}'"
+                f"Shards folder does not exist for parallel results: '{shards_folder}'"
             )
 
-        # Get the files
-        tags = ["portal_results", "portal_input", "errors"]
-        extensions = [".json", ".csv", ".json"]
+        # New folder structure:
+        # - Read from: shards/shard-{NN}/{results,input,errors}
+        # - Write to: merged/{portal_results,portal_input,errors}
 
-        bucket, prefix = parse_s3_uri(output_folder.rstrip("/"))
-        parent_prefix = prefix.rsplit("/", 1)[0] if "/" in prefix else ""
+        # File mappings: (shard_filename, merged_filename)
+        file_mappings = [
+            ("results.json", "portal_results.json"),
+            ("input.csv", "portal_input.csv"),
+            ("errors.json", "errors.json"),
+        ]
+
+        bucket, shards_prefix = parse_s3_uri(shards_folder.rstrip("/"))
+        # merged/ is a sibling of shards/
+        run_prefix = shards_prefix.rsplit("/", 1)[0] if "/" in shards_prefix else ""
+        merged_prefix = f"{run_prefix}/merged" if run_prefix else "merged"
 
         # Combine files for each tag
         data_file = None
-        for i, (tag, extension) in enumerate(zip(tags, extensions, strict=True)):
-            tag_prefix = f"{prefix}/{tag}"
+        for i, (shard_filename, merged_filename) in enumerate(file_mappings):
+            extension = "." + shard_filename.rsplit(".", 1)[-1]
 
-            # Get the list of files with pagination
+            # List all shard-{NN}/ subdirectories and find the file in each
             paginator = self.s3.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=bucket, Prefix=tag_prefix)
+            pages = paginator.paginate(Bucket=bucket, Prefix=f"{shards_prefix}/shard-")
 
             # Get the list of relevant files from paginated results
             files = []
             for page in pages:
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
-                    if key.endswith(extension):
+                    if key.endswith(f"/{shard_filename}"):
                         files.append(key)
 
             # Sorted list of files to combine
             files = sorted(files)
             if not files:
-                raise ValueError(f"No files found in output folder '{output_folder}'")
+                raise ValueError(
+                    f"No {shard_filename} files found in shards folder '{shards_folder}'"
+                )
 
             # Log the first time
             if i == 0:
-                logger.info(f"Combining {len(files)} files from AWS")
+                logger.info(f"Combining {len(files)} shards from AWS")
 
             # Initialize results
             # -> dict for JSON dicts, list for JSON lists, DataFrame for CSVs
@@ -370,14 +404,14 @@ class AWS:
                         assert isinstance(results, pd.DataFrame)
                         results = pd.concat([results, r])
 
-            # Write the combined results back to S3
-            output_key = f"{parent_prefix}/{tag}{extension}".lstrip("/")
+            # Write the combined results to merged/ folder
+            output_key = f"{merged_prefix}/{merged_filename}"
             filename = f"s3://{bucket}/{posixpath.normpath(output_key)}"
 
             # Make sure we have results
             assert results is not None
 
-            # Log the first time
+            # Log the first time (portal_results.json)
             if i == 0:
                 data_file = filename
                 logger.info(f"Total number of results from AWS: {len(results)}")
@@ -396,4 +430,67 @@ class AWS:
 
             self.s3.put_object(Bucket=bucket, Key=output_key, Body=payload.encode())
 
+        # Merge audit files if they exist (verification mode)
+        self._merge_audit_files(bucket, shards_prefix, merged_prefix)
+
         return data_file
+
+    def _merge_audit_files(self, bucket: str, shards_prefix: str, merged_prefix: str) -> None:
+        """Merge audit files from all shards into merged/audit/.
+
+        Parameters
+        ----------
+        bucket : str
+            S3 bucket name.
+        shards_prefix : str
+            S3 prefix for shards folder (e.g., 'courts-scraper/runs/{run_id}/shards').
+        merged_prefix : str
+            S3 prefix for merged folder (e.g., 'courts-scraper/runs/{run_id}/merged').
+        """
+        import gzip
+
+        # Find all audit/final.ndjson.gz files in shard folders
+        paginator = self.s3.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=bucket, Prefix=f"{shards_prefix}/shard-")
+
+        audit_files: list[str] = []
+        for page in pages:
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                # Match audit/final.ndjson.gz or audit/final.ndjson
+                if "/audit/final.ndjson" in key:
+                    audit_files.append(key)
+
+        if not audit_files:
+            logger.debug("No audit files found in shards - skipping audit merge")
+            return
+
+        audit_files = sorted(audit_files)
+        logger.info(f"Merging audit files from {len(audit_files)} shards")
+
+        # Read and merge all audit records
+        all_records: list[dict[str, Any]] = []
+        for key in audit_files:
+            response = self.s3.get_object(Bucket=bucket, Key=key)
+            body = response["Body"].read()
+
+            # Decompress if gzipped
+            if key.endswith(".gz"):
+                body = gzip.decompress(body)
+
+            # Parse NDJSON
+            for line in body.decode("utf-8").split("\n"):
+                if line.strip():
+                    all_records.append(json.loads(line))
+
+        logger.info(f"Merged {len(all_records)} audit records from all shards")
+
+        # Write merged audit file to merged/audit/final_merged.ndjson.gz
+        audit_output_key = f"{merged_prefix}/audit/final_merged.ndjson.gz"
+
+        # Serialize to NDJSON and compress
+        ndjson_content = "\n".join(json.dumps(r, separators=(",", ":")) for r in all_records)
+        compressed = gzip.compress(ndjson_content.encode("utf-8"))
+
+        self.s3.put_object(Bucket=bucket, Key=audit_output_key, Body=compressed)
+        logger.info(f"Saved merged audit file to s3://{bucket}/{audit_output_key}")

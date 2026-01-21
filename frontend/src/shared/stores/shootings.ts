@@ -283,6 +283,12 @@ export const useShootingsStore = defineStore("shootings", {
         console.log("[ShootingsData] Force fresh fetch (skipping cache)");
       }
 
+      // Show loading indicator on initial load (no data yet)
+      // Don't show for subsequent loads since we have cached data to display
+      if (this.loadedYears.size === 0) {
+        this.isLoading = true;
+      }
+
       try {
         // Fetch metadata with conditional request
         const lastVersion = forceFresh
@@ -306,9 +312,6 @@ export const useShootingsStore = defineStore("shootings", {
           }
           return false;
         }
-
-        // Now we know we need to load data - set loading state
-        this.isLoading = true;
 
         // Edge case: Got 304 but we don't have data in memory
         if (!metaResult.modified && this.loadedYears.size === 0) {
