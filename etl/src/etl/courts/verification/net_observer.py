@@ -5,6 +5,7 @@ to support response classification and audit logging.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from playwright.sync_api import Page, Request, Response
 
@@ -135,12 +136,12 @@ class NetworkObserver:
             error_codes = {500, 502, 503, 504}
         return any(code in self.status_histogram for code in error_codes)
 
-    def get_snapshot(self) -> dict:
+    def get_snapshot(self) -> dict[str, Any]:
         """Get a snapshot of current network stats.
 
         Returns
         -------
-        dict
+        dict[str, Any]
             Dictionary with status_histogram, requestfailed_count, and errors.
         """
         return {

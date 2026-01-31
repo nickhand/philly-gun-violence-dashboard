@@ -14,7 +14,7 @@ from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from etl.courts.scraper.schema import PortalResult, ScrapeError
+from etl.courts.scraper.schema import OutcomeStatus, PortalResult, ScrapeError, ScrapeOutcome
 
 if TYPE_CHECKING:
     from etl.courts.verification.audit import AttemptTracker, AuditWriter
@@ -143,6 +143,10 @@ def _parse_results(html: str) -> list[PortalResult] | None:
 class UJSPortalScraper:
     """Scrape the UJS courts portal by incident number or docket number.
 
+    Uses classification-based verification to detect rate limiting, captchas,
+    and other transient errors. Results are returned as ScrapeOutcome objects
+    with status, classification, and parsed results.
+
     Attributes
     ----------
     search_by : str
@@ -163,16 +167,14 @@ class UJSPortalScraper:
         Maximum wait time between retries, in seconds.
     errors : str
         Error handling strategy; either "raise" or "ignore".
-    verify : bool
-        If ``True``, enable verification mode with audit logging and classification.
     audit_output_dir : str | None
-        Directory for audit output files (verification mode only).
+        Directory for audit output files.
     audit_context : AuditContext | None
-        Shard context for distributed scraping (verification mode only).
+        Shard context for distributed scraping.
     enable_screenshots : bool
-        If ``True``, capture screenshots for non-HAS_RESULTS outcomes (verification mode only).
+        If ``True``, capture screenshots for non-HAS_RESULTS outcomes.
     compress_audit : bool
-        If ``True``, compress audit files with gzip (verification mode only).
+        If ``True``, compress audit files with gzip.
     """
 
     search_by: Literal["Incident Number", "Docket Number"] = "Incident Number"
@@ -185,12 +187,17 @@ class UJSPortalScraper:
     wait_max: float = 30.0
     errors: Literal["raise", "ignore"] = "raise"
 
-    # Verification mode options
-    verify: bool = False
+    # Audit options
     audit_output_dir: str | None = None
     audit_context: AuditContext | None = None
     enable_screenshots: bool = True
     compress_audit: bool = True
+
+    # Rate limiting options
+    stagger_start: bool = True  # Stagger task starts based on shard_id
+    adaptive_rate_limit: bool = True  # Slow down after consecutive SOFT_BLOCKED
+    soft_blocked_backoff_min: float = 60.0  # Min backoff for SOFT_BLOCKED (seconds)
+    soft_blocked_backoff_max: float = 600.0  # Max backoff for SOFT_BLOCKED (10 min)
 
     _playwright: Playwright | None = field(init=False, default=None)
     _browser: Browser | None = field(init=False, default=None)
@@ -203,35 +210,32 @@ class UJSPortalScraper:
     _current_attempt_start: str | None = field(init=False, default=None)
     _classifications: dict[str, ClassificationResult] = field(init=False, default_factory=dict)
 
+    # Adaptive rate limiting state
+    _consecutive_soft_blocked: int = field(init=False, default=0)
+    _current_sleep: float = field(init=False, default=0.0)  # Initialized in __post_init__
+    _stagger_applied: bool = field(init=False, default=False)
+
     def __post_init__(self) -> None:
         """Validate configuration and build the retry strategy."""
         if self.search_by not in SEARCH_BY_OPTIONS:
             raise ValueError(f"search_by must be one of {SEARCH_BY_OPTIONS}")
 
-        # Initialize verification components if enabled
-        if self.verify:
-            self._init_verification()
+        # Initialize adaptive rate limiting
+        self._current_sleep = self.sleep
+        self._consecutive_soft_blocked = 0
 
-        # Build the retryer based on mode
-        if self.verify:
-            # In verification mode, only retry RetryableScrapeError
-            self._retryer = Retrying(
-                stop=stop_after_attempt(self.max_attempts),
-                wait=wait_random_exponential(multiplier=self.wait_min, max=self.wait_max),
-                retry=retry_if_exception_type(RetryableScrapeError),
-                reraise=True,
-                before=self._before_attempt_verified,
-                before_sleep=self._before_retry_verified,
-            )
-        else:
-            # Standard mode: retry any exception
-            self._retryer = Retrying(
-                stop=stop_after_attempt(self.max_attempts),
-                wait=wait_random_exponential(multiplier=self.wait_min, max=self.wait_max),
-                retry=retry_if_exception_type(Exception),
-                reraise=True,
-                before_sleep=self._before_retry,
-            )
+        # Initialize verification/audit components
+        self._init_verification()
+
+        # Build the retryer - only retry RetryableScrapeError
+        self._retryer = Retrying(
+            stop=stop_after_attempt(self.max_attempts),
+            wait=wait_random_exponential(multiplier=self.wait_min, max=self.wait_max),
+            retry=retry_if_exception_type(RetryableScrapeError),
+            reraise=True,
+            before=self._before_attempt,
+            before_sleep=self._before_retry,
+        )
 
     def _init_verification(self) -> None:
         """Initialize verification mode components."""
@@ -254,17 +258,27 @@ class UJSPortalScraper:
                 compress=self.compress_audit,
             )
 
-    def _before_attempt_verified(self, retry_state: tenacity.RetryCallState) -> None:
-        """Reset network observer before each attempt (verification mode)."""
+    def _before_attempt(self, retry_state: tenacity.RetryCallState) -> None:
+        """Reset network observer before each attempt."""
         if self._net_observer:
             self._net_observer.reset()
         self._current_attempt_start = datetime.now(UTC).isoformat()
 
-    def _before_retry_verified(self, retry_state: tenacity.RetryCallState) -> None:
-        """Log and reset before retry (verification mode)."""
+    def _before_retry(self, retry_state: tenacity.RetryCallState) -> None:
+        """Log and reset before retry.
+
+        Uses exponential backoff with jitter for SOFT_BLOCKED errors,
+        scaling from soft_blocked_backoff_min to soft_blocked_backoff_max.
+        Also updates adaptive rate limiting state.
+        """
+        import random
+
+        from etl.courts.verification.classifier import Classification
+
         attempt = retry_state.attempt_number
         outcome = retry_state.outcome
 
+        is_soft_blocked = False
         if outcome is not None and outcome.exception() is not None:
             exc = outcome.exception()
             if isinstance(exc, RetryableScrapeError):
@@ -272,36 +286,102 @@ class UJSPortalScraper:
                     f"Retrying after {exc.result.classification.value} "
                     f"(attempt {attempt}/{self.max_attempts})"
                 )
+                is_soft_blocked = exc.result.classification == Classification.SOFT_BLOCKED
 
-        # Reset the page and sleep before retrying
+        # Reset the page before retrying
         self._reset_page()
-        time.sleep(self.sleep)
 
-    def _before_retry(self, retry_state: tenacity.RetryCallState) -> None:
+        # Apply backoff based on classification
+        if is_soft_blocked:
+            # Track consecutive SOFT_BLOCKED for adaptive rate limiting
+            self._consecutive_soft_blocked += 1
+
+            # Exponential backoff with jitter: base * 2^(attempt-1) capped at max
+            # Example with min=60, max=600:
+            #   attempt 1: 60-120s, attempt 2: 120-240s, attempt 3: 240-480s, etc.
+            base_backoff = self.soft_blocked_backoff_min * (2 ** (attempt - 1))
+            capped_backoff = min(base_backoff, self.soft_blocked_backoff_max)
+            # Add jitter: 0.5x to 1.5x of the calculated backoff
+            jitter = random.uniform(0.5, 1.5)
+            backoff = capped_backoff * jitter
+
+            logger.warning(
+                f"SOFT_BLOCKED #{self._consecutive_soft_blocked}, "
+                f"backing off {backoff:.0f}s (attempt {attempt})"
+            )
+            time.sleep(backoff)
+
+            # Adaptive rate limiting: increase sleep between requests
+            if self.adaptive_rate_limit:
+                self._increase_request_delay()
+        else:
+            # Non-SOFT_BLOCKED retry: use normal sleep
+            time.sleep(self._current_sleep)
+
+    def _increase_request_delay(self) -> None:
+        """Increase the delay between requests (adaptive rate limiting).
+
+        Doubles the current sleep time up to 4x the original value.
+        Called when consecutive SOFT_BLOCKED errors are detected.
         """
-        Reset the page and back off before a retry (standard mode).
+        max_sleep = self.sleep * 4  # Cap at 4x original (e.g., 7s -> 28s)
+        old_sleep = self._current_sleep
+        self._current_sleep = min(self._current_sleep * 2, max_sleep)
+        if self._current_sleep != old_sleep:
+            logger.info(
+                f"Adaptive rate limit: increased request delay from {old_sleep:.1f}s "
+                f"to {self._current_sleep:.1f}s"
+            )
 
-        Parameters
-        ----------
-        retry_state : tenacity.RetryCallState
-            State containing attempt info and exception.
+    def _reset_rate_limit_state(self) -> None:
+        """Reset adaptive rate limiting state after a successful request.
+
+        Called when a request succeeds to gradually recover request rate.
         """
-        input_value = retry_state.args[0] if retry_state.args else "unknown"
-        attempt = retry_state.attempt_number
-        outcome = retry_state.outcome
+        if self._consecutive_soft_blocked > 0:
+            self._consecutive_soft_blocked = 0
+            # Gradually decrease sleep (halve it, but not below original)
+            if self._current_sleep > self.sleep:
+                old_sleep = self._current_sleep
+                self._current_sleep = max(self._current_sleep / 2, self.sleep)
+                logger.info(
+                    f"Adaptive rate limit: decreased request delay from {old_sleep:.1f}s "
+                    f"to {self._current_sleep:.1f}s after success"
+                )
 
-        # Build the message and log a warning
-        msg = (
-            f"Retrying portal scrape for {input_value} "
-            f"(attempt {attempt}/{self.max_attempts}) due to: "
-        )
-        if outcome is not None and outcome.exception() is not None:
-            msg += f"{outcome.exception()}"
-        logger.warning(msg)
+    def _apply_staggered_start(self) -> None:
+        """Apply initial delay based on shard_id to stagger task starts.
 
-        # Reset the page and sleep before retrying
-        self._reset_page()
-        time.sleep(self.sleep)
+        Called once at the start of scrape_portal_data to prevent all tasks
+        from hitting the portal simultaneously.
+        """
+        if self._stagger_applied or not self.stagger_start:
+            return
+
+        self._stagger_applied = True
+
+        if self.audit_context is None:
+            return
+
+        import random
+
+        shard_id = self.audit_context.shard_id
+        shard_count = self.audit_context.shard_count
+
+        # Stagger delay: each shard waits (shard_id / shard_count) * base_delay
+        # Plus random jitter to avoid synchronized waves
+        # Base delay: spread tasks over ~60 seconds
+        base_delay = 60.0
+        stagger_delay = (shard_id / shard_count) * base_delay
+        jitter = random.uniform(0, 5)  # 0-5 seconds additional jitter
+        total_delay = stagger_delay + jitter
+
+        if total_delay > 0:
+            logger.info(
+                f"Staggered start: shard {shard_id}/{shard_count} "
+                f"waiting {total_delay:.1f}s before starting"
+            )
+            time.sleep(total_delay)
 
     def __enter__(self) -> Self:
         self._ensure_page()
@@ -323,8 +403,8 @@ class UJSPortalScraper:
         self._browser = self._playwright.chromium.launch(headless=not self.debug)
         self._page = self._browser.new_page()
 
-        # Attach network observer if in verification mode
-        if self.verify and self._net_observer:
+        # Attach network observer
+        if self._net_observer:
             self._net_observer.attach(self._page)
 
         self._page.goto(PORTAL_URL, wait_until="networkidle", timeout=self.timeout_ms)
@@ -337,8 +417,8 @@ class UJSPortalScraper:
 
     def _reset_page(self) -> None:
         """Close Playwright objects and reset handles."""
-        # Detach network observer if in verification mode
-        if self.verify and self._net_observer and self._page:
+        # Detach network observer
+        if self._net_observer and self._page:
             self._net_observer.detach(self._page)
 
         # Close resources if they exist
@@ -443,53 +523,12 @@ class UJSPortalScraper:
             logger.debug(f"Failed to capture error screenshot: {e}")
             return None
 
-    def _scrape_once(self, input_value: str) -> list[PortalResult] | None:
-        """
-        Perform a single scrape attempt for one input value (standard mode).
-
-        Parameters
-        ----------
-        input_value : str
-            Incident or docket number.
-
-        Returns
-        -------
-        list[PortalResult] or None
-            Parsed results or None when validation/parsing fails.
-        """
-        # Normalize the input value
-        normalized = self._normalize_input(input_value)
-        if normalized is None:
-            return None
-
-        # Ensure page is ready
-        page = self._ensure_page()
-
-        # Fill in the form and submit
-        search_by_tag = self.search_by.replace(" ", "")
-        input_selector = f"#{search_by_tag}-Control input"
-
-        # Clear any existing input, fill in the new value, and submit
-        page.fill(input_selector, "")
-        page.fill(input_selector, normalized)
-        page.click(SEARCH_BUTTON)
-
-        # Wait for results to load
-        try:
-            page.wait_for_selector(RESULTS_CONTAINER, timeout=self.timeout_ms, state="visible")
-        except PlaywrightTimeoutError as exc:
-            raise ValueError("Portal results did not load in time") from exc
-
-        # Get the page content and parse results
-        html = page.content()
-        return _parse_results(html)
-
-    def _scrape_once_verified(
+    def _scrape_once(
         self,
         input_value: str,
         attempt_index: int,
     ) -> tuple[ClassificationResult, list[PortalResult] | None]:
-        """Perform a single scrape attempt with verification (verification mode).
+        """Perform a single scrape attempt with classification.
 
         Parameters
         ----------
@@ -510,6 +549,7 @@ class UJSPortalScraper:
         """
         from etl.courts.verification.classifier import (
             Classification,
+            ClassificationResult,
             classify_case_search,
             classify_from_exception,
         )
@@ -519,12 +559,12 @@ class UJSPortalScraper:
             # Invalid input - return UI_DRIFT classification
             from etl.courts.verification.classifier import ClassificationResult
 
-            result = ClassificationResult(
+            invalid_result = ClassificationResult(
                 classification=Classification.UI_DRIFT_OR_UNKNOWN,
                 subreason="Invalid incident number format",
                 final_url="",
             )
-            return result, None
+            return invalid_result, None
 
         timestamp_start = self._current_attempt_start or datetime.now(UTC).isoformat()
         page = self._ensure_page()
@@ -557,6 +597,21 @@ class UJSPortalScraper:
                 try:
                     html = page.content()
                     portal_results = _parse_results(html)
+
+                    # Reclassify to ZERO_RESULTS if classifier detected rows but
+                    # parser found no valid data (e.g., "No results found" row)
+                    if portal_results is None:
+                        result = ClassificationResult(
+                            classification=Classification.ZERO_RESULTS,
+                            subreason="Results container visible but no parseable data rows",
+                            row_count=0,
+                            final_url=result.final_url,
+                            marker_hits=result.marker_hits,
+                            status_histogram=result.status_histogram,
+                            requestfailed_count=result.requestfailed_count,
+                            elapsed_ms=result.elapsed_ms,
+                            page_title=result.page_title,
+                        )
                 except Exception as e:
                     logger.debug(f"Failed to parse results: {e}")
 
@@ -566,7 +621,7 @@ class UJSPortalScraper:
                 e,
                 page.url if page else "",
                 self._net_observer,
-                elapsed_ms,  # type: ignore[arg-type]
+                elapsed_ms,
             )
         except Exception as e:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
@@ -574,7 +629,7 @@ class UJSPortalScraper:
                 e,
                 page.url if self._page else "",
                 self._net_observer,
-                elapsed_ms,  # type: ignore[arg-type]
+                elapsed_ms,
             )
 
         timestamp_end = datetime.now(UTC).isoformat()
@@ -611,9 +666,8 @@ class UJSPortalScraper:
 
         return result, portal_results
 
-    def __call__(self, input_value: str) -> list[PortalResult] | None:
-        """
-        Scrape portal results for a single input with retries.
+    def __call__(self, input_value: str) -> ScrapeOutcome:
+        """Scrape portal results for a single input with retries.
 
         Parameters
         ----------
@@ -622,31 +676,21 @@ class UJSPortalScraper:
 
         Returns
         -------
-        list[PortalResult] or None
-            Parsed results or None if validation/parsing fails.
+        ScrapeOutcome
+            Outcome with status, classification, and results (if any).
         """
-        if self.verify:
-            return self._call_verified(input_value)
-        else:
-            return self._call_standard(input_value)
-
-    def _call_standard(self, input_value: str) -> list[PortalResult] | None:
-        """Scrape portal results (standard mode)."""
-        for attempt in self._retryer:
-            with attempt:
-                return self._scrape_once(input_value)
-        return None
-
-    def _call_verified(self, input_value: str) -> list[PortalResult] | None:
-        """Scrape portal results with verification and audit logging."""
-        from tenacity import RetryError
-
         from etl.courts.verification.audit import AttemptTracker
         from etl.courts.verification.classifier import Classification, ClassificationResult
 
         normalized = self._normalize_input(input_value)
         if normalized is None:
-            normalized = str(input_value)  # Use raw for tracking
+            # Invalid input format
+            return ScrapeOutcome(
+                status=OutcomeStatus.INVALID_INPUT,
+                classification="INVALID_INPUT",
+                subreason=f"Invalid incident number format: {input_value}",
+                attempt_count=0,
+            )
 
         # Initialize tracker for this incident number
         self._current_tracker = AttemptTracker(
@@ -657,16 +701,18 @@ class UJSPortalScraper:
 
         final_result: ClassificationResult | None = None
         portal_results: list[PortalResult] | None = None
+        attempt_count = 0
+        exhausted_retries = False
 
         # Run with retries - catch exhausted retries to allow audit finalization
         try:
             for attempt_index, attempt in enumerate(self._retryer, start=1):
+                attempt_count = attempt_index
                 with attempt:
-                    final_result, portal_results = self._scrape_once_verified(
-                        input_value, attempt_index
-                    )
-        except RetryError as e:
-            # Retries exhausted - extract the final result from the last attempt
+                    final_result, portal_results = self._scrape_once(input_value, attempt_index)
+        except RetryableScrapeError:
+            # Retries exhausted with a retryable error - extract final result
+            exhausted_retries = True
             if self._current_tracker and self._current_tracker.attempts:
                 last_attempt = self._current_tracker.attempts[-1]
                 final_result = ClassificationResult(
@@ -682,7 +728,7 @@ class UJSPortalScraper:
                 )
             # Re-raise if errors='raise' mode
             if self.errors == "raise":
-                raise e.last_attempt.result() from e
+                raise
 
         # Build and write final audit row
         if self._current_tracker and self._audit_writer:
@@ -703,7 +749,23 @@ class UJSPortalScraper:
         # Store classification
         self._classifications[normalized] = final_result
 
-        return portal_results
+        # Map classification to outcome status
+        if exhausted_retries:
+            status = OutcomeStatus.FAILED
+        elif final_result.classification == Classification.HAS_RESULTS:
+            status = OutcomeStatus.SUCCESS
+        elif final_result.classification == Classification.ZERO_RESULTS:
+            status = OutcomeStatus.NO_RESULTS
+        else:
+            status = OutcomeStatus.FAILED
+
+        return ScrapeOutcome(
+            status=status,
+            results=portal_results,
+            classification=final_result.classification.value,
+            subreason=final_result.subreason,
+            attempt_count=attempt_count,
+        )
 
     @property
     def classifications(self) -> dict[str, ClassificationResult]:
@@ -719,7 +781,7 @@ class UJSPortalScraper:
     def scrape_portal_data(
         self,
         input_values: list[str],
-    ) -> tuple[dict[str, list[PortalResult] | None], list[ScrapeError]]:
+    ) -> tuple[dict[str, ScrapeOutcome], list[ScrapeError]]:
         """
         Scrape portal data for a list of input values.
 
@@ -730,28 +792,30 @@ class UJSPortalScraper:
 
         Returns
         -------
-        tuple[dict[str, list[PortalResult] | None], list[ScrapeError]]
-            Tuple of (results dict, error list) where results maps input values
-            to their scraped results (or None) and errors is a list of ScrapeError
-            objects with details about failures.
+        tuple[dict[str, ScrapeOutcome], list[ScrapeError]]
+            Tuple of (results dict, error list).
+
+            - Results dict maps input values to ScrapeOutcome objects
+            - ScrapeOutcome.status distinguishes SUCCESS, NO_RESULTS, FAILED, INVALID_INPUT
+            - ScrapeOutcome.results contains the parsed data (if SUCCESS)
 
         Notes
         -----
-        When ``verify=True``, classifications for each input are stored in
-        ``self.classifications`` and audit logs are written to the output directory.
+        Classifications for each input are stored in ``self.classifications``
+        and audit logs are written to the output directory.
         """
-        results: dict[str, list[PortalResult] | None] = {}
+        results: dict[str, ScrapeOutcome] = {}
         N = len(input_values)
-        logger.info(f"Scraping info for {N} values{' (verification mode)' if self.verify else ''}")
+        logger.info(f"Scraping info for {N} values")
 
         # Clear classifications for fresh run
         self._classifications.clear()
 
+        # Apply staggered start to avoid thundering herd
+        self._apply_staggered_start()
+
         # Errors with rich context
         errors: list[ScrapeError] = []
-
-        # Track attempt counts per input (for error reporting)
-        attempt_counts: dict[str, int] = {}
 
         # Wrap in try/finally to ensure audit files are saved even on crash
         try:
@@ -763,13 +827,14 @@ class UJSPortalScraper:
 
                 # Try to scrape the value, with retry/error handling
                 try:
-                    portal_results = self(val)
-                    results[val] = portal_results
-                    # Track successful attempt count from retry state if available
-                    attempt_counts[val] = getattr(self, "_last_attempt_count", 1)
+                    outcome = self(val)
+                    results[val] = outcome
+                    # Only reset rate limit state on SUCCESS or NO_RESULTS
+                    if outcome.status in (OutcomeStatus.SUCCESS, OutcomeStatus.NO_RESULTS):
+                        self._reset_rate_limit_state()
                 except Exception as exc:
-                    # Capture error screenshot (if verification mode)
-                    screenshot_path = self._capture_error_screenshot(val) if self.verify else None
+                    # Capture error screenshot
+                    screenshot_path = self._capture_error_screenshot(val)
 
                     # Capture rich error info
                     error_record = ScrapeError(
@@ -785,17 +850,23 @@ class UJSPortalScraper:
                     # If ignoring errors, log a warning and continue
                     if self.errors == "ignore":
                         logger.warning(f"Ignoring exception for value {val}: {exc}")
-                        results[val] = None
+                        # Create a failed outcome for tracking
+                        results[val] = ScrapeOutcome(
+                            status=OutcomeStatus.FAILED,
+                            classification="EXCEPTION",
+                            subreason=str(exc),
+                            attempt_count=self.max_attempts,
+                        )
                     # Otherwise, re-raise the exception
                     else:
                         logger.exception(f"Exception raised for value {val}: {exc}")
                         raise
 
-                # Sleep between requests
-                time.sleep(self.sleep)
+                # Sleep between requests (uses adaptive rate if enabled)
+                time.sleep(self._current_sleep)
 
-            # Log verification summary if enabled
-            if self.verify and self._classifications:
+            # Log classification summary
+            if self._classifications:
                 self._log_classification_summary()
 
             # We are all done

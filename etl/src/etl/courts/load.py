@@ -4,7 +4,7 @@ import pandas as pd
 from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.processed import read_processed_csv, write_processed_csv, write_processed_json
-from etl.courts.scraper.schema import PortalResult
+from etl.courts.scraper.schema import ScrapeOutcome
 
 __all__ = ["read_existing_flags", "write_flags", "write_portal_results"]
 
@@ -24,7 +24,7 @@ def write_flags(s3: S3Client, df: pd.DataFrame) -> None:
 
 def write_portal_results(
     s3: S3Client,
-    portal_results: dict[str, list[PortalResult] | None],
+    portal_results: dict[str, ScrapeOutcome],
 ) -> None:
     """Write portal results to processed data folder.
 
@@ -32,10 +32,8 @@ def write_portal_results(
     ----------
     s3 : S3Client
         The S3 client to use for uploading the portal results.
-    portal_results : dict[str, list[PortalResult] | None]
-        Dictionary mapping incident numbers to lists of portal result objects (or None).
+    portal_results : dict[str, ScrapeOutcome]
+        Dictionary mapping incident numbers to ScrapeOutcome objects.
     """
-    result_dicts = {
-        k: [r.model_dump() for r in v] if v is not None else None for k, v in portal_results.items()
-    }
+    result_dicts = {k: v.model_dump() for k, v in portal_results.items()}
     write_processed_json("portal_results", result_dicts, s3=s3)

@@ -8,7 +8,7 @@ from loguru import logger
 from etl.courts.batch import io
 from etl.courts.batch.aws import AWS
 from etl.courts.scraper.core import UJSPortalScraper
-from etl.courts.scraper.schema import PortalResult
+from etl.courts.scraper.schema import ScrapeError, ScrapeOutcome
 
 
 def _scrape(
@@ -18,13 +18,13 @@ def _scrape(
     log_freq: int = 50,
     errors: Literal["ignore", "raise"] = "ignore",
     debug: bool = False,
-    verify: bool = False,
     audit_output_dir: str | None = None,
     shard_id: int = 0,
     shard_count: int = 1,
     run_id: str | None = None,
     no_retry: bool = False,
-) -> tuple[dict[str, list[PortalResult] | None], list[str]]:
+    screenshots: bool = True,
+) -> tuple[dict[str, ScrapeOutcome], list[ScrapeError]]:
     """Scrape incident/docket info from the UJS portal.
 
     Parameters
@@ -41,10 +41,8 @@ def _scrape(
         Error handling mode.
     debug : bool
         Debug mode.
-    verify : bool
-        Enable verification mode with audit logging.
     audit_output_dir : str | None
-        Directory for audit output files (verification mode only).
+        Directory for audit output files.
     shard_id : int
         Shard index for distributed scraping.
     shard_count : int
@@ -53,31 +51,31 @@ def _scrape(
         Run identifier for audit logging.
     no_retry : bool
         Disable retry mechanism (sets max_attempts=1).
+    screenshots : bool
+        Enable/disable screenshots for failures.
 
     Returns
     -------
-    tuple[dict[str, list[PortalResult] | None], list[str]]
-        Dictionary mapping input values to their scraped results (or None),
-        and list of input values that encountered errors.
+    tuple[dict[str, ScrapeOutcome], list[ScrapeError]]
+        Dictionary mapping input values to ScrapeOutcome objects,
+        and list of ScrapeError objects for failures.
     """
     if debug:
         logger.debug(
             f"Initializing portal scraper: "
             f"search_by={search_by}, sleep={sleep}, log_freq={log_freq}, "
-            f"errors={errors}, verify={verify}"
+            f"errors={errors}"
         )
 
-    # Build audit context if verification enabled (for audit log metadata)
-    audit_context = None
-    if verify:
-        from etl.courts.verification.shard import AuditContext
+    # Build audit context for audit log metadata
+    from etl.courts.verification.shard import AuditContext
 
-        audit_context = AuditContext(
-            run_id=run_id or "",
-            shard_id=shard_id,
-            shard_count=shard_count,
-            task_id=f"batch-{shard_id}",
-        )
+    audit_context = AuditContext(
+        run_id=run_id or "",
+        shard_id=shard_id,
+        shard_count=shard_count,
+        task_id=f"batch-{shard_id}",
+    )
 
     # Initialize the scraper
     scraper = UJSPortalScraper(
@@ -86,10 +84,10 @@ def _scrape(
         log_freq=log_freq,
         errors=errors,
         debug=debug,
-        verify=verify,
         audit_output_dir=audit_output_dir,
         audit_context=audit_context,
         max_attempts=1 if no_retry else 8,
+        enable_screenshots=screenshots,
     )
 
     # Scrape the data
@@ -115,9 +113,9 @@ def scrape(
     errors: Literal["raise", "ignore"] = "ignore",
     sleep: int = 7,
     debug: bool = False,
-    verify: bool = False,
     run_id: str | None = None,
     no_retry: bool = False,
+    screenshots: bool = True,
 ) -> None:
     """
     Scrape portal data in batch (optionally split across workers).
@@ -144,12 +142,12 @@ def scrape(
         How to handle exceptions raised during scraping
     sleep: optional
         How long to wait between scraping calls
-    verify : optional
-        Enable verification mode with audit logging
     run_id : optional
-        Run identifier for audit logging (verification mode)
+        Run identifier for audit logging
     no_retry : optional
         Disable retry mechanism (max_attempts=1) for debugging
+    screenshots : optional
+        Enable/disable screenshots for failures
     """
     # Initialize the AWS connection
     if debug:
@@ -190,12 +188,12 @@ def scrape(
     if not len(data_chunk):
         return
 
-    # Determine audit output directory for verification mode
+    # Determine audit output directory
     # Audit files go inside the shard folder: shards/shard-{NN}/audit/
     audit_output_dir: str | None = None
-    if verify and current_shard is not None:
+    if current_shard is not None:
         audit_output_dir = f"{output_folder}/shard-{current_shard:02d}"
-    elif verify:
+    else:
         audit_output_dir = output_folder
 
     # Run the scraper
@@ -208,12 +206,12 @@ def scrape(
         log_freq=log_freq,
         errors=errors,
         debug=debug,
-        verify=verify,
         audit_output_dir=audit_output_dir,
         shard_id=shard_id,
         shard_count=nprocs,
         run_id=run_id,
         no_retry=no_retry,
+        screenshots=screenshots,
     )
     if debug:
         logger.debug("...done")
@@ -228,10 +226,9 @@ def scrape(
         if debug:
             logger.debug(f"Saving results to {outfile}")
 
-        # Serialize the PortalResult objects to dicts
-        results_dict = {
-            k: [r.model_dump() for r in v] if v is not None else None for k, v in results.items()
-        }
+        # Serialize ScrapeOutcome objects to dicts
+        results_dict = {k: v.model_dump() for k, v in results.items()}
+
         # Save the results to results.json
         io.save_output_data(aws, outfile=outfile, results=results_dict)
 
@@ -245,42 +242,24 @@ def scrape(
         else:
             config = {}
 
-        # Save the config and input within the shard folder
-        if current_shard is not None:
-            io.save_output_data(
-                aws,
-                outfile=f"{shard_folder}/config.json",
-                results=config,
-            )
-            io.save_output_data(
-                aws,
-                outfile=f"{shard_folder}/input.csv",
-                results=data_chunk,
-            )
-            # Serialize error objects to dicts
-            errors_dicts = [e.model_dump(mode="json") for e in errors_list]
-            io.save_output_data(
-                aws,
-                outfile=f"{shard_folder}/errors.json",
-                results=errors_dicts,
-            )
-        else:
-            io.save_output_data(
-                aws,
-                outfile=f"{shard_folder}/config.json",
-                results=config,
-            )
-            io.save_output_data(
-                aws,
-                outfile=f"{shard_folder}/input.csv",
-                results=data_chunk,
-            )
-            # Serialize error objects to dicts
-            errors_dicts = [e.model_dump(mode="json") for e in errors_list]
-            io.save_output_data(
-                aws,
-                outfile=f"{shard_folder}/errors.json",
-                results=errors_dicts,
-            )
+        # Save the config, input, and errors within the shard folder
+        io.save_output_data(
+            aws,
+            outfile=f"{shard_folder}/config.json",
+            results=config,
+        )
+        io.save_output_data(
+            aws,
+            outfile=f"{shard_folder}/input.csv",
+            results=data_chunk,
+        )
+        # Serialize error objects to dicts
+        errors_dicts = [e.model_dump(mode="json") for e in errors_list]
+        io.save_output_data(
+            aws,
+            outfile=f"{shard_folder}/errors.json",
+            results=errors_dicts,
+        )
+
         if debug:
             logger.debug("...done")

@@ -15,7 +15,7 @@ from mypy_boto3_s3.client import S3Client
 from dashboard_utils.aws import parse_s3_uri, read_csv_df, read_json, write_csv_df
 from dashboard_utils.env import s3_settings
 from etl.courts.batch.aws import AWS
-from etl.courts.scraper.schema import PortalResult
+from etl.courts.scraper.schema import ScrapeOutcome
 
 
 @dataclass
@@ -48,10 +48,10 @@ class PortalBatchConfig:
         The S3 subfolder prefix to use; defaults to "courts-scraper".
     exclude_known_cases : bool
         If ``True``, exclude incident numbers already known to have court cases.
-    verify : bool
-        If ``True``, enable verification mode with audit logging.
     no_retry : bool
         If ``True``, disable retry mechanism (max_attempts=1) for debugging.
+    screenshots : bool
+        If ``True``, enable screenshots for failures; defaults to ``True``.
     """
 
     search_by: Literal["Incident Number", "Docket Number"] = "Incident Number"
@@ -66,8 +66,8 @@ class PortalBatchConfig:
     bucket: str = s3_settings.AWS_BUCKET_NAME
     subfolder_prefix: str = "courts-scraper"
     exclude_known_cases: bool = False
-    verify: bool = False
     no_retry: bool = False
+    screenshots: bool = True
 
 
 def _upload_inputs_to_s3(
@@ -114,7 +114,7 @@ def _upload_inputs_to_s3(
 def _download_results(
     s3: S3Client,
     run_folder: str,
-) -> tuple[dict[str, list[PortalResult] | None], pd.DataFrame]:
+) -> tuple[dict[str, ScrapeOutcome], pd.DataFrame]:
     """Download scraping results from S3.
 
     This function downloads from the merged/ subfolder:
@@ -131,24 +131,22 @@ def _download_results(
     Returns
     -------
     tuple
-        ``(parsed_results, input_df)`` where ``parsed_results`` is the dict of
-        result lists and ``input_df`` is the echoed input DataFrame.
+        ``(parsed_results, input_df)`` where ``parsed_results`` is a dict mapping
+        incident numbers to ScrapeOutcome objects and ``input_df`` is the echoed
+        input DataFrame.
     """
     # Strip s3://bucket/ from prefix
     bucket, key_prefix = parse_s3_uri(run_folder)
     merged_prefix = f"{key_prefix}/merged"
 
     # Get the results JSON
-    # NOTE: this is a dict mapping dc_key to list of PortalResult dicts or None
+    # NOTE: this is a dict mapping dc_key to ScrapeOutcome dicts
     results = read_json(s3, bucket=bucket, key=f"{merged_prefix}/portal_results.json")
 
-    # Validate the results
-    parsed_results: dict[str, list[PortalResult] | None] = {}
+    # Validate the results as ScrapeOutcome objects
+    parsed_results: dict[str, ScrapeOutcome] = {}
     for k, v in results.items():
-        if v is None:
-            parsed_results[k] = None
-        else:
-            parsed_results[k] = [PortalResult.model_validate(r) for r in v]
+        parsed_results[k] = ScrapeOutcome.model_validate(v)
 
     # Get the echoed input CSV
     input_df = read_csv_df(
@@ -174,7 +172,7 @@ def extract_portal(
     s3: S3Client,
     incident_numbers: pd.DataFrame,
     cfg: PortalBatchConfig,
-) -> tuple[dict[str, list[PortalResult] | None], pd.DataFrame]:
+) -> tuple[dict[str, ScrapeOutcome], pd.DataFrame]:
     """Run the portal scraper in batch and return results.
 
     Parameters
@@ -188,9 +186,9 @@ def extract_portal(
 
     Returns
     -------
-    tuple[dict[str, list[PortalResult] | None], pd.DataFrame]
+    tuple[dict[str, ScrapeOutcome], pd.DataFrame]
         ``(results, echoed_input)`` where ``results`` is a dictionary mapping incident numbers to
-        lists of PortalResult objects (or None) and ``echoed_input`` is the echoed input DataFrame.
+        ScrapeOutcome objects and ``echoed_input`` is the echoed input DataFrame.
     """
     # Optional sample
     if cfg.sample is not None:
@@ -232,9 +230,9 @@ def extract_portal(
         sleep=cfg.sleep,
         ntasks=cfg.ntasks,
         wait=True,
-        verify=cfg.verify,
         run_id=run_id,
         no_retry=cfg.no_retry,
+        screenshots=cfg.screenshots,
     )
 
     # Download the results from S3 (from merged/ folder) and return them

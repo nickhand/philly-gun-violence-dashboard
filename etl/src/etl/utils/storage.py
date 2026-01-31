@@ -13,7 +13,6 @@ from dashboard_utils.env import s3_settings
 from dashboard_utils.processed import (
     read_processed_csv,
     read_processed_geojson,
-    read_processed_json,
 )
 
 __all__ = [
@@ -21,7 +20,6 @@ __all__ = [
     "load_shootings_database",
     "load_street_blocks",
     "load_homicide_database",
-    "load_homicide_totals",
     "load_courts_flags",
 ]
 
@@ -31,8 +29,6 @@ def write_meta(*, subfolder: str, data_through: Any = None) -> None:
 
     Parameters
     ----------
-    s3 : S3Client
-        The S3 client to use for uploading the meta.json file.
     subfolder : str
         The subfolder under data/processed/ to write the meta.json file to.
     data_through : Any, optional
@@ -90,14 +86,6 @@ def load_homicide_database(*, s3: S3Client | None = None) -> pd.DataFrame:
     """Load the daily homicide database DataFrame."""
     df = read_processed_csv("homicides_daily", s3=_client(s3), parse_dates=["date"])
     return df.sort_values("date")
-
-
-def load_homicide_totals(*, s3: S3Client | None = None) -> pd.DataFrame:
-    """Load the yearly homicide totals DataFrame."""
-    data = read_processed_json("homicides_totals", s3=_client(s3))
-    df = pd.DataFrame.from_dict(data, orient="index")
-    df.index.name = "year"
-    return df.reset_index()
 
 
 def load_courts_flags(*, s3: S3Client | None = None) -> pd.DataFrame:

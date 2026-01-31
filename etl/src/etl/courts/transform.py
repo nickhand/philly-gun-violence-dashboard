@@ -3,21 +3,21 @@
 import pandas as pd
 from loguru import logger
 
-from etl.courts.scraper.schema import PortalResult
+from etl.courts.scraper.schema import OutcomeStatus, ScrapeOutcome
 
 __all__ = ["results_to_flags"]
 
 
 def results_to_flags(
-    portal_results: dict[str, list[PortalResult] | None],
+    portal_results: dict[str, ScrapeOutcome],
     input_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """Convert portal results + input echo to a flag table with has_court_case.
 
     Parameters
     ----------
-    portal_results : dict[str, list[PortalResult] | None]
-        Dictionary mapping incident numbers to lists of portal scraping results (or None).
+    portal_results : dict[str, ScrapeOutcome]
+        Dictionary mapping incident numbers to ScrapeOutcome objects.
     input_df : pd.DataFrame
         Original input DataFrame with a 'dc_key' column.
 
@@ -26,10 +26,16 @@ def results_to_flags(
     pd.DataFrame
         Input DataFrame merged with a 'has_court_case' boolean column.
     """
-    # Get the DC numbers with court cases
+    # Get the DC numbers with court cases (SUCCESS status with non-empty results)
     dc_numbers_with_cases = (
         pd.DataFrame(
-            [k for k, v in portal_results.items() if v is not None and len(v) > 0],
+            [
+                k
+                for k, v in portal_results.items()
+                if v.status == OutcomeStatus.SUCCESS
+                and v.results is not None
+                and len(v.results) > 0
+            ],
             columns=["dc_key"],
         )
         .drop_duplicates()

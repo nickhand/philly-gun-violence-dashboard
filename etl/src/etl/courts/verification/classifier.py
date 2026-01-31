@@ -12,7 +12,7 @@ Classifies each scrape attempt into one of six buckets:
 import contextlib
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from playwright.sync_api import Page
@@ -110,7 +110,7 @@ class ClassificationResult:
         """Check if this classification is a terminal success."""
         return self.classification in {Classification.HAS_RESULTS, Classification.ZERO_RESULTS}
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable dictionary."""
         return {
             "classification": self.classification.value,
@@ -425,7 +425,7 @@ def classify_case_search(
 def classify_from_exception(
     exception: Exception,
     final_url: str,
-    net_observer: NetworkObserver,
+    net_observer: NetworkObserver | None,
     elapsed_ms: int,
 ) -> ClassificationResult:
     """Classify a scrape attempt that raised an exception.
@@ -436,8 +436,8 @@ def classify_from_exception(
         The exception that was raised.
     final_url : str
         URL at time of exception.
-    net_observer : NetworkObserver
-        Network observer instance.
+    net_observer : NetworkObserver | None
+        Network observer instance (may be None).
     elapsed_ms : int
         Time elapsed before exception.
 
@@ -446,7 +446,7 @@ def classify_from_exception(
     ClassificationResult
         Classification based on exception type.
     """
-    net_snapshot = net_observer.get_snapshot()
+    net_snapshot = net_observer.get_snapshot() if net_observer else {}
 
     # Check if it's a timeout
     if isinstance(exception, PlaywrightTimeoutError):
@@ -454,8 +454,8 @@ def classify_from_exception(
             classification=Classification.NETWORK_OR_SERVER_ERROR,
             subreason=f"Playwright timeout: {exception}",
             final_url=final_url,
-            status_histogram=net_snapshot["status_histogram"],
-            requestfailed_count=net_snapshot["requestfailed_count"],
+            status_histogram=net_snapshot.get("status_histogram"),
+            requestfailed_count=net_snapshot.get("requestfailed_count", 0),
             elapsed_ms=elapsed_ms,
             error_message=str(exception),
         )
@@ -468,8 +468,8 @@ def classify_from_exception(
             classification=Classification.NETWORK_OR_SERVER_ERROR,
             subreason=f"Network error: {type(exception).__name__}",
             final_url=final_url,
-            status_histogram=net_snapshot["status_histogram"],
-            requestfailed_count=net_snapshot["requestfailed_count"],
+            status_histogram=net_snapshot.get("status_histogram"),
+            requestfailed_count=net_snapshot.get("requestfailed_count", 0),
             elapsed_ms=elapsed_ms,
             error_message=str(exception),
         )
@@ -479,8 +479,8 @@ def classify_from_exception(
         classification=Classification.UI_DRIFT_OR_UNKNOWN,
         subreason=f"Unexpected exception: {type(exception).__name__}",
         final_url=final_url,
-        status_histogram=net_snapshot["status_histogram"],
-        requestfailed_count=net_snapshot["requestfailed_count"],
+        status_histogram=net_snapshot.get("status_histogram"),
+        requestfailed_count=net_snapshot.get("requestfailed_count", 0),
         elapsed_ms=elapsed_ms,
         error_message=str(exception),
     )

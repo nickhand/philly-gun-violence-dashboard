@@ -7,6 +7,15 @@ from mypy_boto3_s3.client import S3Client
 from dashboard_utils.aws import exists_on_s3, parse_s3_uri, read_csv_df, write_csv_df, write_json
 from etl.courts.batch.aws import AWS
 
+# Type alias for save_output_data results parameter
+type OutputResults = (
+    list[str]
+    | list[dict[str, Any]]
+    | dict[str, list[dict[str, Any]] | None]
+    | dict[str, Any]
+    | pd.Series[Any]
+)
+
 
 def get_output_paths(output_folder: str, shard_id: int | None) -> tuple[str, str]:
     """Get the output paths for a shard.
@@ -97,7 +106,7 @@ def save_output_data(
     aws: AWS,
     *,
     outfile: str,
-    results: list[str] | dict[str, list[dict[str, Any]] | None] | dict[str, Any] | pd.Series,
+    results: OutputResults,
 ) -> None:
     """Save the output data for the scraper to s3.
 
@@ -107,7 +116,7 @@ def save_output_data(
         The S3 client to use.
     outfile : str
         Output filename (s3:// or local).
-    results : dict[str, list[dict[str, Any]] | None] | dict[str, Any] | pd.Series
+    results : list | dict | pd.Series
         Results to save (list of dicts for JSON, DataFrame for CSV).
     aws : AWS
         AWS helper instance.

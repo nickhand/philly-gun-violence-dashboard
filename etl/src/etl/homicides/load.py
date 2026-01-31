@@ -19,8 +19,6 @@ def write_homicide_database(s3: S3Client, database: pd.DataFrame) -> None:
         The S3 client to use for uploading the database.
     database : pandas.DataFrame
         DataFrame with columns ``date`` and ``total``.
-    path : pathlib.Path or str, optional
-        Output CSV path; defaults to the raw homicide totals path.
     """
     cleaned = database.drop_duplicates(subset=["date"], keep="last")
     write_processed_csv("homicides_daily", cleaned, s3=s3)
@@ -36,8 +34,6 @@ def write_processed_totals(s3: S3Client, merged_totals: pd.DataFrame) -> None:
         The S3 client to use for uploading the totals.
     merged_totals : pandas.DataFrame
         DataFrame with columns including ``year``.
-    path : pathlib.Path or str, optional
-        Output JSON path; defaults to the processed homicide totals path.
     """
     payload = merged_totals.set_index("year").replace({np.nan: None}).to_dict(orient="index")
     write_processed_json("homicides_totals", payload, s3=s3)

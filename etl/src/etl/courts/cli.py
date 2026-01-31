@@ -45,13 +45,6 @@ def update(
         Literal["ignore", "raise"],
         typer.Option(help="Error handling mode."),
     ] = "ignore",
-    verify: Annotated[
-        bool,
-        typer.Option(
-            "--verify/--no-verify",
-            help="Enable verification mode with audit logging.",
-        ),
-    ] = False,
     no_retry: Annotated[
         bool,
         typer.Option(
@@ -62,8 +55,7 @@ def update(
 ) -> None:
     """Run the courts portal scraper in batch and update local flags.
 
-    With --verify, enables classification of each scrape result and writes
-    audit logs alongside the normal outputs.
+    Scrapes incident numbers from the UJS portal with classification and audit logging.
     """
     # Create S3 client
     s3 = make_s3_client()
@@ -78,16 +70,12 @@ def update(
         ntasks=ntasks,
         debug=debug,
         errors=errors,
-        verify=verify,
         no_retry=no_retry,
     )
 
     # Run update
     update_courts(s3, cfg=cfg)
-    logger.info(
-        f"Courts flags updated using shootings processed geojson"
-        f"{' (with verification)' if verify else ''}."
-    )
+    logger.info("Courts flags updated using shootings processed geojson.")
 
 
 @app.command()
@@ -144,16 +132,9 @@ def batch(
         bool,
         typer.Option(help="Verbose logging."),
     ] = False,
-    verify: Annotated[
-        bool,
-        typer.Option(
-            "--verify/--no-verify",
-            help="Enable verification mode with audit logging and classification.",
-        ),
-    ] = False,
     run_id: Annotated[
         str | None,
-        typer.Option(help="Run identifier for audit logging (verification mode)."),
+        typer.Option(help="Run identifier for audit logging."),
     ] = None,
     no_retry: Annotated[
         bool,
@@ -162,11 +143,18 @@ def batch(
             help="Disable retry mechanism (max_attempts=1) for debugging.",
         ),
     ] = False,
+    screenshots: Annotated[
+        bool,
+        typer.Option(
+            "--screenshots/--no-screenshots",
+            help="Enable/disable screenshots for failures.",
+        ),
+    ] = True,
 ) -> None:
     """Run the portal scraper batch job (manual inputs/outputs).
 
-    With --verify, enables classification of each scrape result and writes
-    audit logs (audit_attempts.ndjson.gz, audit_final.ndjson.gz) to output_folder.
+    Scrapes incident numbers with classification and writes audit logs
+    (audit_attempts.ndjson.gz, audit_final.ndjson.gz) to output_folder.
     """
     batch_scrape(
         input_filename=input_csv,
@@ -181,11 +169,11 @@ def batch(
         errors=errors,
         sleep=sleep,
         debug=debug,
-        verify=verify,
         run_id=run_id,
         no_retry=no_retry,
+        screenshots=screenshots,
     )
-    logger.info(f"Courts batch scrape completed{' (with verification)' if verify else ''}.")
+    logger.info("Courts batch scrape completed.")
 
 
 @app.command()

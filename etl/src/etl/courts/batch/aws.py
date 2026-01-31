@@ -1,5 +1,4 @@
 import json
-import os
 import posixpath
 from io import BytesIO, StringIO
 from typing import Any, Literal
@@ -9,11 +8,6 @@ from loguru import logger
 
 from dashboard_utils.aws import ensure_bucket, exists_on_s3, make_boto3_session, parse_s3_uri
 from dashboard_utils.env import get_ecs_settings, s3_settings
-
-
-def is_ec2_instance() -> bool:
-    """Check if an instance is running on ECS Fargate on AWS."""
-    return os.getenv("AWS_EXECUTION_ENV") == "AWS_ECS_FARGATE"
 
 
 class AWS:
@@ -33,8 +27,6 @@ class AWS:
         S3 client.
     bucket_name : str
         S3 bucket name.
-    on_aws : bool
-        If ``True``, we are running on AWS.
     cluster_name : str
         ECS cluster name.
     """
@@ -56,10 +48,7 @@ class AWS:
         self.bucket_name = s3_settings.AWS_BUCKET_NAME
         ensure_bucket(self.s3, self.bucket_name)
 
-        # Are we running on AWS
-        self.on_aws = is_ec2_instance()
-
-        # Set up cluster if we're not on AWS
+        # Set up cluster
         self.cluster_name = ecs_settings.ECS_CLUSTER_NAME
         self._ecs_settings = ecs_settings
 
@@ -105,9 +94,9 @@ class AWS:
         debug: bool = False,
         ntasks: int = 1,
         wait: bool = False,
-        verify: bool = False,
         run_id: str | None = None,
         no_retry: bool = False,
+        screenshots: bool = True,
     ) -> str | None:
         """Submit jobs to the ECS cluster.
 
@@ -139,12 +128,12 @@ class AWS:
             Total parallel splits.
         wait : bool, optional
             Wait for all tasks to complete.
-        verify : bool, optional
-            Enable verification mode with audit logging.
         run_id : str, optional
             Run identifier for audit logging.
         no_retry : bool, optional
             Disable retry mechanism (max_attempts=1) for debugging.
+        screenshots : bool, optional
+            Enable/disable screenshots for failures.
 
         Returns
         -------
@@ -193,12 +182,12 @@ class AWS:
             base_command += ["--dry-run"]
         if debug:
             base_command += ["--debug"]
-        if verify:
-            base_command += ["--verify"]
         if run_id is not None:
             base_command += [f"--run-id={run_id}"]
         if no_retry:
             base_command += ["--no-retry"]
+        if not screenshots:
+            base_command += ["--no-screenshots"]
 
         # Pass settings via environment variables to ECS tasks
         # NOTE: skip AWS credentials since those are handled by the ECS task role

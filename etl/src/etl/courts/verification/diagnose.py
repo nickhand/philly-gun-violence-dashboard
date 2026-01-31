@@ -27,7 +27,7 @@ FAILURE_CLASSIFICATIONS = {
 }
 
 
-def read_ndjson(path: Path) -> list[dict]:
+def read_ndjson(path: Path) -> list[dict[str, Any]]:
     """Read an NDJSON file (optionally gzipped)."""
     records = []
     opener = gzip.open if path.suffix == ".gz" else open
@@ -82,7 +82,7 @@ def find_audit_files(run_path: Path) -> tuple[Path | None, Path | None]:
     return final_path, report_path
 
 
-def analyze_records(records: list[dict]) -> dict[str, Any]:
+def analyze_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Analyze audit records and produce diagnostic summary.
 
     Parameters
@@ -231,13 +231,9 @@ def format_diagnosis(diagnosis: dict[str, Any], verbose: bool = False) -> str:
         bar_len = int(count / max_hist_count * 20)
         bar = "█" * bar_len
         # Show success/failure breakdown
-        if data["failure"] > 0:
-            breakdown = f" (✅{data['success']} ❌{data['failure']})"
-        else:
-            breakdown = ""
-        lines.append(
-            f"   {attempts} attempt{'s' if attempts != 1 else ' '}: {count:6,} ({pct:5.1f}%) {bar}{breakdown}"
-        )
+        breakdown = f" (✅{data['success']} ❌{data['failure']})" if data["failure"] > 0 else ""
+        plural = "s" if attempts != 1 else " "
+        lines.append(f"   {attempts} attempt{plural}: {count:6,} ({pct:5.1f}%) {bar}{breakdown}")
     lines.append("")
 
     # Classification breakdown
@@ -371,7 +367,9 @@ def find_results_file(run_path: Path) -> Path | None:
     return None
 
 
-def find_shard_inputs(run_path: Path) -> tuple[dict[int, set[str]], dict[str, tuple[int, int]]]:
+def find_shard_inputs(
+    run_path: Path,
+) -> tuple[dict[int, set[str]], dict[str, tuple[int, int, int]]]:
     """Find and read input.csv files from all shards.
 
     Parameters

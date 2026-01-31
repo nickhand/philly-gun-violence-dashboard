@@ -10,6 +10,7 @@ import socket
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 
 def normalize_incident_number(raw_value: str) -> str:
@@ -135,11 +136,9 @@ class AuditContext:
         list[str]
             Incident numbers that belong to this shard.
         """
-        return [
-            item for item in items if self.is_my_shard(normalize_incident_number(item))
-        ]
+        return [item for item in items if self.is_my_shard(normalize_incident_number(item))]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable dictionary."""
         return {
             "run_id": self.run_id,
@@ -171,8 +170,9 @@ def _get_task_id() -> str | None:
 
                 resp = httpx.get(f"{ecs_container_metadata}/task", timeout=2.0)
                 if resp.status_code == 200:
-                    task_data = resp.json()
-                    return task_data.get("TaskARN")
+                    task_data: dict[str, Any] = resp.json()
+                    task_arn_value = task_data.get("TaskARN")
+                    return str(task_arn_value) if task_arn_value else None
             except Exception:
                 pass
 

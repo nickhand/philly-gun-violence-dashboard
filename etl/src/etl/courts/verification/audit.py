@@ -218,6 +218,7 @@ class AuditWriter:
         # Check if destination is S3
         self._is_s3 = base_path.startswith("s3://")
         self._s3_destination: str | None = None
+        self._temp_dir: str | None = None
 
         if self._is_s3:
             # Write to temp directory, upload on close
@@ -228,7 +229,6 @@ class AuditWriter:
             self._s3_destination = base_path.rstrip("/") + "/audit"
         else:
             # Write directly to local path
-            self._temp_dir = None
             self.output_dir = Path(base_path) / "audit"
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -240,12 +240,12 @@ class AuditWriter:
         self.screenshots_dir = self.output_dir / "screenshots"
 
         # File handles (lazy opened)
-        self._attempts_file: TextIO | gzip.GzipFile | None = None
-        self._final_file: TextIO | gzip.GzipFile | None = None
+        self._attempts_file: TextIO | None = None
+        self._final_file: TextIO | None = None
 
         logger.info(f"Audit writer initialized: {self.output_dir}")
 
-    def _open_file(self, path: Path) -> TextIO | gzip.GzipFile:
+    def _open_file(self, path: Path) -> TextIO:
         """Open a file for append-mode writing.
 
         Parameters
@@ -255,11 +255,11 @@ class AuditWriter:
 
         Returns
         -------
-        TextIO | gzip.GzipFile
+        TextIO
             Opened file handle.
         """
         if self.compress:
-            # Use 'ab' for append binary, then wrap with gzip
+            # Use 'at' for append text mode with gzip
             return gzip.open(path, "at", encoding="utf-8")
         else:
             return open(path, "a", encoding="utf-8")
@@ -412,8 +412,8 @@ class AttemptTracker:
 
     Attributes
     ----------
-    audit_context : AuditContext
-        Shard context for metadata.
+    audit_context : AuditContext | None
+        Shard context for metadata (may be None if not in distributed mode).
     incident_number_raw : str
         Original incident number.
     incident_number_normalized : str
@@ -422,7 +422,7 @@ class AttemptTracker:
         All attempt records.
     """
 
-    audit_context: AuditContext
+    audit_context: AuditContext | None
     incident_number_raw: str
     incident_number_normalized: str
     attempts: list[AttemptAuditRow] = field(default_factory=list)
@@ -461,7 +461,15 @@ class AttemptTracker:
         -------
         AttemptAuditRow
             The attempt audit record.
+
+        Raises
+        ------
+        ValueError
+            If audit_context is None.
         """
+        if self.audit_context is None:
+            raise ValueError("Cannot add attempt without audit_context")
+
         row = AttemptAuditRow(
             run_id=self.audit_context.run_id,
             shard_id=self.audit_context.shard_id,
@@ -495,9 +503,16 @@ class AttemptTracker:
         -------
         FinalAuditRow
             Final audit record summarizing all attempts.
+
+        Raises
+        ------
+        ValueError
+            If no attempts recorded or audit_context is None.
         """
         if not self.attempts:
             raise ValueError("No attempts recorded")
+        if self.audit_context is None:
+            raise ValueError("Cannot build final row without audit_context")
 
         # Determine final classification
         # Priority: HAS_RESULTS > ZERO_RESULTS > last attempt

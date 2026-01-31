@@ -64,7 +64,7 @@ def portal(
         output_folder=output_folder,
         search_by=search_by,
         nprocs=nprocs,
-        pid=pid,
+        shard_id=pid,
         dry_run=dry_run,
         sample=sample,
         log_freq=log_freq,
