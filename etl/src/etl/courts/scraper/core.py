@@ -637,9 +637,9 @@ class UJSPortalScraper:
         # Determine if we will retry
         will_retry = result.is_retryable and attempt_index < self.max_attempts
 
-        # Capture screenshot for non-success outcomes
+        # Capture screenshot for non-success outcomes (failures only, not ZERO_RESULTS)
         screenshot_path: str | None = None
-        if result.classification != Classification.HAS_RESULTS:
+        if not result.is_success:
             screenshot_path = self._capture_screenshot(normalized, attempt_index)
 
         # Calculate sleep time for audit log
