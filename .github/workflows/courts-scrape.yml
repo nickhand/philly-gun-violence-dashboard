@@ -1,11 +1,7 @@
 name: Batch Courts Scraper ETL
 
 on:
-  schedule:
-    - cron: "15 2 * * 5"
-  push:
-    paths:
-      - .github/workflows/courts-scrape.yml
+  workflow_dispatch:
 
 jobs:
   batch-courts-scraper:

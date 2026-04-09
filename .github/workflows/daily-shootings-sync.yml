@@ -1,13 +1,7 @@
 name: Daily Shootings ETL
 
 on:
-  schedule:
-    - cron: "30 11 * * *"
-    - cron: "30 15 * * *"
-    - cron: "30 17 * * *"
-  push:
-    paths:
-      - .github/workflows/daily-shootings-sync.yml
+  workflow_dispatch:
 
 jobs:
   daily-sync-shootings:

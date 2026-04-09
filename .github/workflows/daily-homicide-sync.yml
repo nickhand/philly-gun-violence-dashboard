@@ -1,12 +1,7 @@
 name: Daily Homicide ETL
 
 on:
-  schedule:
-    - cron: "15 15 * * *"
-    - cron: "15 17 * * *"
-  push:
-    paths:
-      - .github/workflows/daily-homicide-sync.yml
+  workflow_dispatch:
 
 jobs:
   daily-sync-homicides:
