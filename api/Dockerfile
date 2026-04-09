@@ -19,6 +19,7 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
 # Install supercronic for running cron jobs in production.
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 ARG SUPERCRONIC_URL=https://github.com/aptible/supercronic/releases/latest/download/supercronic-linux-amd64
 RUN curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic \
     && chmod +x /usr/local/bin/supercronic
@@ -35,9 +36,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy source code only after dependencies are installed.
 COPY dashboard-utils/ /app/dashboard-utils/
 COPY api/ /app/api/
-
-# Copy the crontab file for scheduling tasks with supercronic.
-COPY crontab /app/crontab
 
 # Install the source code into the environment.
 RUN --mount=type=cache,target=/root/.cache/uv \
