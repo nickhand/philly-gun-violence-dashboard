@@ -133,7 +133,8 @@ fly-secrets-api:
 		AWS_ACCESS_KEY_ID="{{ env('AWS_ACCESS_KEY_ID') }}" \
 		AWS_SECRET_ACCESS_KEY="{{ env('AWS_SECRET_ACCESS_KEY') }}" \
 		AWS_REGION="{{ env('AWS_REGION') }}" \
-		AWS_BUCKET_NAME="{{ env('AWS_BUCKET_NAME') }}"
+		AWS_BUCKET_NAME="{{ env('AWS_BUCKET_NAME') }}" \
+		GITHUB_PAT="{{ env('GITHUB_TOKEN') }}"
 
 # Fly.io authentication
 [group: "api-fly"]

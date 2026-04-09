@@ -12,6 +12,7 @@ ENV = "prod"
 internal_port = 8080
 force_https = true
 min_machines_running = 1
+processes = ["app"]   
 
 [[vm]]
 size = "shared-cpu-1x"
@@ -23,3 +24,7 @@ interval = "15s"
 method = "GET"
 path = "/health"
 timeout = "5s"
+
+[processes]
+app = "uvicorn app.main:app --host 0.0.0.0 --port 8080"
+cron = "supercronic /app/crontab"

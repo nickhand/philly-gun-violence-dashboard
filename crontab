@@ -1,0 +1,36 @@
+30 11 * * * curl -s -X POST \
+  -H "Authorization: Bearer $GITHUB_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-shootings-sync.yml/dispatches \
+  -d '{"ref":"main"}'
+
+30 15 * * * curl -s -X POST \
+  -H "Authorization: Bearer $GITHUB_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-shootings-sync.yml/dispatches \
+  -d '{"ref":"main"}'
+
+30 17 * * * curl -s -X POST \
+  -H "Authorization: Bearer $GITHUB_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-shootings-sync.yml/dispatches \
+  -d '{"ref":"main"}'
+
+15 15 * * * curl -s -X POST \
+  -H "Authorization: Bearer $GITHUB_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-homicide-sync.yml/dispatches \
+  -d '{"ref":"main"}'
+
+15 15 * * * curl -s -X POST \
+  -H "Authorization: Bearer $GITHUB_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-homicide-sync.yml/dispatches \
+  -d '{"ref":"main"}'
+
+15 2 * * 5 curl -s -X POST \
+  -H "Authorization: Bearer $GITHUB_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/courts-scrape.yml/dispatches \
+  -d '{"ref":"main"}'
+
