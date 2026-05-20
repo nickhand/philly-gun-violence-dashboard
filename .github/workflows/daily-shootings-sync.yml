@@ -21,6 +21,8 @@ jobs:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v4
       - uses: taiki-e/install-action@just
+      - name: Verify identity
+        run: aws sts get-caller-identity
       - name: Run shootings ETL
         run: just etl-shootings
         env:
