@@ -3,13 +3,16 @@ name: Daily Homicide ETL
 on:
   workflow_dispatch:
 
+permissions:
+  id-token: write
+
 jobs:
   daily-sync-homicides:
     name: Daily Homicides Data Sync
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
           aws-region: us-east-1
