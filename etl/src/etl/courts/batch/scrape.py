@@ -1,265 +1,236 @@
-import inspect
-from typing import Literal, cast
+"""SQS worker: long-poll the queue and scrape one incident per message."""
 
-import numpy as np
-import pandas as pd
+import json
+import os
+import random
+import signal
+import socket
+import threading
+import time
+from datetime import UTC, datetime
+
+from botocore.exceptions import ClientError
 from loguru import logger
 
-from etl.courts.batch import io
-from etl.courts.batch.aws import AWS
+from dashboard_utils.aws import make_boto3_session
+from etl.courts.config import ScraperConfig
 from etl.courts.scraper.core import UJSPortalScraper
-from etl.courts.scraper.schema import ScrapeError, ScrapeOutcome
+from etl.courts.scraper.schema import OutcomeStatus, ScrapeOutcome, SoftBlocked
 
 
-def _scrape(
-    data: pd.Series,
-    search_by: Literal["Incident Number", "Docket Number"] = "Incident Number",
-    sleep: int = 7,
-    log_freq: int = 50,
-    errors: Literal["ignore", "raise"] = "ignore",
-    debug: bool = False,
-    audit_output_dir: str | None = None,
-    shard_id: int = 0,
-    shard_count: int = 1,
-    run_id: str | None = None,
-    no_retry: bool = False,
-    screenshots: bool = True,
-) -> tuple[dict[str, ScrapeOutcome], list[ScrapeError]]:
-    """Scrape incident/docket info from the UJS portal.
-
-    Parameters
-    ----------
-    data : pd.Series
-        Series of incident/docket numbers to scrape.
-    search_by : str
-        Search field type.
-    sleep : int
-        Sleep between requests.
-    log_freq : int
-        Log frequency.
-    errors : str
-        Error handling mode.
-    debug : bool
-        Debug mode.
-    audit_output_dir : str | None
-        Directory for audit output files.
-    shard_id : int
-        Shard index for distributed scraping.
-    shard_count : int
-        Total number of shards.
-    run_id : str | None
-        Run identifier for audit logging.
-    no_retry : bool
-        Disable retry mechanism (sets max_attempts=1).
-    screenshots : bool
-        Enable/disable screenshots for failures.
-
-    Returns
-    -------
-    tuple[dict[str, ScrapeOutcome], list[ScrapeError]]
-        Dictionary mapping input values to ScrapeOutcome objects,
-        and list of ScrapeError objects for failures.
-    """
-    if debug:
-        logger.debug(
-            f"Initializing portal scraper: "
-            f"search_by={search_by}, sleep={sleep}, log_freq={log_freq}, "
-            f"errors={errors}"
-        )
-
-    # Build audit context for audit log metadata
-    from etl.courts.verification.shard import AuditContext
-
-    audit_context = AuditContext(
-        run_id=run_id or "",
-        shard_id=shard_id,
-        shard_count=shard_count,
-        task_id=f"batch-{shard_id}",
-    )
-
-    # Initialize the scraper
-    scraper = UJSPortalScraper(
-        search_by=search_by,
-        sleep=sleep,
-        log_freq=log_freq,
-        errors=errors,
-        debug=debug,
-        audit_output_dir=audit_output_dir,
-        audit_context=audit_context,
-        max_attempts=1 if no_retry else 8,
-        enable_screenshots=screenshots,
-    )
-
-    # Scrape the data
-    if debug:
-        logger.debug(f"Scraping portal data for {len(data)} rows")
-    results, errors_list = scraper.scrape_portal_data(data.tolist())
-    if debug:
-        logger.debug("...done")
-
-    return results, errors_list
+def _result_exists(s3, bucket: str, key: str) -> bool:
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError as e:
+        if e.response["Error"]["Code"] in {"404", "NoSuchKey"}:
+            return False
+        raise
 
 
-def scrape(
-    input_filename: str,
-    output_folder: str,
-    search_by: Literal["Incident Number", "Docket Number"] = "Incident Number",
-    nprocs: int | None = None,
-    shard_id: int | None = None,
-    dry_run: bool = False,
-    sample: int | None = None,
-    log_freq: int = 50,
-    seed: int = 42,
-    errors: Literal["raise", "ignore"] = "ignore",
-    sleep: int = 7,
-    debug: bool = False,
-    run_id: str | None = None,
-    no_retry: bool = False,
-    screenshots: bool = True,
+def _write_result(
+    s3,
+    config: ScraperConfig,
+    incident: str,
+    run_id: str,
+    outcome: ScrapeOutcome,
+    result_key: str,
 ) -> None:
-    """
-    Scrape portal data in batch (optionally split across workers).
-
-    Parameters
-    ----------
-    input_filename :
-        The name of the input filename with data to process
-    output_folder :
-        The shards folder to save outputs (e.g., 's3://bucket/runs/{run_id}/shards')
-    nprocs : optional
-        The total number of processors running the scraper
-    shard_id : optional
-        The id for this shard/processor (0-indexed)
-    dry_run : optional
-        Do not save any results if `True`
-    sample : optional
-        Use a random sub-sample of the input data
-    log_freq : optional
-        Log updates for every N requests
-    seed : optional
-        Set the random seed
-    errors : optional
-        How to handle exceptions raised during scraping
-    sleep: optional
-        How long to wait between scraping calls
-    run_id : optional
-        Run identifier for audit logging
-    no_retry : optional
-        Disable retry mechanism (max_attempts=1) for debugging
-    screenshots : optional
-        Enable/disable screenshots for failures
-    """
-    # Initialize the AWS connection
-    if debug:
-        logger.debug("Initializing AWS connection")
-    aws = AWS()
-    if debug:
-        logger.debug("...done")
-
-    # Load input data
-    if debug:
-        logger.debug("Loading input data")
-    data = io.load_input_data(aws.s3, input_filename=input_filename, aws=aws)
-    if debug:
-        logger.debug("...done")
-
-    # Sample it if requested
-    if sample is not None:
-        data = data.sample(sample, random_state=seed)
-
-    # Split data
-    if nprocs is None:
-        nprocs = 1
-    if shard_id is None:
-        shard_id = 0
-
-    assert shard_id < nprocs
-
-    # Split the data for this worker
-    # NOTE: data_chunk is a pd.Series
-    if nprocs > 1:
-        data_chunk = cast(pd.Series, np.array_split(data, nprocs)[shard_id])
-        current_shard: int | None = shard_id
-    else:
-        data_chunk = data
-        current_shard = None
-
-    # No data, then return
-    if not len(data_chunk):
-        return
-
-    # Determine audit output directory
-    # Audit files go inside the shard folder: shards/shard-{NN}/audit/
-    audit_output_dir: str | None = None
-    if current_shard is not None:
-        audit_output_dir = f"{output_folder}/shard-{current_shard:02d}"
-    else:
-        audit_output_dir = output_folder
-
-    # Run the scraper
-    if debug:
-        logger.debug("Starting to scrape the data")
-    results, errors_list = _scrape(
-        data_chunk,
-        search_by=search_by,
-        sleep=sleep,
-        log_freq=log_freq,
-        errors=errors,
-        debug=debug,
-        audit_output_dir=audit_output_dir,
-        shard_id=shard_id,
-        shard_count=nprocs,
-        run_id=run_id,
-        no_retry=no_retry,
-        screenshots=screenshots,
+    outcome.incident_number = incident
+    outcome.scraped_at = datetime.now(UTC)
+    outcome.run_id = run_id
+    s3.put_object(
+        Bucket=config.s3_bucket,
+        Key=result_key,
+        Body=outcome.model_dump_json().encode(),
+        ContentType="application/json",
     )
-    if debug:
-        logger.debug("...done")
 
-    # Save!
-    if not dry_run:
-        # Get output folder and output path for results
-        shard_folder, outfile = io.get_output_paths(
-            output_folder=output_folder, shard_id=current_shard
+
+def _write_failure(
+    s3,
+    config: ScraperConfig,
+    run_id: str,
+    incident: str,
+    outcome: ScrapeOutcome,
+) -> None:
+    key = f"{config.s3_scraper_prefix}/runs/{run_id}/failures/{incident}.json"
+    data = outcome.model_dump(mode="json")
+    data["failed_at"] = datetime.now(UTC).isoformat()
+    s3.put_object(
+        Bucket=config.s3_bucket,
+        Key=key,
+        Body=json.dumps(data).encode(),
+        ContentType="application/json",
+    )
+
+
+def _write_stats(s3, config: ScraperConfig, run_id: str, task_id: str, stats: dict) -> None:
+    key = f"{config.s3_scraper_prefix}/runs/{run_id}/logs/{task_id}-stats.json"
+    s3.put_object(
+        Bucket=config.s3_bucket,
+        Key=key,
+        Body=json.dumps(stats, indent=2).encode(),
+        ContentType="application/json",
+    )
+    logger.info(f"Stats written to s3://{config.s3_bucket}/{key}")
+
+
+def run_worker(config: ScraperConfig, run_id: str) -> None:
+    """Long-poll SQS and scrape one incident per message until queue drains or SIGTERM."""
+    session = make_boto3_session()
+    s3 = session.client("s3")
+    sqs = session.client("sqs")
+
+    shutdown = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
+
+    task_id = socket.gethostname()
+    start_time = datetime.now(UTC)
+
+    scraper = UJSPortalScraper(
+        max_attempts=8,
+        enable_screenshots=False,
+        errors="ignore",
+    )
+    incidents_since_recycle = 0
+    consecutive_empty = 0
+
+    # Stats counters
+    incidents_processed = 0
+    success_count = 0
+    no_results_count = 0
+    soft_blocked_count = 0
+    permanent_failure_count = 0
+
+    logger.info(f"Worker started. task_id={task_id}, run_id={run_id}, queue={config.sqs_queue_url}")
+
+    try:
+        while not shutdown.is_set():
+            response = sqs.receive_message(
+                QueueUrl=config.sqs_queue_url,
+                MaxNumberOfMessages=1,
+                WaitTimeSeconds=20,
+            )
+            messages = response.get("Messages", [])
+
+            if not messages:
+                consecutive_empty += 1
+                if consecutive_empty >= 3:
+                    # Confirm queue is truly empty (visible + in-flight)
+                    attrs = sqs.get_queue_attributes(
+                        QueueUrl=config.sqs_queue_url,
+                        AttributeNames=[
+                            "ApproximateNumberOfMessages",
+                            "ApproximateNumberOfMessagesNotVisible",
+                        ],
+                    )["Attributes"]
+                    visible = int(attrs["ApproximateNumberOfMessages"])
+                    in_flight = int(attrs["ApproximateNumberOfMessagesNotVisible"])
+                    if visible == 0 and in_flight == 0:
+                        logger.info("Queue empty — worker exiting")
+                        break
+                    consecutive_empty = 0
+                continue
+
+            consecutive_empty = 0
+            msg = messages[0]
+            body = json.loads(msg["Body"])
+            incident = body["incident_number"]
+            receipt = msg["ReceiptHandle"]
+
+            result_key = f"{config.s3_scraper_prefix}/results/{incident}.json"
+
+            # Idempotency check: skip if already scraped
+            if _result_exists(s3, config.s3_bucket, result_key):
+                logger.info(f"Already scraped {incident}, skipping")
+                sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
+                continue
+
+            logger.info(f"Scraping {incident}")
+            try:
+                outcome: ScrapeOutcome = scraper(incident)
+            except SoftBlocked:
+                # Defer message so a different worker IP picks it up
+                soft_blocked_count += 1
+                delay = int(random.uniform(300, 900))
+                logger.warning(
+                    f"SOFT_BLOCKED {incident}, requeueing with {delay}s visibility delay"
+                )
+                sqs.change_message_visibility(
+                    QueueUrl=config.sqs_queue_url,
+                    ReceiptHandle=receipt,
+                    VisibilityTimeout=delay,
+                )
+                incidents_since_recycle = 0
+                continue
+            except Exception:
+                logger.exception(
+                    f"Uncaught exception scraping {incident} — letting visibility timeout expire"
+                )
+                continue
+
+            incidents_processed += 1
+            incidents_since_recycle += 1
+
+            if outcome.status in (OutcomeStatus.SUCCESS, OutcomeStatus.NO_RESULTS):
+                _write_result(s3, config, incident, run_id, outcome, result_key)
+                sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
+                if outcome.status == OutcomeStatus.SUCCESS:
+                    success_count += 1
+                else:
+                    no_results_count += 1
+                logger.info(f"Done: {incident} → {outcome.status.value}")
+
+            elif outcome.status in (OutcomeStatus.FAILED, OutcomeStatus.INVALID_INPUT):
+                permanent_failure_count += 1
+                logger.warning(f"Permanent failure on {incident}: {outcome.classification}")
+                _write_failure(s3, config, run_id, incident, outcome)
+                sqs.send_message(QueueUrl=config.sqs_dlq_url, MessageBody=msg["Body"])
+                sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
+
+            # Fixed inter-incident jitter (politeness delay per AOPC agreement)
+            time.sleep(random.uniform(1.0, 2.5))
+
+            # Recycle Playwright context every ~50 incidents to clear session state
+            if incidents_since_recycle >= 50:
+                logger.info("Recycling Playwright context after 50 incidents")
+                scraper._reset_page()
+                incidents_since_recycle = 0
+
+    finally:
+        scraper.close()
+
+        end_time = datetime.now(UTC)
+        runtime_seconds = (end_time - start_time).total_seconds()
+        incidents_per_minute = (incidents_processed / runtime_seconds * 60) if runtime_seconds > 0 else 0
+
+        stats = {
+            "task_id": task_id,
+            "run_id": run_id,
+            "incidents_processed": incidents_processed,
+            "success_count": success_count,
+            "no_results_count": no_results_count,
+            "soft_blocked_count": soft_blocked_count,
+            "permanent_failure_count": permanent_failure_count,
+            "total_runtime_seconds": round(runtime_seconds, 1),
+            "incidents_per_minute": round(incidents_per_minute, 1),
+        }
+        try:
+            _write_stats(s3, config, run_id, task_id, stats)
+        except Exception:
+            logger.exception("Failed to write worker stats")
+
+        logger.info(
+            f"Worker shut down. Runtime: {runtime_seconds:.0f}s, "
+            f"processed: {incidents_processed}, "
+            f"success: {success_count}, no_results: {no_results_count}, "
+            f"soft_blocked: {soft_blocked_count}, failures: {permanent_failure_count}"
         )
 
-        if debug:
-            logger.debug(f"Saving results to {outfile}")
 
-        # Serialize ScrapeOutcome objects to dicts
-        results_dict = {k: v.model_dump() for k, v in results.items()}
-
-        # Save the results to results.json
-        io.save_output_data(aws, outfile=outfile, results=results_dict)
-
-        # Get the input config
-        local_variables = locals()
-        frame = inspect.currentframe()
-        fname = inspect.getframeinfo(frame).function if frame is not None else "scrape"
-        if fname in globals():
-            sig = inspect.signature(globals()[fname])
-            config = {p: local_variables[p] for p in sig.parameters}
-        else:
-            config = {}
-
-        # Save the config, input, and errors within the shard folder
-        io.save_output_data(
-            aws,
-            outfile=f"{shard_folder}/config.json",
-            results=config,
-        )
-        io.save_output_data(
-            aws,
-            outfile=f"{shard_folder}/input.csv",
-            results=data_chunk,
-        )
-        # Serialize error objects to dicts
-        errors_dicts = [e.model_dump(mode="json") for e in errors_list]
-        io.save_output_data(
-            aws,
-            outfile=f"{shard_folder}/errors.json",
-            results=errors_dicts,
-        )
-
-        if debug:
-            logger.debug("...done")
+def main() -> None:
+    """Entry point for the Fargate worker container."""
+    config = ScraperConfig()
+    run_id = os.environ.get("RUN_ID", "unknown")
+    run_worker(config, run_id)
