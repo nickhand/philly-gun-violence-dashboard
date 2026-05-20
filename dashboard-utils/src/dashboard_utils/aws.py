@@ -34,9 +34,6 @@ def make_boto3_session(*, region_name: str | None = None) -> boto3.Session:
     """
     settings = get_aws_settings()
     resolved_region = region_name or str(settings.aws_region)
-    print("Resolved AWS region:", resolved_region)
-    print("AWS settings:", settings)
-
     session = boto3.Session(region_name=resolved_region)
 
     if not session.region_name:
