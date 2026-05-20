@@ -9,6 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
+          aws-region: us-east-1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -16,11 +20,6 @@ jobs:
       - uses: taiki-e/install-action@just
       - name: Run shootings ETL
         run: just etl-shootings
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          AWS_BUCKET_NAME: ${{ vars.AWS_BUCKET_NAME }}
       - name: Restart Fly API
         uses: superfly/flyctl-actions/setup-flyctl@master
       - run: just fly-restart
