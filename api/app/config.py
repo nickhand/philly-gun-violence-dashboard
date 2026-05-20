@@ -1,26 +1,16 @@
-from pydantic_settings import SettingsConfigDict
-
-from dashboard_utils.env import S3Config, get_env_file
+from dashboard_utils.config import S3Config
 
 
 class APIConfig(S3Config):
-    """Shared application configuration settings.
+    """Settings for the FastAPI app deployed to Fly.
 
-    Attributes
-    ----------
-    AWS_BUCKET_NAME : str
-        Name of the S3 bucket used for storing application data.
+    Only reads from the processed prefix. Inherits the other prefix names
+    from ``S3Config`` for consistency, but doesn't use them.
     """
-
-    model_config = SettingsConfigDict(
-        env_file=get_env_file(),
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
 
     # API refresh configuration
     # Lazy-refresh TTL for API caches (in seconds).
-    API_REFRESH_TTL_SECONDS: int = 300
+    api_refresh_ttl_seconds: int = 300
 
 
 settings = APIConfig()

@@ -1,6 +1,5 @@
 import io
 import json
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -12,7 +11,7 @@ from botocore.exceptions import ClientError
 from mypy_boto3_s3.client import S3Client
 from mypy_boto3_s3.literals import BucketLocationConstraintType
 
-from dashboard_utils.env import s3_settings
+from dashboard_utils.config import get_aws_settings
 
 
 # ----------------------------
@@ -26,34 +25,23 @@ def make_boto3_session(*, region_name: str | None = None) -> boto3.Session:
     Parameters
     ----------
     region_name
-        Optional override. If None, boto3 resolves the region from env/profile/runtime.
+        Optional override. If None, uses the configured aws_region.
 
     Returns
     -------
     boto3.Session
         The boto3 Session.
     """
-    # Resolve region
-    resolved_region = (
-        region_name or os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
-    )
-
-    # Resolve aws_access_key_id and aws_secret_access_key from settings
-    # NOTE: this shouldn't necessary but is included for completeness.
-    resolved_aws_access_key_id = s3_settings.AWS_ACCESS_KEY_ID or os.environ.get(
-        "AWS_ACCESS_KEY_ID"
-    )
-    resolved_aws_secret_access_key = s3_settings.AWS_SECRET_ACCESS_KEY or os.environ.get(
-        "AWS_SECRET_ACCESS_KEY"
-    )
+    settings = get_aws_settings()
+    resolved_region = region_name or str(settings.aws_region)
 
     session = boto3.Session(
-        aws_access_key_id=resolved_aws_access_key_id,
-        aws_secret_access_key=resolved_aws_secret_access_key,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        profile_name=settings.aws_profile,
         region_name=resolved_region,
     )
 
-    # Fail fast if the region isn't configured anywhere.
     if not session.region_name:
         raise RuntimeError(
             "AWS region is not configured. Set AWS_REGION/AWS_DEFAULT_REGION "

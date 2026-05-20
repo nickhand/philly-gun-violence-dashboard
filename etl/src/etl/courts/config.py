@@ -54,7 +54,7 @@ class ScraperConfig(S3Config):
     ecs_cluster_name: str = "ujs-scraper"
     ecs_task_definition: str = "ujs-scraper"
     ecs_container_name: str = "ujs-scraper"
-    ecs_task_count: int = 2
+    ecs_task_count: int = 9
 
     # ECS networking — accept comma-separated strings (e.g. subnet-a,subnet-b)
     ecs_subnet_ids: list[str]

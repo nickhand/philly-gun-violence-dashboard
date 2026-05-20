@@ -12,6 +12,8 @@ from mypy_boto3_sqs.client import SQSClient
 
 from etl.courts.config import ScraperConfig
 
+_ECS_TERMINAL = {"STOPPED", "DEPROVISIONING"}
+
 
 def make_run_id() -> str:
     """Create a run ID like 2026-05-19T143022Z-a3f1."""
@@ -102,16 +104,41 @@ def write_run_manifest(
     logger.info(f"Wrote run manifest to s3://{config.s3_bucket}/{prefix}/")
 
 
+def write_task_arns(s3: S3Client, config: ScraperConfig, run_id: str, task_arns: list[str]) -> None:
+    """Persist task ARNs for a run so monitor can poll ECS task status."""
+    key = f"{config.s3_scraper_prefix}/runs/{run_id}/tasks.json"
+    s3.put_object(
+        Bucket=config.s3_bucket,
+        Key=key,
+        Body=json.dumps({"task_arns": task_arns}).encode(),
+        ContentType="application/json",
+    )
+
+
+def get_task_arns(s3: S3Client, config: ScraperConfig, run_id: str) -> list[str]:
+    """Read task ARNs saved by write_task_arns. Returns [] if not found."""
+    key = f"{config.s3_scraper_prefix}/runs/{run_id}/tasks.json"
+    try:
+        body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
+        return json.loads(body).get("task_arns", [])
+    except Exception:
+        return []
+
+
 def launch_workers(
     ecs: ECSClient,
     config: ScraperConfig,
     run_id: str,
+    worker_count: int | None = None,
+    force_rescrape: bool = False,
+    soft_blocked_delay_max: int | None = None,
 ) -> list[str]:
-    """Start config.ecs_task_count Fargate tasks. Returns task ARNs.
+    """Start Fargate tasks. Returns task ARNs.
 
     Each task runs the default CMD (courts worker) with no command override.
     Environment variables carry the run_id and queue coordinates.
     """
+    n = worker_count if worker_count is not None else config.ecs_task_count
     task_definition = config.ecs_task_definition
     logger.info(f"Using task definition (latest revision): {task_definition}")
 
@@ -129,15 +156,22 @@ def launch_workers(
         {"name": "AWS_ACCOUNT_ID", "value": config.aws_account_id},
         {"name": "AWS_REGION", "value": str(config.aws_region)},
         {"name": "S3_BUCKET", "value": config.s3_bucket},
+        {"name": "FORCE_RESCRAPE", "value": "1" if force_rescrape else "0"},
         {"name": "SQS_QUEUE_NAME", "value": config.sqs_queue_name},
         {"name": "SQS_DLQ_NAME", "value": config.sqs_dlq_name},
         {"name": "ECS_SUBNET_IDS", "value": ",".join(config.ecs_subnet_ids)},
         {"name": "ECS_SECURITY_GROUP_IDS", "value": ",".join(config.ecs_security_group_ids)},
     ]
+    if soft_blocked_delay_max is not None:
+        delay_min = min(60, soft_blocked_delay_max)
+        env_vars += [
+            {"name": "SOFT_BLOCKED_DELAY_MIN", "value": str(delay_min)},
+            {"name": "SOFT_BLOCKED_DELAY_MAX", "value": str(soft_blocked_delay_max)},
+        ]
 
     task_arns: list[str] = []
-    for i in range(config.ecs_task_count):
-        logger.info(f"Launching worker {i + 1}/{config.ecs_task_count}")
+    for i in range(n):
+        logger.info(f"Launching worker {i + 1}/{n}")
         response = ecs.run_task(
             taskDefinition=task_definition,
             cluster=config.ecs_cluster_arn,
@@ -158,8 +192,48 @@ def launch_workers(
             reason = response["failures"][0].get("reason", "unknown")
             logger.warning(f"Worker {i + 1} failed to launch: {reason}")
 
-    logger.info(f"Launched {len(task_arns)}/{config.ecs_task_count} workers")
+    logger.info(f"Launched {len(task_arns)}/{n} workers")
     return task_arns
+
+
+def monitor_run(
+    ecs: ECSClient,
+    sqs: SQSClient,
+    s3: S3Client,
+    config: ScraperConfig,
+    run_id: str,
+    *,
+    poll_interval: int = 30,
+) -> None:
+    """Block until all ECS tasks for run_id have stopped, then finalize the manifest.
+
+    Uses ECS task status as the primary signal (accurate per-run), with a final
+    SQS queue-depth check to confirm nothing was left in-flight.
+    """
+    task_arns = get_task_arns(s3, config, run_id)
+    if not task_arns:
+        logger.warning(f"No task ARNs found for run {run_id} — falling back to queue-depth monitor")
+        monitor_until_empty(sqs, config, s3=s3, run_id=run_id, poll_interval=poll_interval)
+        return
+
+    started_at = datetime.now(UTC)
+    logger.info(f"Monitoring {len(task_arns)} task(s) for run {run_id}...")
+
+    while True:
+        response = ecs.describe_tasks(cluster=config.ecs_cluster_arn, tasks=task_arns)
+        tasks = response.get("tasks", [])
+        statuses = {t["taskArn"].split("/")[-1]: t["lastStatus"] for t in tasks}
+        running = [arn for arn, s in statuses.items() if s not in _ECS_TERMINAL]
+
+        status_summary = ", ".join(f"{s}:{sum(1 for v in statuses.values() if v == s)}" for s in sorted(set(statuses.values())))
+        logger.info(f"Tasks: {status_summary} — {len(running)} still running")
+
+        if not running:
+            logger.info("All tasks stopped — run complete")
+            _finalize_manifest(s3, sqs, config, run_id, started_at)
+            return
+
+        time.sleep(poll_interval)
 
 
 def monitor_until_empty(

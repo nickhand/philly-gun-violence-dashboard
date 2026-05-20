@@ -69,10 +69,15 @@ etl-homicides:
 etl-streets:
 	cd etl; uv run gv-dashboard-etl streets extract && uv run gv-dashboard-etl streets load
 
-# ETL courts data
+# ETL courts data — incremental (only new/missing incidents)
 [group: "etl"]
-etl-courts ntasks='10':
-	cd etl; uv run gv-dashboard-etl courts update --ntasks {{ntasks}}
+etl-courts:
+	cd etl; uv run gv-dashboard-etl courts update
+
+# ETL courts data — full weekly re-scrape of all incidents
+[group: "etl"]
+etl-courts-full:
+	cd etl; uv run gv-dashboard-etl courts submit --force
 
 # -----------------------------------------------------------------------------
 # ETL Courts Scraper
@@ -81,22 +86,42 @@ etl-courts ntasks='10':
 # Log in to ECR
 [group: "courts-scraper"]
 aws-login:
-	aws ecr get-login-password --region {{env("AWS_REGION")}} | docker login --username AWS --password-stdin {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com
+	aws ecr get-login-password --region {{env("AWS_REGION")}} --profile {{env("AWS_PROFILE")}} | docker login --username AWS --password-stdin {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com
 
 # Build the ETL container image for scraping courts data
 [group: "courts-scraper"]
 build-container:
-	docker buildx build --platform=linux/amd64 -t {{env("CONTAINER_NAME")}} -f etl/Dockerfile .
+	docker buildx build --platform=linux/amd64 -t {{env("ECR_REPOSITORY_NAME")}} -f etl/Dockerfile .
 
 # Push the ETL image to ECR
 [group: "courts-scraper"]
 push-container:
-	docker tag {{env("CONTAINER_NAME")}}:latest {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com/{{env("CONTAINER_NAME")}}:latest
-	docker push {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com/{{env("CONTAINER_NAME")}}:latest
+	docker tag {{env("ECR_REPOSITORY_NAME")}}:latest {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com/{{env("ECR_REPOSITORY_NAME")}}:latest
+	docker push {{env("AWS_ACCOUNT_ID")}}.dkr.ecr.{{env("AWS_REGION")}}.amazonaws.com/{{env("ECR_REPOSITORY_NAME")}}:latest
 
 # Complete docker workflow for the courts scraper: login, build, and push
 [group: "courts-scraper"]
 build-and-push-container: aws-login build-container push-container
+
+# Seed queue and launch workers (non-blocking)
+[group: "courts-scraper"]
+courts-submit:
+	cd etl; uv run gv-dashboard-etl courts submit
+
+# Poll queue depth until empty
+[group: "courts-scraper"]
+courts-monitor:
+	cd etl; uv run gv-dashboard-etl courts monitor
+
+# Read results from S3 and print summary
+[group: "courts-scraper"]
+courts-aggregate:
+	cd etl; uv run gv-dashboard-etl courts aggregate
+
+# Benchmark scraper locally — runs N incidents directly (no SQS/ECS) and writes timing CSV
+[group: "courts-scraper"]
+courts-bench sample="20":
+	cd etl; uv run gv-dashboard-etl courts bench --sample {{sample}}
 
 # -----------------------------------------------------------------------------
 # API Tasks
@@ -130,10 +155,10 @@ fly-deploy-api:
 [group: "api-fly"]
 fly-secrets-api:
 	flyctl secrets set \
-		AWS_ACCESS_KEY_ID="{{ env('AWS_ACCESS_KEY_ID') }}" \
-		AWS_SECRET_ACCESS_KEY="{{ env('AWS_SECRET_ACCESS_KEY') }}" \
+		AWS_ACCESS_KEY_ID="{{ env('FLY_AWS_ACCESS_KEY_ID') }}" \
+		AWS_SECRET_ACCESS_KEY="{{ env('FLY_AWS_SECRET_ACCESS_KEY') }}" \
 		AWS_REGION="{{ env('AWS_REGION') }}" \
-		AWS_BUCKET_NAME="{{ env('AWS_BUCKET_NAME') }}" \
+		S3_BUCKET="{{ env('S3_BUCKET') }}" \
 		GITHUB_PAT="{{ env('GITHUB_TOKEN') }}"
 
 # Fly.io authentication
@@ -168,7 +193,7 @@ fly-restart:
 # Sync the S3 data bucket to the local data/ folder
 [group: "data"]
 data-sync:
-	aws s3 sync s3://{{env("AWS_BUCKET_NAME")}} data/ --exact-timestamps --delete
+	aws s3 sync s3://{{env("S3_BUCKET")}} data/ --exact-timestamps --delete
 
 # -----------------------------------------------------------------------------
 # Python tools: Linting, Formatting, Type Checking

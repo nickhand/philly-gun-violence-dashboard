@@ -43,7 +43,7 @@ def _extract_year(value: str | None) -> int | None:
 
 def _get_s3_etag(s3: S3Client, key: str) -> str:
     """Return the ETag for an S3 object key."""
-    response = s3.head_object(Bucket=settings.AWS_BUCKET_NAME, Key=key)
+    response = s3.head_object(Bucket=settings.s3_bucket, Key=key)
     return str(response.get("ETag", "")).strip('"')
 
 
@@ -256,7 +256,7 @@ def refresh_if_stale(app: FastAPI, names: list[str]) -> None:
     """Refresh cached datasets if their TTL has expired and ETags changed."""
     s3 = app.state.s3
     # TTL controls how often we check S3 for updates per dataset.
-    ttl = settings.API_REFRESH_TTL_SECONDS
+    ttl = settings.api_refresh_ttl_seconds
     now = time.time()
     # Use ETag checks to avoid reloading unchanged objects.
     for name in names:

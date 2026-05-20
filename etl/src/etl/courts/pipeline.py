@@ -38,15 +38,16 @@ def update_courts(s3: S3Client, cfg: PortalBatchConfig | None = None) -> pd.Data
     incident_numbers = data[["dc_key"]].drop_duplicates()
 
     # Remove dc_keys we already know are true
+    existing = pd.DataFrame()
     if cfg.exclude_known_cases:
         existing = read_existing_flags()
         if not existing.empty:
             known_true = existing.loc[existing["has_court_case"], "dc_key"]
             incident_numbers = incident_numbers[~incident_numbers["dc_key"].isin(known_true)]
 
-    # Extract from portal
-    portal_results, echoed_input = extract_portal(s3, incident_numbers, cfg)
-    flags = results_to_flags(portal_results, echoed_input)
+    # Extract from portal — seeds queue, launches workers, waits, aggregates
+    portal_results = extract_portal(s3, incident_numbers, cfg)
+    flags = results_to_flags(portal_results, incident_numbers)
 
     # Write portal results
     write_portal_results(s3, portal_results)
@@ -54,7 +55,7 @@ def update_courts(s3: S3Client, cfg: PortalBatchConfig | None = None) -> pd.Data
 
     # Merge with existing (keep any prior entries)
     out: pd.DataFrame
-    if cfg.exclude_known_cases:
+    if cfg.exclude_known_cases and not existing.empty:
         out = pd.concat([existing, flags]).drop_duplicates(subset=["dc_key"], keep="last")
     else:
         out = flags

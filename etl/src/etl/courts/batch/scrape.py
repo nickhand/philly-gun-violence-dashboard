@@ -17,6 +17,10 @@ from etl.courts.config import ScraperConfig
 from etl.courts.scraper.core import UJSPortalScraper
 from etl.courts.scraper.schema import OutcomeStatus, ScrapeOutcome, SoftBlocked
 
+# Hard cap on a single scrape attempt (max_attempts * worst-case timing).
+# Fires SIGALRM if Playwright deadlocks at the subprocess level.
+_SCRAPE_TIMEOUT_S = 300
+
 
 def _result_exists(s3, bucket: str, key: str) -> bool:
     try:
@@ -76,6 +80,10 @@ def _write_stats(s3, config: ScraperConfig, run_id: str, task_id: str, stats: di
     logger.info(f"Stats written to s3://{config.s3_bucket}/{key}")
 
 
+def _sigalrm_handler(signum: int, frame: object) -> None:
+    raise TimeoutError(f"scrape exceeded {_SCRAPE_TIMEOUT_S}s")
+
+
 def run_worker(config: ScraperConfig, run_id: str) -> None:
     """Long-poll SQS and scrape one incident per message until queue drains or SIGTERM."""
     session = make_boto3_session()
@@ -84,16 +92,17 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
 
     shutdown = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
+    signal.signal(signal.SIGALRM, _sigalrm_handler)
 
     task_id = socket.gethostname()
     start_time = datetime.now(UTC)
+    force_rescrape = os.environ.get("FORCE_RESCRAPE", "").lower() in ("1", "true", "yes")
 
     scraper = UJSPortalScraper(
         max_attempts=8,
         enable_screenshots=False,
         errors="ignore",
     )
-    incidents_since_recycle = 0
     consecutive_empty = 0
 
     # Stats counters
@@ -103,7 +112,7 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
     soft_blocked_count = 0
     permanent_failure_count = 0
 
-    logger.info(f"Worker started. task_id={task_id}, run_id={run_id}, queue={config.sqs_queue_url}")
+    logger.info(f"Worker started. task_id={task_id}, run_id={run_id}, queue={config.sqs_queue_url}, force_rescrape={force_rescrape}")
 
     try:
         while not shutdown.is_set():
@@ -130,6 +139,7 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
                     if visible == 0 and in_flight == 0:
                         logger.info("Queue empty — worker exiting")
                         break
+                    logger.info(f"Still waiting: visible={visible}, in_flight={in_flight}")
                     consecutive_empty = 0
                 continue
 
@@ -141,19 +151,22 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
 
             result_key = f"{config.s3_scraper_prefix}/results/{incident}.json"
 
-            # Idempotency check: skip if already scraped
-            if _result_exists(s3, config.s3_bucket, result_key):
+            # Idempotency check: skip if already scraped (bypassed when FORCE_RESCRAPE=1)
+            if not force_rescrape and _result_exists(s3, config.s3_bucket, result_key):
                 logger.info(f"Already scraped {incident}, skipping")
                 sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
                 continue
 
             logger.info(f"Scraping {incident}")
+            t0 = time.perf_counter()
             try:
+                signal.alarm(_SCRAPE_TIMEOUT_S)
                 outcome: ScrapeOutcome = scraper(incident)
             except SoftBlocked:
-                # Defer message so a different worker IP picks it up
                 soft_blocked_count += 1
-                delay = int(random.uniform(300, 900))
+                delay_min = int(os.environ.get("SOFT_BLOCKED_DELAY_MIN", "300"))
+                delay_max = int(os.environ.get("SOFT_BLOCKED_DELAY_MAX", "900"))
+                delay = int(random.uniform(delay_min, delay_max))
                 logger.warning(
                     f"SOFT_BLOCKED {incident}, requeueing with {delay}s visibility delay"
                 )
@@ -162,16 +175,37 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
                     ReceiptHandle=receipt,
                     VisibilityTimeout=delay,
                 )
-                incidents_since_recycle = 0
+                # Recycle Playwright context after a block to clear session state
+                logger.info("Recycling Playwright context after SOFT_BLOCKED")
+                scraper._reset_page()
+                continue
+            except TimeoutError:
+                logger.warning(
+                    f"Scrape timed out after {_SCRAPE_TIMEOUT_S}s for {incident} "
+                    f"— resetting context, message will be redelivered by SQS"
+                )
+                try:
+                    sqs.change_message_visibility(
+                        QueueUrl=config.sqs_queue_url,
+                        ReceiptHandle=receipt,
+                        VisibilityTimeout=30,
+                    )
+                except Exception:
+                    pass
+                signal.alarm(30)  # bound the browser close; if it hangs, worker exits
+                scraper._reset_page()
                 continue
             except Exception:
                 logger.exception(
                     f"Uncaught exception scraping {incident} — letting visibility timeout expire"
                 )
                 continue
+            finally:
+                signal.alarm(0)
 
             incidents_processed += 1
-            incidents_since_recycle += 1
+
+            outcome.scrape_duration_s = round(time.perf_counter() - t0, 3)
 
             if outcome.status in (OutcomeStatus.SUCCESS, OutcomeStatus.NO_RESULTS):
                 _write_result(s3, config, incident, run_id, outcome, result_key)
@@ -190,13 +224,7 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
                 sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
 
             # Fixed inter-incident jitter (politeness delay per AOPC agreement)
-            time.sleep(random.uniform(1.0, 2.5))
-
-            # Recycle Playwright context every ~50 incidents to clear session state
-            if incidents_since_recycle >= 50:
-                logger.info("Recycling Playwright context after 50 incidents")
-                scraper._reset_page()
-                incidents_since_recycle = 0
+            time.sleep(random.uniform(0.5, 1.5))
 
     finally:
         scraper.close()

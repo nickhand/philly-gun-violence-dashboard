@@ -46,6 +46,6 @@ RUN uv run --project /app/etl playwright install chromium --with-deps
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []
 
-# Runs the courts batch command via the main CLI
+# Runs the SQS worker — long-polls the queue, scrapes incidents, writes results to S3
 WORKDIR /app/etl
-CMD ["uv", "run", "gv-dashboard-etl", "courts", "batch", "--help"]
+CMD ["uv", "run", "gv-dashboard-etl", "courts", "worker"]

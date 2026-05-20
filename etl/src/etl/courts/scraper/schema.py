@@ -72,6 +72,7 @@ class ScrapeOutcome(BaseModel):
     incident_number: str | None = None
     scraped_at: datetime | None = None
     run_id: str | None = None
+    scrape_duration_s: float | None = None
 
 
 class PortalResult(BaseModel):

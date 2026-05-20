@@ -29,6 +29,11 @@ PORTAL_BASE_URL = "https://ujsportal.pacourts.us"
 PORTAL_URL = f"{PORTAL_BASE_URL}/CaseSearch"
 SEARCH_BY_OPTIONS = {"Incident Number", "Docket Number"}
 
+# Longer timeout for cold browser launch + initial page load vs. live scraping ops.
+# After _reset_page(), Chromium restarts and the portal's React app renders from scratch —
+# that legitimately takes longer than a form fill or results wait.
+_NAV_TIMEOUT_MS = 30_000
+
 # Selectors used in the portal UI
 SEARCH_BY_DROPDOWN = "#SearchBy-Control select"
 SEARCH_BUTTON = "#btnSearch"
@@ -183,7 +188,7 @@ class UJSPortalScraper:
     debug: bool = False
     log_freq: int = 50
     sleep: float = 7.0
-    timeout_ms: int = 12_000
+    timeout_ms: int = 20_000
     max_attempts: int = 5
     wait_min: float = 5.0
     wait_max: float = 30.0
@@ -299,7 +304,10 @@ class UJSPortalScraper:
         if self._net_observer:
             self._net_observer.attach(self._page)
 
-        self._page.goto(PORTAL_URL, wait_until="networkidle", timeout=self.timeout_ms)
+        self._page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+
+        # Wait for the search form to be interactive (JS-rendered)
+        self._page.wait_for_selector(SEARCH_BY_DROPDOWN, state="visible", timeout=_NAV_TIMEOUT_MS)
 
         # Set search type
         self._page.select_option(SEARCH_BY_DROPDOWN, label=self.search_by)
@@ -459,13 +467,14 @@ class UJSPortalScraper:
             return invalid_result, None
 
         timestamp_start = self._current_attempt_start or datetime.now(UTC).isoformat()
-        page = self._ensure_page()
         start_time = time.perf_counter()
 
         portal_results: list[PortalResult] | None = None
         result: ClassificationResult
+        page: Page | None = None
 
         try:
+            page = self._ensure_page()
             # Fill in the form and submit
             search_by_tag = self.search_by.replace(" ", "")
             input_selector = f"#{search_by_tag}-Control input"
@@ -473,9 +482,6 @@ class UJSPortalScraper:
             page.fill(input_selector, "")
             page.fill(input_selector, normalized)
             page.click(SEARCH_BUTTON)
-
-            # Wait briefly for initial response
-            time.sleep(0.5)
 
             # Classify the result
             result = classify_case_search(
@@ -519,7 +525,7 @@ class UJSPortalScraper:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             result = classify_from_exception(
                 e,
-                page.url if self._page else "",
+                page.url if page else "",
                 self._net_observer,
                 elapsed_ms,
             )
