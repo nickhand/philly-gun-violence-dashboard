@@ -6,7 +6,16 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator
 
-__all__ = ["PortalResult", "ScrapeError", "ScrapeOutcome", "OutcomeStatus"]
+__all__ = ["PortalResult", "ScrapeError", "ScrapeOutcome", "OutcomeStatus", "SoftBlocked"]
+
+
+class SoftBlocked(Exception):
+    """Raised by the scraper when SOFT_BLOCKED after the allowed retry budget.
+
+    The worker loop catches this and uses change_message_visibility to defer
+    the SQS message rather than deleting it, allowing a different worker IP
+    to attempt the incident later.
+    """
 
 
 class OutcomeStatus(str, Enum):
@@ -49,6 +58,10 @@ class ScrapeOutcome(BaseModel):
         Additional context about the classification.
     attempt_count : int
         Number of attempts made.
+    scraped_at : datetime | None
+        UTC timestamp when the result was written to S3.
+    run_id : str | None
+        Run ID of the scrape job that produced this result.
     """
 
     status: OutcomeStatus
@@ -56,6 +69,9 @@ class ScrapeOutcome(BaseModel):
     classification: str | None = None
     subreason: str | None = None
     attempt_count: int = 1
+    incident_number: str | None = None
+    scraped_at: datetime | None = None
+    run_id: str | None = None
 
 
 class PortalResult(BaseModel):
