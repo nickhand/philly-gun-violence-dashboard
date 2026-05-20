@@ -23,6 +23,12 @@ jobs:
       - uses: taiki-e/install-action@just
       - name: Run shootings ETL
         run: just etl-shootings
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
+          S3_PROCESSED_PREFIX: ${{ vars.S3_PROCESSED_PREFIX }}
+          S3_REFERENCE_PREFIX: ${{ vars.S3_REFERENCE_PREFIX }}
       - name: Restart Fly API
         uses: superfly/flyctl-actions/setup-flyctl@master
       - run: just fly-restart
