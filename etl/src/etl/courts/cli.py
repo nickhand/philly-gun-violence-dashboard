@@ -1,10 +1,10 @@
+import os
 from typing import Annotated, Literal
 
 import typer
 from loguru import logger
 
-from dashboard_utils.aws import make_s3_client
-from etl.courts.batch.scrape import scrape as batch_scrape
+from dashboard_utils.aws import make_boto3_session, make_s3_client
 from etl.courts.extract import PortalBatchConfig
 from etl.courts.pipeline import update_courts
 
@@ -29,14 +29,6 @@ def update(
         int,
         typer.Option(help="Random seed for sampling."),
     ] = 42,
-    sleep: Annotated[
-        int,
-        typer.Option(help="Delay between portal requests."),
-    ] = 2,
-    ntasks: Annotated[
-        int,
-        typer.Option(help="Parallel ECS tasks to launch."),
-    ] = 10,
     debug: Annotated[
         bool,
         typer.Option(help="Verbose logging."),
@@ -53,127 +45,160 @@ def update(
         ),
     ] = False,
 ) -> None:
-    """Run the courts portal scraper in batch and update local flags.
+    """Run the courts portal scraper pipeline end-to-end.
 
-    Scrapes incident numbers from the UJS portal with classification and audit logging.
+    Seeds the SQS queue, launches Fargate workers, waits for completion,
+    then writes courts flags to processed data.
     """
-    # Create S3 client
     s3 = make_s3_client()
-
-    # Build config
     cfg = PortalBatchConfig(
         dry_run=dry_run,
         sample=sample,
         log_freq=log_freq,
         seed=seed,
-        sleep=sleep,
-        ntasks=ntasks,
         debug=debug,
         errors=errors,
         no_retry=no_retry,
     )
-
-    # Run update
     update_courts(s3, cfg=cfg)
-    logger.info("Courts flags updated using shootings processed geojson.")
+    logger.info("Courts flags updated.")
 
 
 @app.command()
-def batch(
-    input_csv: Annotated[
-        str,
-        typer.Argument(
-            help="CSV path with incident/docket numbers (s3:// or local).",
-        ),
-    ],
-    output_folder: Annotated[
-        str,
-        typer.Argument(
-            help="Output folder for results (s3:// or local).",
-        ),
-    ],
-    search_by: Annotated[
-        Literal["Incident Number", "Docket Number"],
-        typer.Option(help="Portal search field."),
-    ] = "Incident Number",
-    nprocs: Annotated[
-        int,
-        typer.Option(help="Total parallel splits."),
-    ] = 1,
-    shard_id: Annotated[
-        int,
-        typer.Option("--shard-id", help="This shard/worker id (0-indexed)."),
-    ] = 0,
+def submit(
     dry_run: Annotated[
         bool,
-        typer.Option(help="Do everything except write outputs."),
+        typer.Option(help="Seed queue and write manifest, but don't launch ECS workers."),
     ] = False,
     sample: Annotated[
         int | None,
-        typer.Option(help="Sample this many records before scraping."),
+        typer.Option(help="Sample this many incident numbers."),
     ] = None,
-    log_freq: Annotated[
-        int,
-        typer.Option(help="Log every N portal requests."),
-    ] = 10,
     seed: Annotated[
         int,
         typer.Option(help="Random seed for sampling."),
     ] = 42,
-    errors: Annotated[
-        Literal["ignore", "raise"],
-        typer.Option(help="Error handling mode."),
-    ] = "ignore",
-    sleep: Annotated[
-        int,
-        typer.Option(help="Delay between portal requests."),
-    ] = 7,
-    debug: Annotated[
-        bool,
-        typer.Option(help="Verbose logging."),
-    ] = False,
+) -> None:
+    """Seed the SQS queue and launch Fargate workers. Exits immediately (non-blocking).
+
+    Use `courts monitor` to wait for completion,
+    then `courts aggregate` to collect results.
+    """
+    from etl.courts.batch.aws import (
+        get_existing_incidents,
+        launch_workers,
+        make_run_id,
+        seed_queue,
+        write_run_manifest,
+    )
+    from etl.courts.config import ScraperConfig
+    from etl.utils.storage import load_shootings_database
+
+    config = ScraperConfig()
+    session = make_boto3_session()
+    s3 = session.client("s3")
+    sqs = session.client("sqs")
+    ecs = session.client("ecs")
+
+    gdf = load_shootings_database()
+    all_incidents = gdf["dc_key"].astype(str).unique().tolist()
+    if sample is not None:
+        import random as _random
+
+        _random.seed(seed)
+        all_incidents = _random.sample(all_incidents, min(sample, len(all_incidents)))
+
+    existing = get_existing_incidents(s3, config)
+    incidents = [inc for inc in all_incidents if inc not in existing]
+    logger.info(
+        f"{len(incidents)}/{len(all_incidents)} incidents missing results — seeding queue"
+    )
+
+    if not incidents:
+        logger.info("All incidents already scraped. Nothing to do.")
+        return
+
+    run_id = make_run_id()
+    logger.info(f"Run ID: {run_id}")
+
+    seed_queue(sqs, config, incidents, run_id)
+    write_run_manifest(s3, config, run_id, incidents, worker_count=config.ecs_task_count)
+
+    if not dry_run:
+        launch_workers(ecs, config, run_id)
+    else:
+        logger.info("dry_run=True: skipping ECS worker launch")
+
+
+@app.command()
+def worker() -> None:
+    """Run the SQS worker loop (Fargate container entrypoint).
+
+    Long-polls the queue, scrapes one incident per message, and writes
+    per-incident results to S3. Handles SIGTERM for graceful shutdown.
+    """
+    from etl.courts.batch.scrape import run_worker
+    from etl.courts.config import ScraperConfig
+
+    config = ScraperConfig()
+    run_id = os.environ.get("RUN_ID", "unknown")
+    run_worker(config, run_id)
+
+
+@app.command()
+def monitor(
     run_id: Annotated[
         str | None,
-        typer.Option(help="Run identifier for audit logging."),
+        typer.Option(help="Run ID to finalize manifest when queue drains."),
     ] = None,
-    no_retry: Annotated[
-        bool,
-        typer.Option(
-            "--no-retry",
-            help="Disable retry mechanism (max_attempts=1) for debugging.",
-        ),
-    ] = False,
-    screenshots: Annotated[
-        bool,
-        typer.Option(
-            "--screenshots/--no-screenshots",
-            help="Enable/disable screenshots for failures.",
-        ),
-    ] = True,
 ) -> None:
-    """Run the portal scraper batch job (manual inputs/outputs).
+    """Poll the SQS queue until both visible and in-flight counts reach zero."""
+    from etl.courts.batch.aws import monitor_until_empty
+    from etl.courts.config import ScraperConfig
 
-    Scrapes incident numbers with classification and writes audit logs
-    (audit_attempts.ndjson.gz, audit_final.ndjson.gz) to output_folder.
+    config = ScraperConfig()
+    session = make_boto3_session()
+    sqs = session.client("sqs")
+    s3 = session.client("s3") if run_id else None
+    monitor_until_empty(sqs, config, s3=s3, run_id=run_id)
+
+
+@app.command()
+def aggregate() -> None:
+    """Read all per-incident results from S3 and print a summary."""
+    from etl.courts.batch.aggregate import aggregate_results
+    from etl.courts.config import ScraperConfig
+
+    config = ScraperConfig()
+    s3 = make_s3_client()
+    results = aggregate_results(s3, config)
+
+    counts: dict[str, int] = {}
+    for outcome in results.values():
+        counts[outcome.status.value] = counts.get(outcome.status.value, 0) + 1
+
+    total = len(results)
+    logger.info(f"Total results: {total}")
+    for status, count in sorted(counts.items()):
+        pct = count / total * 100 if total else 0
+        logger.info(f"  {status}: {count} ({pct:.1f}%)")
+
+
+@app.command()
+def snapshot() -> None:
+    """Materialize all results/*.json into a Parquet snapshot on S3.
+
+    Uses DuckDB to read the full results prefix in parallel and writes
+    a summary Parquet (no nested results array) to
+    {s3_scraper_prefix}/snapshots/courts_results.parquet.
     """
-    batch_scrape(
-        input_filename=input_csv,
-        output_folder=output_folder,
-        search_by=search_by,
-        nprocs=nprocs,
-        shard_id=shard_id,
-        dry_run=dry_run,
-        sample=sample,
-        log_freq=log_freq,
-        seed=seed,
-        errors=errors,
-        sleep=sleep,
-        debug=debug,
-        run_id=run_id,
-        no_retry=no_retry,
-        screenshots=screenshots,
-    )
-    logger.info("Courts batch scrape completed.")
+    from etl.courts.batch.aggregate import snapshot_to_parquet
+    from etl.courts.config import ScraperConfig
+
+    config = ScraperConfig()
+    s3 = make_s3_client()
+    dest = snapshot_to_parquet(s3, config)
+    logger.info(f"Snapshot written to {dest}")
 
 
 @app.command()
@@ -203,16 +228,7 @@ def diagnose(
         typer.Option("--show-missing", help="Output DC keys that were never attempted."),
     ] = False,
 ) -> None:
-    """Diagnose a scrape run and identify issues.
-
-    Analyzes merged audit files and outputs:
-    - Overall success/failure rates
-    - Classification breakdown
-    - Rate limiting detection
-    - High retry incidents
-    - Failure reasons
-    - Shard health
-    """
+    """Diagnose a scrape run and identify issues."""
     from etl.courts.verification.diagnose import run as diagnose_run
 
     diagnose_run(
