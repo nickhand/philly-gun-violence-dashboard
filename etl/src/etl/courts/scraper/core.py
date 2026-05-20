@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -14,7 +15,7 @@ from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from etl.courts.scraper.schema import OutcomeStatus, PortalResult, ScrapeError, ScrapeOutcome
+from etl.courts.scraper.schema import OutcomeStatus, PortalResult, ScrapeError, ScrapeOutcome, SoftBlocked
 
 if TYPE_CHECKING:
     from etl.courts.verification.audit import AttemptTracker, AuditWriter
@@ -156,11 +157,12 @@ class UJSPortalScraper:
     log_freq : int
         Frequency of logging progress during batch scrapes.
     sleep : float
-        Seconds to sleep between requests.
+        Seconds to sleep between requests (used by scrape_portal_data only).
     timeout_ms : int
         Timeout for page loads and waits, in milliseconds.
     max_attempts : int
-        Maximum number of retry attempts for each input.
+        Maximum number of retry attempts for each input (non-SOFT_BLOCKED errors).
+        SOFT_BLOCKED is capped at 1 retry regardless of this value.
     wait_min : float
         Minimum wait time between retries, in seconds.
     wait_max : float
@@ -193,12 +195,6 @@ class UJSPortalScraper:
     enable_screenshots: bool = True
     compress_audit: bool = True
 
-    # Rate limiting options
-    stagger_start: bool = True  # Stagger task starts based on shard_id
-    adaptive_rate_limit: bool = True  # Slow down after consecutive SOFT_BLOCKED
-    soft_blocked_backoff_min: float = 60.0  # Min backoff for SOFT_BLOCKED (seconds)
-    soft_blocked_backoff_max: float = 600.0  # Max backoff for SOFT_BLOCKED (10 min)
-
     _playwright: Playwright | None = field(init=False, default=None)
     _browser: Browser | None = field(init=False, default=None)
     _page: Page | None = field(init=False, default=None)
@@ -210,19 +206,10 @@ class UJSPortalScraper:
     _current_attempt_start: str | None = field(init=False, default=None)
     _classifications: dict[str, ClassificationResult] = field(init=False, default_factory=dict)
 
-    # Adaptive rate limiting state
-    _consecutive_soft_blocked: int = field(init=False, default=0)
-    _current_sleep: float = field(init=False, default=0.0)  # Initialized in __post_init__
-    _stagger_applied: bool = field(init=False, default=False)
-
     def __post_init__(self) -> None:
         """Validate configuration and build the retry strategy."""
         if self.search_by not in SEARCH_BY_OPTIONS:
             raise ValueError(f"search_by must be one of {SEARCH_BY_OPTIONS}")
-
-        # Initialize adaptive rate limiting
-        self._current_sleep = self.sleep
-        self._consecutive_soft_blocked = 0
 
         # Initialize verification/audit components
         self._init_verification()
@@ -265,20 +252,13 @@ class UJSPortalScraper:
         self._current_attempt_start = datetime.now(UTC).isoformat()
 
     def _before_retry(self, retry_state: tenacity.RetryCallState) -> None:
-        """Log and reset before retry.
-
-        Uses exponential backoff with jitter for SOFT_BLOCKED errors,
-        scaling from soft_blocked_backoff_min to soft_blocked_backoff_max.
-        Also updates adaptive rate limiting state.
-        """
-        import random
-
+        """Reset page before retry. Raises SoftBlocked after 1 retry on SOFT_BLOCKED."""
         from etl.courts.verification.classifier import Classification
 
         attempt = retry_state.attempt_number
         outcome = retry_state.outcome
-
         is_soft_blocked = False
+
         if outcome is not None and outcome.exception() is not None:
             exc = outcome.exception()
             if isinstance(exc, RetryableScrapeError):
@@ -288,100 +268,12 @@ class UJSPortalScraper:
                 )
                 is_soft_blocked = exc.result.classification == Classification.SOFT_BLOCKED
 
-        # Reset the page before retrying
+        # Always reset page before next attempt
         self._reset_page()
 
-        # Apply backoff based on classification
-        if is_soft_blocked:
-            # Track consecutive SOFT_BLOCKED for adaptive rate limiting
-            self._consecutive_soft_blocked += 1
-
-            # Exponential backoff with jitter: base * 2^(attempt-1) capped at max
-            # Example with min=60, max=600:
-            #   attempt 1: 60-120s, attempt 2: 120-240s, attempt 3: 240-480s, etc.
-            base_backoff = self.soft_blocked_backoff_min * (2 ** (attempt - 1))
-            capped_backoff = min(base_backoff, self.soft_blocked_backoff_max)
-            # Add jitter: 0.5x to 1.5x of the calculated backoff
-            jitter = random.uniform(0.5, 1.5)
-            backoff = capped_backoff * jitter
-
-            logger.warning(
-                f"SOFT_BLOCKED #{self._consecutive_soft_blocked}, "
-                f"backing off {backoff:.0f}s (attempt {attempt})"
-            )
-            time.sleep(backoff)
-
-            # Adaptive rate limiting: increase sleep between requests
-            if self.adaptive_rate_limit:
-                self._increase_request_delay()
-        else:
-            # Non-SOFT_BLOCKED retry: use normal sleep
-            time.sleep(self._current_sleep)
-
-    def _increase_request_delay(self) -> None:
-        """Increase the delay between requests (adaptive rate limiting).
-
-        Doubles the current sleep time up to 4x the original value.
-        Called when consecutive SOFT_BLOCKED errors are detected.
-        """
-        max_sleep = self.sleep * 4  # Cap at 4x original (e.g., 7s -> 28s)
-        old_sleep = self._current_sleep
-        self._current_sleep = min(self._current_sleep * 2, max_sleep)
-        if self._current_sleep != old_sleep:
-            logger.info(
-                f"Adaptive rate limit: increased request delay from {old_sleep:.1f}s "
-                f"to {self._current_sleep:.1f}s"
-            )
-
-    def _reset_rate_limit_state(self) -> None:
-        """Reset adaptive rate limiting state after a successful request.
-
-        Called when a request succeeds to gradually recover request rate.
-        """
-        if self._consecutive_soft_blocked > 0:
-            self._consecutive_soft_blocked = 0
-            # Gradually decrease sleep (halve it, but not below original)
-            if self._current_sleep > self.sleep:
-                old_sleep = self._current_sleep
-                self._current_sleep = max(self._current_sleep / 2, self.sleep)
-                logger.info(
-                    f"Adaptive rate limit: decreased request delay from {old_sleep:.1f}s "
-                    f"to {self._current_sleep:.1f}s after success"
-                )
-
-    def _apply_staggered_start(self) -> None:
-        """Apply initial delay based on shard_id to stagger task starts.
-
-        Called once at the start of scrape_portal_data to prevent all tasks
-        from hitting the portal simultaneously.
-        """
-        if self._stagger_applied or not self.stagger_start:
-            return
-
-        self._stagger_applied = True
-
-        if self.audit_context is None:
-            return
-
-        import random
-
-        shard_id = self.audit_context.shard_id
-        shard_count = self.audit_context.shard_count
-
-        # Stagger delay: each shard waits (shard_id / shard_count) * base_delay
-        # Plus random jitter to avoid synchronized waves
-        # Base delay: spread tasks over ~60 seconds
-        base_delay = 60.0
-        stagger_delay = (shard_id / shard_count) * base_delay
-        jitter = random.uniform(0, 5)  # 0-5 seconds additional jitter
-        total_delay = stagger_delay + jitter
-
-        if total_delay > 0:
-            logger.info(
-                f"Staggered start: shard {shard_id}/{shard_count} "
-                f"waiting {total_delay:.1f}s before starting"
-            )
-            time.sleep(total_delay)
+        # After 1 retry on SOFT_BLOCKED, give up in-task and let SQS redistribute
+        if is_soft_blocked and attempt >= 2:
+            raise SoftBlocked(f"SOFT_BLOCKED after {attempt} attempts — deferring to SQS")
 
     def __enter__(self) -> Self:
         self._ensure_page()
@@ -678,6 +570,11 @@ class UJSPortalScraper:
         -------
         ScrapeOutcome
             Outcome with status, classification, and results (if any).
+
+        Raises
+        ------
+        SoftBlocked
+            If SOFT_BLOCKED persists after the allowed retry budget (1 retry).
         """
         from etl.courts.verification.audit import AttemptTracker
         from etl.courts.verification.classifier import Classification, ClassificationResult
@@ -704,7 +601,7 @@ class UJSPortalScraper:
         attempt_count = 0
         exhausted_retries = False
 
-        # Run with retries - catch exhausted retries to allow audit finalization
+        # Run with retries — SoftBlocked propagates without being caught here
         try:
             for attempt_index, attempt in enumerate(self._retryer, start=1):
                 attempt_count = attempt_index
@@ -811,9 +708,6 @@ class UJSPortalScraper:
         # Clear classifications for fresh run
         self._classifications.clear()
 
-        # Apply staggered start to avoid thundering herd
-        self._apply_staggered_start()
-
         # Errors with rich context
         errors: list[ScrapeError] = []
 
@@ -829,9 +723,9 @@ class UJSPortalScraper:
                 try:
                     outcome = self(val)
                     results[val] = outcome
-                    # Only reset rate limit state on SUCCESS or NO_RESULTS
-                    if outcome.status in (OutcomeStatus.SUCCESS, OutcomeStatus.NO_RESULTS):
-                        self._reset_rate_limit_state()
+                except SoftBlocked:
+                    # Re-raise so callers can handle appropriately
+                    raise
                 except Exception as exc:
                     # Capture error screenshot
                     screenshot_path = self._capture_error_screenshot(val)
@@ -842,7 +736,7 @@ class UJSPortalScraper:
                         error_type=type(exc).__name__,
                         error_message=str(exc),
                         timestamp=datetime.now(UTC),
-                        attempt_count=self.max_attempts,  # Failed after all retries
+                        attempt_count=self.max_attempts,
                         screenshot_path=screenshot_path,
                     )
                     errors.append(error_record)
@@ -850,20 +744,18 @@ class UJSPortalScraper:
                     # If ignoring errors, log a warning and continue
                     if self.errors == "ignore":
                         logger.warning(f"Ignoring exception for value {val}: {exc}")
-                        # Create a failed outcome for tracking
                         results[val] = ScrapeOutcome(
                             status=OutcomeStatus.FAILED,
                             classification="EXCEPTION",
                             subreason=str(exc),
                             attempt_count=self.max_attempts,
                         )
-                    # Otherwise, re-raise the exception
                     else:
                         logger.exception(f"Exception raised for value {val}: {exc}")
                         raise
 
-                # Sleep between requests (uses adaptive rate if enabled)
-                time.sleep(self._current_sleep)
+                # Fixed inter-incident jitter (politeness delay per AOPC agreement)
+                time.sleep(random.uniform(1.0, 2.5))
 
             # Log classification summary
             if self._classifications:
