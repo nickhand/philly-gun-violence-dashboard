@@ -27,6 +27,12 @@ jobs:
         run: uv run --project etl playwright install chromium --with-deps
       - name: Run homicides ETL
         run: just etl-homicides
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
+          S3_PROCESSED_PREFIX: ${{ vars.S3_PROCESSED_PREFIX }}
+          S3_REFERENCE_PREFIX: ${{ vars.S3_REFERENCE_PREFIX }}
       - name: Restart Fly API
         uses: superfly/flyctl-actions/setup-flyctl@master
       - run: just fly-restart
