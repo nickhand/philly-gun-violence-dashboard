@@ -57,16 +57,29 @@ def _write_failure(
     run_id: str,
     incident: str,
     outcome: ScrapeOutcome,
+    page=None,
 ) -> None:
-    key = f"{config.s3_scraper_prefix}/runs/{run_id}/failures/{incident}.json"
+    prefix = f"{config.s3_scraper_prefix}/runs/{run_id}/failures"
     data = outcome.model_dump(mode="json")
     data["failed_at"] = datetime.now(UTC).isoformat()
     s3.put_object(
         Bucket=config.s3_bucket,
-        Key=key,
+        Key=f"{prefix}/{incident}.json",
         Body=json.dumps(data).encode(),
         ContentType="application/json",
     )
+    if page is not None:
+        try:
+            screenshot_bytes = page.screenshot(full_page=True)
+            s3.put_object(
+                Bucket=config.s3_bucket,
+                Key=f"{prefix}/{incident}.png",
+                Body=screenshot_bytes,
+                ContentType="image/png",
+            )
+            logger.info(f"Screenshot saved to s3://{config.s3_bucket}/{prefix}/{incident}.png")
+        except Exception:
+            logger.debug("Failed to capture failure screenshot")
 
 
 def _write_stats(s3, config: ScraperConfig, run_id: str, task_id: str, stats: dict) -> None:
@@ -97,6 +110,10 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
     task_id = socket.gethostname()
     start_time = datetime.now(UTC)
     force_rescrape = os.environ.get("FORCE_RESCRAPE", "").lower() in ("1", "true", "yes")
+
+    startup_delay = random.uniform(0, 30)
+    logger.info(f"Startup jitter: sleeping {startup_delay:.1f}s before first poll")
+    time.sleep(startup_delay)
 
     scraper = UJSPortalScraper(
         max_attempts=8,
@@ -217,11 +234,21 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
                 logger.info(f"Done: {incident} → {outcome.status.value}")
 
             elif outcome.status in (OutcomeStatus.FAILED, OutcomeStatus.INVALID_INPUT):
-                permanent_failure_count += 1
-                logger.warning(f"Permanent failure on {incident}: {outcome.classification}")
-                _write_failure(s3, config, run_id, incident, outcome)
-                sqs.send_message(QueueUrl=config.sqs_dlq_url, MessageBody=msg["Body"])
-                sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
+                if outcome.classification == "NETWORK_OR_SERVER_ERROR":
+                    sqs.change_message_visibility(
+                        QueueUrl=config.sqs_queue_url,
+                        ReceiptHandle=receipt,
+                        VisibilityTimeout=300,
+                    )
+                    logger.warning(
+                        f"NETWORK_OR_SERVER_ERROR on {incident} — requeueing for another worker"
+                    )
+                else:
+                    permanent_failure_count += 1
+                    logger.warning(f"Permanent failure on {incident}: {outcome.classification}")
+                    _write_failure(s3, config, run_id, incident, outcome, page=scraper._page)
+                    sqs.send_message(QueueUrl=config.sqs_dlq_url, MessageBody=msg["Body"])
+                    sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
 
             # Fixed inter-incident jitter (politeness delay per AOPC agreement)
             time.sleep(random.uniform(0.5, 1.5))
