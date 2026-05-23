@@ -1,43 +1,43 @@
-# name: Batch Courts Scraper ETL
+name: Batch Courts Scraper ETL
 
-# on:
-#   schedule:
-#     - cron: "0 7 * * 0"  
-#   workflow_dispatch:
-#     inputs:
-#       force:
-#         description: "Re-scrape all incidents (--force). Default: incremental only."
-#         type: boolean
-#         default: false
+on:
+  schedule:
+    - cron: "0 7 * * 0"  # Sundays 2 AM ET (7 AM UTC) — off-hours per AOPC agreement
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-scrape all incidents (--force). Default: incremental only."
+        type: boolean
+        default: false
 
-# jobs:
-#   batch-courts-scraper:
-#     name: Batch Courts Scraper
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: actions/setup-python@v5
-#         with:
-#           python-version: "3.13"
-#       - uses: astral-sh/setup-uv@v4
-#       - uses: taiki-e/install-action@just
-#       - name: Run courts ETL
-#         run: |
-#           if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.force }}" = "true" ]; then
-#             just etl-courts-full
-#           else
-#             just etl-courts
-#           fi
-#         env:
-#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#           AWS_REGION: ${{ vars.AWS_REGION }}
-#           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-#           AWS_BUCKET_NAME: ${{ vars.AWS_BUCKET_NAME }}
-#           ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
-#           ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
-#       - name: Restart Fly API
-#         uses: superfly/flyctl-actions/setup-flyctl@master
-#       - run: just fly-restart
-#         env:
-#           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+jobs:
+  batch-courts-scraper:
+    name: Batch Courts Scraper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v4
+      - uses: taiki-e/install-action@just
+      - name: Run courts ETL
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.force }}" = "true" ]; then
+            just etl-courts-full
+          else
+            just etl-courts
+          fi
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_BUCKET_NAME: ${{ vars.AWS_BUCKET_NAME }}
+          ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
+          ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
+      - name: Restart Fly API
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: just fly-restart
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
