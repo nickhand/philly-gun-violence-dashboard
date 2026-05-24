@@ -2,6 +2,17 @@ name: Batch Courts Scraper ETL
 
 on:
   workflow_dispatch:
+    inputs:
+      sample:
+        description: "Number of incident keys to scrape. Use 0 for all incidents."
+        type: number
+        required: false
+        default: 0
+      seed:
+        description: "Random seed used when sampling incident keys."
+        type: number
+        required: false
+        default: 42
 
 permissions:
   id-token: write
@@ -24,8 +35,20 @@ jobs:
       - name: Verify identity
         run: aws sts get-caller-identity
       - name: Run courts ETL
-        run: just etl-courts-full
+        run: |
+          if [ "${SAMPLE}" -gt 0 ]; then
+            cd etl
+            uv run gv-dashboard-etl courts submit \
+              --force \
+              --monitor-in-ecs \
+              --sample "${SAMPLE}" \
+              --seed "${SEED}"
+          else
+            just etl-courts-full
+          fi
         env:
+          SAMPLE: ${{ inputs.sample }}
+          SEED: ${{ inputs.seed }}
           ENV: prod
           AWS_REGION: ${{ vars.AWS_REGION }}
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
