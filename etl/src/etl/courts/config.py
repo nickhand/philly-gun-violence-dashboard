@@ -33,37 +33,24 @@ class _CSVDotEnvSource(_CSVMixin, DotEnvSettingsSource):
     pass
 
 
-class ScraperConfig(S3Config):
-    """Settings for the submitter (local + GitHub Actions) and the Fargate worker.
+class WorkerConfig(S3Config):
+    """Settings for the Fargate worker: S3 + SQS only.
 
-    Both need SQS; the submitter additionally needs ECS settings to launch tasks.
+    Does not include ECS fields — workers never launch other tasks.
+    Also used by aggregate, stats, and process commands that only need S3/SQS.
     """
 
-    # Strip FLY_* aliases — scraper uses AWS_PROFILE or task role, never Fly credentials
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-
-    # Required for constructing SQS URLs and ECS ARNs (not needed by the API)
+    # Required for constructing SQS URLs
     aws_account_id: str = Field(..., description="AWS account ID, e.g. '985454606291'")
 
     # Queue names — derive URLs from these + account_id + region
     sqs_queue_name: str = "ujs-incidents"
     sqs_dlq_name: str = "ujs-incidents-dlq"
 
-    # ECS — fixed names by convention, override via env if needed
-    ecs_cluster_name: str = "ujs-scraper"
-    ecs_task_definition: str = "ujs-scraper"
-    ecs_container_name: str = "ujs-scraper"
-    ecs_task_count: int = 9
-
-    # ECS networking — accept comma-separated strings (e.g. subnet-a,subnet-b)
-    ecs_subnet_ids: list[str]
-    ecs_security_group_ids: list[str]
-
     @classmethod
-    def settings_customise_sources(
+    def settings_customize_sources(
         cls,
-        settings_cls: type["ScraperConfig"],
+        settings_cls: type["WorkerConfig"],
         init_settings: PydanticBaseSettingsSource,
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
@@ -90,6 +77,23 @@ class ScraperConfig(S3Config):
         return (
             f"https://sqs.{self.aws_region}.amazonaws.com/{self.aws_account_id}/{self.sqs_dlq_name}"
         )
+
+
+class SubmitterConfig(WorkerConfig):
+    """Settings for the submitter and monitor: extends WorkerConfig with ECS fields.
+
+    Used by the submit and monitor commands that need to launch and track Fargate tasks.
+    """
+
+    # ECS — fixed names by convention, override via env if needed
+    ecs_cluster_name: str = "ujs-scraper"
+    ecs_task_definition: str = "ujs-scraper"
+    ecs_container_name: str = "ujs-scraper"
+    ecs_task_count: int = 9
+
+    # ECS networking — accept comma-separated strings (e.g. subnet-a,subnet-b)
+    ecs_subnet_ids: list[str]
+    ecs_security_group_ids: list[str]
 
     @computed_field
     @property

@@ -22,18 +22,7 @@ def write_flags(s3: S3Client, df: pd.DataFrame) -> None:
     write_processed_csv("courts_flags", df, s3=s3)
 
 
-def write_portal_results(
-    s3: S3Client,
-    portal_results: dict[str, ScrapeOutcome],
-) -> None:
-    """Write portal results to processed data folder.
-
-    Parameters
-    ----------
-    s3 : S3Client
-        The S3 client to use for uploading the portal results.
-    portal_results : dict[str, ScrapeOutcome]
-        Dictionary mapping incident numbers to ScrapeOutcome objects.
-    """
-    result_dicts = {k: v.model_dump() for k, v in portal_results.items()}
+def write_portal_results(s3: S3Client, portal_results: dict[str, ScrapeOutcome]) -> None:
+    """Write aggregated portal results to processed/courts/portal_results.json."""
+    result_dicts = {k: v.model_dump(mode="json") for k, v in portal_results.items()}
     write_processed_json("portal_results", result_dicts, s3=s3)

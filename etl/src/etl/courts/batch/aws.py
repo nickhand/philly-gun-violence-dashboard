@@ -10,7 +10,7 @@ from mypy_boto3_ecs.client import ECSClient
 from mypy_boto3_s3.client import S3Client
 from mypy_boto3_sqs.client import SQSClient
 
-from etl.courts.config import ScraperConfig
+from etl.courts.config import SubmitterConfig
 
 _ECS_TERMINAL = {"STOPPED", "DEPROVISIONING"}
 
@@ -21,7 +21,7 @@ def make_run_id() -> str:
     return f"{ts}-{uuid.uuid4().hex[:4]}"
 
 
-def get_existing_incidents(s3: S3Client, config: ScraperConfig) -> set[str]:
+def get_existing_incidents(s3: S3Client, config: SubmitterConfig) -> set[str]:
     """Return the set of incident numbers that already have results in S3.
 
     Used by the submitter to filter out already-scraped incidents before
@@ -42,7 +42,7 @@ def get_existing_incidents(s3: S3Client, config: ScraperConfig) -> set[str]:
 
 def seed_queue(
     sqs: SQSClient,
-    config: ScraperConfig,
+    config: SubmitterConfig,
     incident_numbers: list[str],
     run_id: str,
 ) -> int:
@@ -72,7 +72,7 @@ def seed_queue(
 
 def write_run_manifest(
     s3: S3Client,
-    config: ScraperConfig,
+    config: SubmitterConfig,
     run_id: str,
     incident_numbers: list[str],
     worker_count: int,
@@ -104,7 +104,7 @@ def write_run_manifest(
     logger.info(f"Wrote run manifest to s3://{config.s3_bucket}/{prefix}/")
 
 
-def write_task_arns(s3: S3Client, config: ScraperConfig, run_id: str, task_arns: list[str]) -> None:
+def write_task_arns(s3: S3Client, config: SubmitterConfig, run_id: str, task_arns: list[str]) -> None:
     """Persist task ARNs for a run so monitor can poll ECS task status."""
     key = f"{config.s3_scraper_prefix}/runs/{run_id}/tasks.json"
     s3.put_object(
@@ -115,7 +115,7 @@ def write_task_arns(s3: S3Client, config: ScraperConfig, run_id: str, task_arns:
     )
 
 
-def get_task_arns(s3: S3Client, config: ScraperConfig, run_id: str) -> list[str]:
+def get_task_arns(s3: S3Client, config: SubmitterConfig, run_id: str) -> list[str]:
     """Read task ARNs saved by write_task_arns. Returns [] if not found."""
     key = f"{config.s3_scraper_prefix}/runs/{run_id}/tasks.json"
     try:
@@ -127,7 +127,7 @@ def get_task_arns(s3: S3Client, config: ScraperConfig, run_id: str) -> list[str]
 
 def launch_workers(
     ecs: ECSClient,
-    config: ScraperConfig,
+    config: SubmitterConfig,
     run_id: str,
     worker_count: int | None = None,
     force_rescrape: bool = False,
@@ -200,7 +200,7 @@ def monitor_run(
     ecs: ECSClient,
     sqs: SQSClient,
     s3: S3Client,
-    config: ScraperConfig,
+    config: SubmitterConfig,
     run_id: str,
     *,
     poll_interval: int = 30,
@@ -238,7 +238,7 @@ def monitor_run(
 
 def monitor_until_empty(
     sqs: SQSClient,
-    config: ScraperConfig,
+    config: SubmitterConfig,
     *,
     poll_interval: int = 60,
     s3: S3Client | None = None,
@@ -276,7 +276,7 @@ def monitor_until_empty(
 def _finalize_manifest(
     s3: S3Client,
     sqs: SQSClient,
-    config: ScraperConfig,
+    config: SubmitterConfig,
     run_id: str,
     monitor_started_at: datetime,
 ) -> None:

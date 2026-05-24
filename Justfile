@@ -79,6 +79,11 @@ etl-courts:
 etl-courts-full:
 	cd etl; uv run gv-dashboard-etl courts submit --force
 
+# ETL courts data — aggregate results and write processed flags CSV
+[group: "etl"]
+etl-courts-process:
+	cd etl; uv run gv-dashboard-etl courts process
+
 # -----------------------------------------------------------------------------
 # ETL Courts Scraper
 # -----------------------------------------------------------------------------

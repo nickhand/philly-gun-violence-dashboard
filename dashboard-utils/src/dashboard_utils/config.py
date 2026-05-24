@@ -80,25 +80,7 @@ class AWSConfig(_Base):
     aws_region: Literal["us-east-1"] | BucketLocationConstraintType = "us-east-1"
 
 
-class FlyAWSConfig(AWSConfig):
-    """AWSConfig variant that also accepts FLY_AWS_* credential names.
-
-    Used by the API deployed on Fly.io, where secrets are named FLY_AWS_*
-    locally (to avoid shadowing the developer's own AWS_* env vars) but the
-    standard AWS_* names are used in production Fly secrets.
-    """
-
-    aws_access_key_id: str | None = Field(
-        None,
-        validation_alias=AliasChoices("aws_access_key_id", "fly_aws_access_key_id"),
-    )
-    aws_secret_access_key: str | None = Field(
-        None,
-        validation_alias=AliasChoices("aws_secret_access_key", "fly_aws_secret_access_key"),
-    )
-
-
-class S3Config(FlyAWSConfig):
+class S3Config(AWSConfig):
     """S3 bucket and prefix names.
 
     The bucket is shared across components but each component touches only

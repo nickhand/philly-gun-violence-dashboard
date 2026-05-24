@@ -13,7 +13,7 @@ from botocore.exceptions import ClientError
 from loguru import logger
 
 from dashboard_utils.aws import make_boto3_session
-from etl.courts.config import ScraperConfig
+from etl.courts.config import WorkerConfig
 from etl.courts.scraper.core import UJSPortalScraper
 from etl.courts.scraper.schema import OutcomeStatus, ScrapeOutcome, SoftBlocked
 
@@ -34,7 +34,7 @@ def _result_exists(s3, bucket: str, key: str) -> bool:
 
 def _write_result(
     s3,
-    config: ScraperConfig,
+    config: WorkerConfig,
     incident: str,
     run_id: str,
     outcome: ScrapeOutcome,
@@ -53,7 +53,7 @@ def _write_result(
 
 def _write_failure(
     s3,
-    config: ScraperConfig,
+    config: WorkerConfig,
     run_id: str,
     incident: str,
     outcome: ScrapeOutcome,
@@ -61,6 +61,7 @@ def _write_failure(
 ) -> None:
     prefix = f"{config.s3_scraper_prefix}/runs/{run_id}/failures"
     data = outcome.model_dump(mode="json")
+    data["incident_number"] = incident
     data["failed_at"] = datetime.now(UTC).isoformat()
     s3.put_object(
         Bucket=config.s3_bucket,
@@ -82,7 +83,7 @@ def _write_failure(
             logger.debug("Failed to capture failure screenshot")
 
 
-def _write_stats(s3, config: ScraperConfig, run_id: str, task_id: str, stats: dict) -> None:
+def _write_stats(s3, config: WorkerConfig, run_id: str, task_id: str, stats: dict) -> None:
     key = f"{config.s3_scraper_prefix}/runs/{run_id}/logs/{task_id}-stats.json"
     s3.put_object(
         Bucket=config.s3_bucket,
@@ -93,11 +94,51 @@ def _write_stats(s3, config: ScraperConfig, run_id: str, task_id: str, stats: di
     logger.info(f"Stats written to s3://{config.s3_bucket}/{key}")
 
 
-def _sigalrm_handler(signum: int, frame: object) -> None:
+def _dispatch_process_workflow(run_id: str) -> None:
+    """Fire a repository_dispatch event to trigger the courts-process workflow.
+
+    Requires GITHUB_DISPATCH_TOKEN (PAT with contents:write) and GITHUB_REPOSITORY
+    (e.g. 'owner/repo') to be set as environment variables on the ECS task.
+    Silently skips if either is absent so local/dev runs are unaffected.
+    """
+    import urllib.request
+
+    token = os.environ.get("GITHUB_DISPATCH_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        logger.info(
+            "GITHUB_DISPATCH_TOKEN or GITHUB_REPOSITORY not set — skipping workflow dispatch"
+        )
+        return
+
+    url = f"https://api.github.com/repos/{repo}/dispatches"
+    payload = json.dumps(
+        {
+            "event_type": "courts-scrape-complete",
+            "client_payload": {"run_id": run_id},
+        }
+    ).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.info(f"Dispatched courts-process workflow for run {run_id} (HTTP {resp.status})")
+    except Exception as e:
+        logger.warning(f"Failed to dispatch courts-process workflow: {e}")
+
     raise TimeoutError(f"scrape exceeded {_SCRAPE_TIMEOUT_S}s")
 
 
-def run_worker(config: ScraperConfig, run_id: str) -> None:
+def run_worker(config: WorkerConfig, run_id: str) -> None:
     """Long-poll SQS and scrape one incident per message until queue drains or SIGTERM."""
     session = make_boto3_session()
     s3 = session.client("s3")
@@ -117,7 +158,6 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
 
     scraper = UJSPortalScraper(
         max_attempts=8,
-        enable_screenshots=False,
         errors="ignore",
     )
     consecutive_empty = 0
@@ -129,7 +169,9 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
     soft_blocked_count = 0
     permanent_failure_count = 0
 
-    logger.info(f"Worker started. task_id={task_id}, run_id={run_id}, queue={config.sqs_queue_url}, force_rescrape={force_rescrape}")
+    logger.info(
+        f"Worker started. task_id={task_id}, run_id={run_id}, queue={config.sqs_queue_url}, force_rescrape={force_rescrape}"
+    )
 
     try:
         while not shutdown.is_set():
@@ -155,6 +197,7 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
                     in_flight = int(attrs["ApproximateNumberOfMessagesNotVisible"])
                     if visible == 0 and in_flight == 0:
                         logger.info("Queue empty — worker exiting")
+                        _dispatch_process_workflow(run_id)
                         break
                     logger.info(f"Still waiting: visible={visible}, in_flight={in_flight}")
                     consecutive_empty = 0
@@ -250,15 +293,23 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
                     sqs.send_message(QueueUrl=config.sqs_dlq_url, MessageBody=msg["Body"])
                     sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
 
-            # Fixed inter-incident jitter (politeness delay per AOPC agreement)
+            # Fixed inter-incident jitter
             time.sleep(random.uniform(0.5, 1.5))
 
     finally:
-        scraper.close()
+        try:
+            signal.alarm(15)
+            scraper.close()
+        except Exception:
+            pass
+        finally:
+            signal.alarm(0)
 
         end_time = datetime.now(UTC)
         runtime_seconds = (end_time - start_time).total_seconds()
-        incidents_per_minute = (incidents_processed / runtime_seconds * 60) if runtime_seconds > 0 else 0
+        incidents_per_minute = (
+            (incidents_processed / runtime_seconds * 60) if runtime_seconds > 0 else 0
+        )
 
         stats = {
             "task_id": task_id,
@@ -286,6 +337,6 @@ def run_worker(config: ScraperConfig, run_id: str) -> None:
 
 def main() -> None:
     """Entry point for the Fargate worker container."""
-    config = ScraperConfig()
+    config = WorkerConfig()
     run_id = os.environ.get("RUN_ID", "unknown")
     run_worker(config, run_id)

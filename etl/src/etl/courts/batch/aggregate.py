@@ -5,13 +5,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from loguru import logger
 from mypy_boto3_s3.client import S3Client
 
-from etl.courts.config import ScraperConfig
+from etl.courts.config import WorkerConfig
 from etl.courts.scraper.schema import ScrapeOutcome
 
 _FETCH_WORKERS = 30
 
 
-def aggregate_results(s3: S3Client, config: ScraperConfig) -> dict[str, ScrapeOutcome]:
+def aggregate_results(s3: S3Client, config: WorkerConfig) -> dict[str, ScrapeOutcome]:
     """Read all results/{incident}.json from S3 and return as a dict.
 
     Uses a thread pool to fetch files concurrently — sequential fetches at
@@ -41,8 +41,10 @@ def aggregate_results(s3: S3Client, config: ScraperConfig) -> dict[str, ScrapeOu
         body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
         return incident, ScrapeOutcome.model_validate_json(body)
 
+    total = len(keys)
     results: dict[str, ScrapeOutcome] = {}
     errors = 0
+    log_every = max(1, total // 10)
     with ThreadPoolExecutor(max_workers=_FETCH_WORKERS) as pool:
         futures = {pool.submit(_fetch, ik): ik for ik in keys}
         for future in as_completed(futures):
@@ -53,6 +55,9 @@ def aggregate_results(s3: S3Client, config: ScraperConfig) -> dict[str, ScrapeOu
                 errors += 1
                 incident, key = futures[future]
                 logger.warning(f"Failed to fetch result for {incident} ({key})")
+            done = len(results) + errors
+            if done % log_every == 0:
+                logger.info(f"Fetched {done}/{total} results ({done/total*100:.0f}%)")
 
     if errors:
         logger.warning(f"{errors} results failed to fetch and were skipped")
@@ -60,7 +65,7 @@ def aggregate_results(s3: S3Client, config: ScraperConfig) -> dict[str, ScrapeOu
     return results
 
 
-def snapshot_to_parquet(s3: S3Client, config: ScraperConfig) -> str:
+def snapshot_to_parquet(s3: S3Client, config: WorkerConfig) -> str:
     """Read all results/*.json via DuckDB and write a Parquet snapshot to S3.
 
     The snapshot contains per-incident summary columns (no nested results
