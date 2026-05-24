@@ -17,6 +17,7 @@ from etl.courts.scraper.classifier import (
     _check_text_markers,
     _check_url_patterns,
     classify_case_search,
+    classify_from_exception,
 )
 from etl.courts.scraper.net_observer import NetworkObserver
 
@@ -335,3 +336,22 @@ class TestClassificationResult:
         assert d["classification"] == "HAS_RESULTS"
         assert d["row_count"] == 5
         assert d["marker_hits"]["results_container"] is True
+
+
+def test_exception_with_429_status_is_soft_blocked() -> None:
+    """A 429 during page bootstrap is a rate-limit block, not a generic timeout."""
+    observer = MagicMock()
+    observer.get_snapshot.return_value = {
+        "status_histogram": {429: 1},
+        "requestfailed_count": 0,
+    }
+
+    result = classify_from_exception(
+        TimeoutError("Page.wait_for_selector: Timeout 30000ms exceeded."),
+        "",
+        observer,
+        elapsed_ms=30_000,
+    )
+
+    assert result.classification == Classification.SOFT_BLOCKED
+    assert result.subreason == "HTTP 403/429 detected during exception handling"

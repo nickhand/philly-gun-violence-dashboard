@@ -2,6 +2,7 @@
 
 import json
 import os
+import urllib.error
 import urllib.request
 
 from loguru import logger
@@ -17,8 +18,16 @@ def dispatch_process_workflow(run_id: str) -> None:
     token = os.environ.get("GITHUB_DISPATCH_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY")
     if not token or not repo:
+        missing = [
+            name
+            for name, value in {
+                "GITHUB_DISPATCH_TOKEN": token,
+                "GITHUB_REPOSITORY": repo,
+            }.items()
+            if not value
+        ]
         logger.info(
-            "GITHUB_DISPATCH_TOKEN or GITHUB_REPOSITORY not set — skipping workflow dispatch"
+            f"{', '.join(missing)} not set — skipping workflow dispatch"
         )
         return
 
@@ -43,5 +52,10 @@ def dispatch_process_workflow(run_id: str) -> None:
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             logger.info(f"Dispatched courts-process workflow for run {run_id} (HTTP {resp.status})")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        logger.warning(
+            f"Failed to dispatch courts-process workflow: HTTP {exc.code} {exc.reason}: {body}"
+        )
     except Exception as exc:
         logger.warning(f"Failed to dispatch courts-process workflow: {exc}")

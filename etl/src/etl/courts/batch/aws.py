@@ -1,7 +1,6 @@
 """Submitter: seed SQS queue, write run manifest, and launch Fargate workers."""
 
 import json
-import os
 import time
 import uuid
 from datetime import UTC, datetime
@@ -280,7 +279,7 @@ def launch_monitor(
         {"name": "ECS_SUBNET_IDS", "value": ",".join(config.ecs_subnet_ids)},
         {"name": "ECS_SECURITY_GROUP_IDS", "value": ",".join(config.ecs_security_group_ids)},
     ]
-    if repository := os.environ.get("GITHUB_REPOSITORY"):
+    if repository := config.github_repository:
         env_vars.append({"name": "GITHUB_REPOSITORY", "value": repository})
 
     overrides: TaskOverrideTypeDef = {

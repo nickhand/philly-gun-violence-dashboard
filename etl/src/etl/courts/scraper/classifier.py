@@ -361,14 +361,38 @@ def classify_from_exception(
 ) -> ClassificationResult:
     """Classify a scrape attempt that raised an exception."""
     net_snapshot = net_observer.get_snapshot() if net_observer else {}
+    status_histogram = net_snapshot.get("status_histogram")
+    requestfailed_count = net_snapshot.get("requestfailed_count", 0)
+
+    if _has_status(status_histogram, SOFT_BLOCKED_STATUS_CODES):
+        return ClassificationResult(
+            classification=Classification.SOFT_BLOCKED,
+            subreason="HTTP 403/429 detected during exception handling",
+            final_url=final_url,
+            status_histogram=status_histogram,
+            requestfailed_count=requestfailed_count,
+            elapsed_ms=elapsed_ms,
+            error_message=str(exception),
+        )
+
+    if _has_status(status_histogram, SERVER_ERROR_STATUS_CODES):
+        return ClassificationResult(
+            classification=Classification.NETWORK_OR_SERVER_ERROR,
+            subreason="Server error status detected during exception handling",
+            final_url=final_url,
+            status_histogram=status_histogram,
+            requestfailed_count=requestfailed_count,
+            elapsed_ms=elapsed_ms,
+            error_message=str(exception),
+        )
 
     if isinstance(exception, PlaywrightTimeoutError):
         return ClassificationResult(
             classification=Classification.NETWORK_OR_SERVER_ERROR,
             subreason=f"Playwright timeout: {exception}",
             final_url=final_url,
-            status_histogram=net_snapshot.get("status_histogram"),
-            requestfailed_count=net_snapshot.get("requestfailed_count", 0),
+            status_histogram=status_histogram,
+            requestfailed_count=requestfailed_count,
             elapsed_ms=elapsed_ms,
             error_message=str(exception),
         )
@@ -380,8 +404,8 @@ def classify_from_exception(
             classification=Classification.NETWORK_OR_SERVER_ERROR,
             subreason=f"Network error: {type(exception).__name__}",
             final_url=final_url,
-            status_histogram=net_snapshot.get("status_histogram"),
-            requestfailed_count=net_snapshot.get("requestfailed_count", 0),
+            status_histogram=status_histogram,
+            requestfailed_count=requestfailed_count,
             elapsed_ms=elapsed_ms,
             error_message=str(exception),
         )
@@ -390,8 +414,21 @@ def classify_from_exception(
         classification=Classification.UI_DRIFT_OR_UNKNOWN,
         subreason=f"Unexpected exception: {type(exception).__name__}",
         final_url=final_url,
-        status_histogram=net_snapshot.get("status_histogram"),
-        requestfailed_count=net_snapshot.get("requestfailed_count", 0),
+        status_histogram=status_histogram,
+        requestfailed_count=requestfailed_count,
         elapsed_ms=elapsed_ms,
         error_message=str(exception),
     )
+
+
+def _has_status(status_histogram: Any, statuses: set[int]) -> bool:
+    """Return True when a network snapshot contains one of the target statuses."""
+    if not isinstance(status_histogram, dict):
+        return False
+    for status in status_histogram:
+        try:
+            if int(status) in statuses:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False

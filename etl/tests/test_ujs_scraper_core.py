@@ -50,6 +50,16 @@ def test_visible_results_parse_failure_is_retryable_ui_drift(monkeypatch: pytest
     assert exc_info.value.result.classification == Classification.UI_DRIFT_OR_UNKNOWN
 
 
+def test_process_timeout_propagates_to_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The SIGALRM timeout should reach the worker timeout handler directly."""
+    scraper = UJSPortalScraper(errors="ignore")
+    scraper._net_observer = NetworkObserver()
+    monkeypatch.setattr(scraper, "_ensure_page", MagicMock(side_effect=TimeoutError("alarm")))
+
+    with pytest.raises(TimeoutError, match="alarm"):
+        scraper._scrape_once("1234567890", 1)
+
+
 def test_parse_results_accepts_fixture_rows() -> None:
     """Visible portal rows should parse even when the row exposes only one link."""
     html = (Path(__file__).parent / "fixtures/ujs/results_with_rows.html").read_text()

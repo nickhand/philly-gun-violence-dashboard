@@ -85,10 +85,11 @@ def test_launch_workers_raises_when_any_task_fails_to_start() -> None:
 
 def test_launch_monitor_overrides_worker_command(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ECS monitor task should run the coordinator command, not another worker."""
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     ecs = FakeECS()
+    config = _config()
+    config.github_repository = "owner/repo"
 
-    task_arn = launch_monitor(ecs, _config(), "run-1")
+    task_arn = launch_monitor(ecs, config, "run-1")
 
     assert task_arn == "arn:task/1"
     override = ecs.requests[0]["overrides"]["containerOverrides"][0]

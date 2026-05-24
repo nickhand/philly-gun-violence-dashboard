@@ -23,6 +23,7 @@ class WorkerConfig(S3Config):
     force_rescrape: bool = False
     soft_blocked_delay_min: int = 300
     soft_blocked_delay_max: int = 900
+    github_repository: str | None = None
 
     @property
     def sqs_queue_url(self) -> str:

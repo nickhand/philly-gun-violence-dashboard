@@ -343,6 +343,8 @@ class UJSPortalScraper:
                         error_message=str(e),
                     )
 
+        except TimeoutError:
+            raise
         except PlaywrightTimeoutError as e:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             result = classify_from_exception(

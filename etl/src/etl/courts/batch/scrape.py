@@ -293,10 +293,14 @@ def run_worker(config: WorkerConfig, run_id: str) -> None:
 
             elif outcome.status in (OutcomeStatus.FAILED, OutcomeStatus.INVALID_INPUT):
                 if outcome.classification == "NETWORK_OR_SERVER_ERROR":
-                    _requeue(sqs, config, receipt, 300)
+                    delay = 300
+                    _requeue(sqs, config, receipt, delay)
                     logger.warning(
-                        f"NETWORK_OR_SERVER_ERROR on {incident} — requeueing for another worker"
+                        f"NETWORK_OR_SERVER_ERROR on {incident} — requeued with "
+                        f"{delay}s visibility delay"
                     )
+                    _reset_scraper(scraper)
+                    continue
                 else:
                     stats.permanent_failure_count += 1
                     logger.warning(f"Permanent failure on {incident}: {outcome.classification}")
