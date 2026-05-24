@@ -62,6 +62,14 @@ class ScrapeOutcome(BaseModel):
         UTC timestamp when the result was written to S3.
     run_id : str | None
         Run ID of the scrape job that produced this result.
+    final_url : str | None
+        Browser URL observed when the scrape was classified.
+    marker_hits : dict[str, bool] | None
+        Classifier marker checks that explain why the page was categorized.
+    status_histogram : dict[int, int] | None
+        HTTP status code counts observed during the attempt.
+    requestfailed_count : int
+        Count of Playwright network request failures observed during the attempt.
     """
 
     status: OutcomeStatus
@@ -73,6 +81,12 @@ class ScrapeOutcome(BaseModel):
     scraped_at: datetime | None = None
     run_id: str | None = None
     scrape_duration_s: float | None = None
+    final_url: str | None = None
+    marker_hits: dict[str, bool] | None = None
+    status_histogram: dict[int, int] | None = None
+    requestfailed_count: int = 0
+    page_title: str | None = None
+    error_message: str | None = None
 
 
 class PortalResult(BaseModel):

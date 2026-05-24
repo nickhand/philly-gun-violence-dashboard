@@ -78,7 +78,13 @@ def _has_class(node: Any, class_name: str) -> bool:
 
 
 def _parse_results(html: str) -> list[PortalResult] | None:
-    """Parse the portal search results table into structured records."""
+    """Parse the portal search results table into structured records.
+
+    The UJS grid markup is vendor-controlled and has changed over time. Treat
+    row presence as the source of truth, parse the fields that are present, and
+    leave missing optional cells empty rather than discarding an otherwise valid
+    court hit.
+    """
     doc = JustHTML(html)
     tables = doc.query(RESULTS_CONTAINER)
     if not tables:
@@ -92,20 +98,28 @@ def _parse_results(html: str) -> list[PortalResult] | None:
         ]
         if not cells:
             continue
-        if len(cells) < len(RESULT_FIELDS):
-            continue
 
-        record = dict(zip(RESULT_FIELDS, cells[: len(RESULT_FIELDS)], strict=True))
+        record = dict.fromkeys(RESULT_FIELDS, "")
+        record.update(zip(RESULT_FIELDS, cells[: len(RESULT_FIELDS)], strict=False))
         links = [a.attrs.get("href") for a in row.query("a") if a.attrs and a.attrs.get("href")]
-        if len(links) >= 2:
-            record["court_summary_url"] = f"{PORTAL_BASE_URL}{links[-1]}"
-            record["docket_sheet_url"] = f"{PORTAL_BASE_URL}{links[-2]}"
+        if links:
+            record["court_summary_url"] = _absolute_portal_url(links[-1])
+            record["docket_sheet_url"] = _absolute_portal_url(links[-2] if len(links) >= 2 else "")
         data.append(record)
 
     if not data:
         return None
 
     return [PortalResult.model_validate(record) for record in data]
+
+
+def _absolute_portal_url(href: str) -> str:
+    """Return an absolute portal URL for relative UJS links."""
+    if not href:
+        return ""
+    if href.startswith("http://") or href.startswith("https://"):
+        return href
+    return f"{PORTAL_BASE_URL}{href}"
 
 
 @dataclass
@@ -177,7 +191,11 @@ class UJSPortalScraper:
             if isinstance(exc, RetryableScrapeError):
                 logger.warning(
                     f"Retrying after {exc.result.classification.value} "
-                    f"(attempt {attempt}/{self.max_attempts})"
+                    f"(attempt {attempt}/{self.max_attempts}): "
+                    f"{exc.result.subreason or 'no subreason'}; "
+                    f"url={exc.result.final_url or 'unknown'}; "
+                    f"statuses={exc.result.status_histogram or {}}; "
+                    f"requestfailed={exc.result.requestfailed_count}"
                 )
                 is_soft_blocked = exc.result.classification == Classification.SOFT_BLOCKED
 
@@ -402,4 +420,10 @@ class UJSPortalScraper:
             classification=final_result.classification.value,
             subreason=final_result.subreason,
             attempt_count=attempt_count,
+            final_url=final_result.final_url,
+            marker_hits=final_result.marker_hits,
+            status_histogram=final_result.status_histogram,
+            requestfailed_count=final_result.requestfailed_count,
+            page_title=final_result.page_title,
+            error_message=final_result.error_message,
         )

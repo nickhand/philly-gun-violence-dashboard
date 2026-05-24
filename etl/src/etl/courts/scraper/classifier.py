@@ -157,8 +157,15 @@ def _count_result_rows(page: Page, selector: str = RESULTS_ROW_SELECTOR) -> int:
         visible_count = 0
         for row in rows:
             text = row.inner_text()
-            if text and text.strip():
-                visible_count += 1
+            if not text or not text.strip():
+                continue
+            no_results_found, _ = _check_text_markers(text, NO_RESULTS_TEXT_MARKERS)
+            if no_results_found:
+                continue
+            class_attr = row.get_attribute("class") or ""
+            if "no-records" in class_attr.split():
+                continue
+            visible_count += 1
         return visible_count
     except Exception:
         return 0
@@ -312,6 +319,13 @@ def classify_case_search(
         no_results_found, _ = _check_text_markers(page_content, NO_RESULTS_TEXT_MARKERS)
         marker_hits["no_results_text"] = no_results_found
 
+        if no_results_found:
+            return result(
+                Classification.ZERO_RESULTS,
+                subreason="No results text marker found",
+                row_count=0,
+                error_message=None,
+            )
         if row_count > 0:
             return result(
                 Classification.HAS_RESULTS,
@@ -319,15 +333,12 @@ def classify_case_search(
                 row_count=row_count,
                 error_message=None,
             )
-        else:
-            return result(
-                Classification.ZERO_RESULTS,
-                subreason=(
-                    "No results text marker found" if no_results_found else "Results table empty"
-                ),
-                row_count=0,
-                error_message=None,
-            )
+        return result(
+            Classification.ZERO_RESULTS,
+            subreason="Results table empty",
+            row_count=0,
+            error_message=None,
+        )
 
     if net_snapshot["requestfailed_count"] > 0:
         return result(

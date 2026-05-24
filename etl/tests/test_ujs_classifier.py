@@ -81,6 +81,7 @@ class MockPage:
                 if text:
                     mock_row = MagicMock()
                     mock_row.inner_text.return_value = text
+                    mock_row.get_attribute.return_value = row.attrs.get("class")
                     mock_rows.append(mock_row)
             return mock_rows
         return []
@@ -169,6 +170,29 @@ class TestClassifierWithFixtures:
         assert result.classification == Classification.ZERO_RESULTS
         assert result.row_count == 0
         assert result.marker_hits is not None
+        assert result.marker_hits.get("no_results_text") is True
+
+    def test_no_results_text_wins_over_placeholder_row(self):
+        """UJS renders "No results found" inside a grid row on the live site."""
+        content = """
+        <div id="caseSearchResultGrid">
+          <table>
+            <tbody>
+              <tr class="no-records"><td colspan="12">No results found</td></tr>
+            </tbody>
+          </table>
+        </div>
+        """
+        page = MockPage(content)
+        observer = NetworkObserver()
+
+        with patch.object(page, "wait_for_selector", return_value=MagicMock()):
+            result = classify_case_search(page, observer, results_wait_timeout_ms=100)
+
+        assert result.classification == Classification.ZERO_RESULTS
+        assert result.row_count == 0
+        assert result.marker_hits is not None
+        assert result.marker_hits.get("has_rows") is False
         assert result.marker_hits.get("no_results_text") is True
 
     def test_classify_blocked_interstitial(self):

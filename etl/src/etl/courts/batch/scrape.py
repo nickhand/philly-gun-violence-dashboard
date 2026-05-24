@@ -121,6 +121,18 @@ def _write_failure(
         except Exception:
             logger.debug("Failed to capture failure screenshot")
 
+        try:
+            html = page.content()
+            s3.put_object(
+                Bucket=config.s3_bucket,
+                Key=f"{prefix}/{incident}.html",
+                Body=html.encode(),
+                ContentType="text/html",
+            )
+            logger.info(f"HTML snapshot saved to s3://{config.s3_bucket}/{prefix}/{incident}.html")
+        except Exception:
+            logger.debug("Failed to capture failure HTML")
+
 
 def _write_stats(
     s3: S3Client,
