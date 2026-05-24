@@ -198,7 +198,9 @@ def classify_case_search(
         page_title = page.title()
 
     marker_hits["soft_block_status"] = net_observer.has_soft_block_status(SOFT_BLOCKED_STATUS_CODES)
-    marker_hits["server_error_status"] = net_observer.has_server_error_status(SERVER_ERROR_STATUS_CODES)
+    marker_hits["server_error_status"] = net_observer.has_server_error_status(
+        SERVER_ERROR_STATUS_CODES
+    )
 
     try:
         page_content = page.content()
@@ -247,13 +249,17 @@ def classify_case_search(
     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
     net_snapshot = net_observer.get_snapshot()
 
-    # Priority 1: soft-blocked status codes or blocked markers
-    if marker_hits["soft_block_status"] or marker_hits["blocked_marker"]:
-        if not subreason:
-            subreason = "HTTP 403/429 detected" if marker_hits["soft_block_status"] else "Blocked content marker detected"
+    def result(
+        classification: Classification,
+        *,
+        subreason: str | None = None,
+        row_count: int | None = None,
+        error_message: str | None = error_message,
+    ) -> ClassificationResult:
         return ClassificationResult(
-            classification=Classification.SOFT_BLOCKED,
+            classification=classification,
             subreason=subreason,
+            row_count=row_count,
             final_url=final_url,
             marker_hits=marker_hits,
             status_histogram=net_snapshot["status_histogram"],
@@ -262,6 +268,16 @@ def classify_case_search(
             page_title=page_title,
             error_message=error_message,
         )
+
+    # Priority 1: soft-blocked status codes or blocked markers
+    if marker_hits["soft_block_status"] or marker_hits["blocked_marker"]:
+        if not subreason:
+            subreason = (
+                "HTTP 403/429 detected"
+                if marker_hits["soft_block_status"]
+                else "Blocked content marker detected"
+            )
+        return result(Classification.SOFT_BLOCKED, subreason=subreason)
 
     # Priority 2: redirect/session lost
     is_redirected = marker_hits["session_lost_marker"] or marker_hits["redirect_url"]
@@ -275,34 +291,17 @@ def classify_case_search(
             subreason_parts.append(f"Redirect URL pattern: {redirect_pattern}")
         if is_landing_without_results:
             subreason_parts.append("Returned to landing page without results")
-        return ClassificationResult(
-            classification=Classification.REDIRECTED_OR_SESSION_LOST,
+        return result(
+            Classification.REDIRECTED_OR_SESSION_LOST,
             subreason="; ".join(subreason_parts) if subreason_parts else None,
-            final_url=final_url,
-            marker_hits=marker_hits,
-            status_histogram=net_snapshot["status_histogram"],
-            requestfailed_count=net_snapshot["requestfailed_count"],
-            elapsed_ms=elapsed_ms,
-            page_title=page_title,
-            error_message=error_message,
         )
 
-    # Priority 3: server errors or request failures
-    if marker_hits["server_error_status"] or net_snapshot["requestfailed_count"] > 0:
-        return ClassificationResult(
-            classification=Classification.NETWORK_OR_SERVER_ERROR,
-            subreason=(
-                "Server error status detected"
-                if marker_hits["server_error_status"]
-                else f"{net_snapshot['requestfailed_count']} request(s) failed"
-            ),
-            final_url=final_url,
-            marker_hits=marker_hits,
-            status_histogram=net_snapshot["status_histogram"],
-            requestfailed_count=net_snapshot["requestfailed_count"],
-            elapsed_ms=elapsed_ms,
-            page_title=page_title,
-            error_message=error_message,
+    # Priority 3: server errors. Generic request failures are considered only after
+    # checking whether the results container rendered successfully.
+    if marker_hits["server_error_status"]:
+        return result(
+            Classification.NETWORK_OR_SERVER_ERROR,
+            subreason="Server error status detected",
         )
 
     # Priority 4: results container visible, check rows
@@ -314,43 +313,32 @@ def classify_case_search(
         marker_hits["no_results_text"] = no_results_found
 
         if row_count > 0:
-            return ClassificationResult(
-                classification=Classification.HAS_RESULTS,
+            return result(
+                Classification.HAS_RESULTS,
                 subreason=f"Found {row_count} result row(s)",
                 row_count=row_count,
-                final_url=final_url,
-                marker_hits=marker_hits,
-                status_histogram=net_snapshot["status_histogram"],
-                requestfailed_count=net_snapshot["requestfailed_count"],
-                elapsed_ms=elapsed_ms,
-                page_title=page_title,
+                error_message=None,
             )
         else:
-            return ClassificationResult(
-                classification=Classification.ZERO_RESULTS,
+            return result(
+                Classification.ZERO_RESULTS,
                 subreason=(
                     "No results text marker found" if no_results_found else "Results table empty"
                 ),
                 row_count=0,
-                final_url=final_url,
-                marker_hits=marker_hits,
-                status_histogram=net_snapshot["status_histogram"],
-                requestfailed_count=net_snapshot["requestfailed_count"],
-                elapsed_ms=elapsed_ms,
-                page_title=page_title,
+                error_message=None,
             )
 
+    if net_snapshot["requestfailed_count"] > 0:
+        return result(
+            Classification.NETWORK_OR_SERVER_ERROR,
+            subreason=f"{net_snapshot['requestfailed_count']} request(s) failed",
+        )
+
     # Priority 5: UI drift or unknown
-    return ClassificationResult(
-        classification=Classification.UI_DRIFT_OR_UNKNOWN,
+    return result(
+        Classification.UI_DRIFT_OR_UNKNOWN,
         subreason="Results container did not appear within timeout",
-        final_url=final_url,
-        marker_hits=marker_hits,
-        status_histogram=net_snapshot["status_histogram"],
-        requestfailed_count=net_snapshot["requestfailed_count"],
-        elapsed_ms=elapsed_ms,
-        page_title=page_title,
-        error_message=error_message,
     )
 
 

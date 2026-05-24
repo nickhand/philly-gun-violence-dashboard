@@ -1,18 +1,56 @@
 """Submitter: seed SQS queue, write run manifest, and launch Fargate workers."""
 
 import json
+import os
 import time
 import uuid
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from loguru import logger
 from mypy_boto3_ecs.client import ECSClient
+from mypy_boto3_ecs.type_defs import (
+    KeyValuePairTypeDef,
+    NetworkConfigurationTypeDef,
+    TaskOverrideTypeDef,
+)
 from mypy_boto3_s3.client import S3Client
 from mypy_boto3_sqs.client import SQSClient
+from mypy_boto3_sqs.type_defs import (
+    BatchResultErrorEntryTypeDef,
+    SendMessageBatchRequestEntryTypeDef,
+)
 
+from etl.courts.batch.dispatch import dispatch_process_workflow
 from etl.courts.config import SubmitterConfig
 
 _ECS_TERMINAL = {"STOPPED", "DEPROVISIONING"}
+_SQS_BATCH_SIZE = 10
+_SQS_BATCH_ATTEMPTS = 3
+
+
+def _send_message_batch_checked(
+    sqs: SQSClient,
+    queue_url: str,
+    entries: list[SendMessageBatchRequestEntryTypeDef],
+) -> None:
+    """Send one SQS batch and fail loudly if AWS reports per-entry failures."""
+    pending = entries
+    failures: list[BatchResultErrorEntryTypeDef] = []
+    for _ in range(_SQS_BATCH_ATTEMPTS):
+        response = sqs.send_message_batch(QueueUrl=queue_url, Entries=pending)
+        failures = list(response.get("Failed", []))
+        if not failures:
+            return
+
+        failed_ids = {failure["Id"] for failure in failures}
+        pending = [entry for entry in pending if entry["Id"] in failed_ids]
+        logger.warning(f"Retrying {len(pending)} failed SQS batch message(s)")
+
+    failure_details = ", ".join(
+        f"{failure.get('Id', '?')}:{failure.get('Code', 'unknown')}" for failure in failures
+    )
+    raise RuntimeError(f"SQS batch send failed after retries: {failure_details}")
 
 
 def make_run_id() -> str:
@@ -48,7 +86,7 @@ def seed_queue(
 ) -> int:
     """Send incident numbers to SQS in batches of 10. Returns count sent."""
     sent = 0
-    batch: list[dict] = []
+    batch: list[SendMessageBatchRequestEntryTypeDef] = []
 
     for i, incident in enumerate(incident_numbers):
         batch.append(
@@ -57,13 +95,13 @@ def seed_queue(
                 "MessageBody": json.dumps({"incident_number": incident, "run_id": run_id}),
             }
         )
-        if len(batch) == 10:
-            sqs.send_message_batch(QueueUrl=config.sqs_queue_url, Entries=batch)
+        if len(batch) == _SQS_BATCH_SIZE:
+            _send_message_batch_checked(sqs, config.sqs_queue_url, batch)
             sent += len(batch)
             batch = []
 
     if batch:
-        sqs.send_message_batch(QueueUrl=config.sqs_queue_url, Entries=batch)
+        _send_message_batch_checked(sqs, config.sqs_queue_url, batch)
         sent += len(batch)
 
     logger.info(f"Seeded {sent} messages to {config.sqs_queue_url}")
@@ -104,7 +142,12 @@ def write_run_manifest(
     logger.info(f"Wrote run manifest to s3://{config.s3_bucket}/{prefix}/")
 
 
-def write_task_arns(s3: S3Client, config: SubmitterConfig, run_id: str, task_arns: list[str]) -> None:
+def write_task_arns(
+    s3: S3Client,
+    config: SubmitterConfig,
+    run_id: str,
+    task_arns: list[str],
+) -> None:
     """Persist task ARNs for a run so monitor can poll ECS task status."""
     key = f"{config.s3_scraper_prefix}/runs/{run_id}/tasks.json"
     s3.put_object(
@@ -120,7 +163,11 @@ def get_task_arns(s3: S3Client, config: SubmitterConfig, run_id: str) -> list[st
     key = f"{config.s3_scraper_prefix}/runs/{run_id}/tasks.json"
     try:
         body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
-        return json.loads(body).get("task_arns", [])
+        data = cast(dict[str, Any], json.loads(body))
+        task_arns = data.get("task_arns", [])
+        if not isinstance(task_arns, list):
+            return []
+        return [arn for arn in task_arns if isinstance(arn, str)]
     except Exception:
         return []
 
@@ -142,7 +189,7 @@ def launch_workers(
     task_definition = config.ecs_task_definition
     logger.info(f"Using task definition (latest revision): {task_definition}")
 
-    network_config = {
+    network_config: NetworkConfigurationTypeDef = {
         "awsvpcConfiguration": {
             "assignPublicIp": "ENABLED",
             "subnets": config.ecs_subnet_ids,
@@ -150,7 +197,7 @@ def launch_workers(
         }
     }
 
-    env_vars = [
+    env_vars: list[KeyValuePairTypeDef] = [
         {"name": "ENV", "value": "prod"},
         {"name": "RUN_ID", "value": run_id},
         {"name": "AWS_ACCOUNT_ID", "value": config.aws_account_id},
@@ -172,19 +219,20 @@ def launch_workers(
     task_arns: list[str] = []
     for i in range(n):
         logger.info(f"Launching worker {i + 1}/{n}")
+        overrides: TaskOverrideTypeDef = {
+            "containerOverrides": [
+                {
+                    "name": config.ecs_container_name,
+                    "environment": env_vars,
+                }
+            ]
+        }
         response = ecs.run_task(
             taskDefinition=task_definition,
             cluster=config.ecs_cluster_arn,
             networkConfiguration=network_config,
             launchType="FARGATE",
-            overrides={
-                "containerOverrides": [
-                    {
-                        "name": config.ecs_container_name,
-                        "environment": env_vars,
-                    }
-                ]
-            },
+            overrides=overrides,
         )
         if response["tasks"]:
             task_arns.append(response["tasks"][0]["taskArn"])
@@ -192,8 +240,79 @@ def launch_workers(
             reason = response["failures"][0].get("reason", "unknown")
             logger.warning(f"Worker {i + 1} failed to launch: {reason}")
 
+    if not task_arns:
+        raise RuntimeError(f"Only launched {len(task_arns)}/{n} requested worker task(s)")
+    if len(task_arns) != n:
+        logger.warning(f"Only launched {len(task_arns)}/{n} requested worker task(s)")
+
     logger.info(f"Launched {len(task_arns)}/{n} workers")
     return task_arns
+
+
+def launch_monitor(
+    ecs: ECSClient,
+    config: SubmitterConfig,
+    run_id: str,
+) -> str:
+    """Start one Fargate coordinator task that waits for a run and dispatches processing.
+
+    The monitor task uses the same image as workers but overrides the command to
+    ``courts monitor --run-id``. Configure ``GITHUB_DISPATCH_TOKEN`` as an ECS
+    task-definition secret; it may fire hours after the submitter exits, so a
+    short-lived GitHub Actions token is the wrong credential for this task.
+    """
+    network_config: NetworkConfigurationTypeDef = {
+        "awsvpcConfiguration": {
+            "assignPublicIp": "ENABLED",
+            "subnets": config.ecs_subnet_ids,
+            "securityGroups": config.ecs_security_group_ids,
+        }
+    }
+
+    env_vars: list[KeyValuePairTypeDef] = [
+        {"name": "ENV", "value": "prod"},
+        {"name": "RUN_ID", "value": run_id},
+        {"name": "AWS_ACCOUNT_ID", "value": config.aws_account_id},
+        {"name": "AWS_REGION", "value": str(config.aws_region)},
+        {"name": "S3_BUCKET", "value": config.s3_bucket},
+        {"name": "SQS_QUEUE_NAME", "value": config.sqs_queue_name},
+        {"name": "SQS_DLQ_NAME", "value": config.sqs_dlq_name},
+        {"name": "ECS_SUBNET_IDS", "value": ",".join(config.ecs_subnet_ids)},
+        {"name": "ECS_SECURITY_GROUP_IDS", "value": ",".join(config.ecs_security_group_ids)},
+    ]
+    if repository := os.environ.get("GITHUB_REPOSITORY"):
+        env_vars.append({"name": "GITHUB_REPOSITORY", "value": repository})
+
+    overrides: TaskOverrideTypeDef = {
+        "containerOverrides": [
+            {
+                "name": config.ecs_container_name,
+                "command": [
+                    "uv",
+                    "run",
+                    "gv-dashboard-etl",
+                    "courts",
+                    "monitor",
+                    "--run-id",
+                    run_id,
+                ],
+                "environment": env_vars,
+            }
+        ]
+    }
+    response = ecs.run_task(
+        taskDefinition=config.ecs_task_definition,
+        cluster=config.ecs_cluster_arn,
+        networkConfiguration=network_config,
+        launchType="FARGATE",
+        overrides=overrides,
+    )
+    if response["tasks"]:
+        task_arn = response["tasks"][0]["taskArn"]
+        logger.info(f"Launched monitor task for run {run_id}: {task_arn}")
+        return task_arn
+    failures = response.get("failures", [])
+    raise RuntimeError(f"Failed to launch monitor task for run {run_id}: {failures}")
 
 
 def monitor_run(
@@ -221,11 +340,17 @@ def monitor_run(
 
     while True:
         response = ecs.describe_tasks(cluster=config.ecs_cluster_arn, tasks=task_arns)
+        failures = response.get("failures", [])
+        if failures:
+            raise RuntimeError(f"ECS failed to describe run tasks: {failures}")
         tasks = response.get("tasks", [])
         statuses = {t["taskArn"].split("/")[-1]: t["lastStatus"] for t in tasks}
         running = [arn for arn, s in statuses.items() if s not in _ECS_TERMINAL]
 
-        status_summary = ", ".join(f"{s}:{sum(1 for v in statuses.values() if v == s)}" for s in sorted(set(statuses.values())))
+        status_summary = ", ".join(
+            f"{status}:{sum(1 for value in statuses.values() if value == status)}"
+            for status in sorted(set(statuses.values()))
+        )
         logger.info(f"Tasks: {status_summary} — {len(running)} still running")
 
         if not running:
@@ -284,7 +409,7 @@ def _finalize_manifest(
     manifest_key = f"{config.s3_scraper_prefix}/runs/{run_id}/manifest.json"
     try:
         body = s3.get_object(Bucket=config.s3_bucket, Key=manifest_key)["Body"].read()
-        manifest: dict = json.loads(body)
+        manifest: dict[str, Any] = json.loads(body)
     except Exception:
         logger.warning(f"Could not read manifest for run {run_id}, creating minimal record")
         manifest = {"run_id": run_id}
@@ -321,6 +446,5 @@ def _finalize_manifest(
         Body=json.dumps(manifest, indent=2).encode(),
         ContentType="application/json",
     )
-    logger.info(
-        f"Manifest finalized: runtime={total_runtime_seconds}s, dlq_depth={dlq_depth}"
-    )
+    logger.info(f"Manifest finalized: runtime={total_runtime_seconds}s, dlq_depth={dlq_depth}")
+    dispatch_process_workflow(run_id)

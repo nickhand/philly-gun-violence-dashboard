@@ -24,7 +24,12 @@ __all__ = [
 ]
 
 
-def write_meta(*, subfolder: str, data_through: Any = None) -> None:
+def write_meta(
+    *,
+    subfolder: str,
+    data_through: Any = None,
+    s3: S3Client | None = None,
+) -> None:
     """Write data/processed/<subfolder>/meta.json with last_updated and data_through.
 
     Parameters
@@ -43,11 +48,10 @@ def write_meta(*, subfolder: str, data_through: Any = None) -> None:
     )
     meta = {"last_updated": now.isoformat(), "data_through": data_through_iso}
 
-    s3 = make_s3_client()
     write_json(
-        s3,
+        _client(s3),
         get_s3_settings().s3_bucket,
-        f"processed/{subfolder}/meta.json",
+        f"{get_s3_settings().s3_processed_prefix}/{subfolder}/meta.json",
         meta,
         indent=2,
     )

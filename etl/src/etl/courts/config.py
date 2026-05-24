@@ -1,36 +1,9 @@
-from typing import Any
+from typing import Annotated
 
-from pydantic import Field, computed_field
-from pydantic.fields import FieldInfo
-from pydantic_settings import EnvSettingsSource, PydanticBaseSettingsSource
-from pydantic_settings.sources.providers.dotenv import DotEnvSettingsSource
+from pydantic import Field, field_validator
+from pydantic_settings import NoDecode
 
 from dashboard_utils.config import S3Config
-
-
-class _CSVMixin:
-    """Fallback to comma-splitting for list[str] fields.
-
-    pydantic-settings tries json.loads() on complex types before validators run.
-    This mixin catches that failure and splits on commas instead, so env vars like
-    ``ECS_SUBNET_IDS=subnet-a,subnet-b`` work without requiring JSON array syntax.
-    """
-
-    def decode_complex_value(self, field_name: str, field: FieldInfo, value: Any) -> Any:
-        try:
-            return super().decode_complex_value(field_name, field, value)  # type: ignore[misc]
-        except Exception:
-            if isinstance(value, str):
-                return [v.strip() for v in value.split(",") if v.strip()]
-            raise
-
-
-class _CSVEnvSource(_CSVMixin, EnvSettingsSource):
-    pass
-
-
-class _CSVDotEnvSource(_CSVMixin, DotEnvSettingsSource):
-    pass
 
 
 class WorkerConfig(S3Config):
@@ -46,34 +19,22 @@ class WorkerConfig(S3Config):
     # Queue names — derive URLs from these + account_id + region
     sqs_queue_name: str = "ujs-incidents"
     sqs_dlq_name: str = "ujs-incidents-dlq"
+    run_id: str = "unknown"
+    force_rescrape: bool = False
+    soft_blocked_delay_min: int = 300
+    soft_blocked_delay_max: int = 900
 
-    @classmethod
-    def settings_customize_sources(
-        cls,
-        settings_cls: type["WorkerConfig"],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        **kwargs: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        return (
-            init_settings,
-            _CSVEnvSource(settings_cls),
-            _CSVDotEnvSource(settings_cls),
-            *kwargs.values(),
-        )
-
-    @computed_field
     @property
     def sqs_queue_url(self) -> str:
+        """Fully qualified SQS queue URL derived from account, region, and queue name."""
         return (
             f"https://sqs.{self.aws_region}.amazonaws.com"
             f"/{self.aws_account_id}/{self.sqs_queue_name}"
         )
 
-    @computed_field
     @property
     def sqs_dlq_url(self) -> str:
+        """Fully qualified SQS dead-letter queue URL."""
         return (
             f"https://sqs.{self.aws_region}.amazonaws.com/{self.aws_account_id}/{self.sqs_dlq_name}"
         )
@@ -92,12 +53,20 @@ class SubmitterConfig(WorkerConfig):
     ecs_task_count: int = 9
 
     # ECS networking — accept comma-separated strings (e.g. subnet-a,subnet-b)
-    ecs_subnet_ids: list[str]
-    ecs_security_group_ids: list[str]
+    ecs_subnet_ids: Annotated[list[str], NoDecode]
+    ecs_security_group_ids: Annotated[list[str], NoDecode]
 
-    @computed_field
+    @field_validator("ecs_subnet_ids", "ecs_security_group_ids", mode="before")
+    @classmethod
+    def _split_csv_list(cls, value: object) -> object:
+        """Accept either JSON/list values or comma-separated env strings."""
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
     @property
     def ecs_cluster_arn(self) -> str:
+        """Fully qualified ECS cluster ARN derived from account, region, and cluster name."""
         return (
             f"arn:aws:ecs:{self.aws_region}:{self.aws_account_id}:cluster/{self.ecs_cluster_name}"
         )

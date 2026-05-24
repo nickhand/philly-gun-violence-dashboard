@@ -13,10 +13,15 @@ from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
+from etl.courts.scraper.classifier import (
+    Classification,
+    ClassificationResult,
+    classify_case_search,
+    classify_from_exception,
+)
 from etl.courts.scraper.schema import OutcomeStatus, PortalResult, ScrapeOutcome, SoftBlocked
 
 if TYPE_CHECKING:
-    from etl.courts.scraper.classifier import ClassificationResult
     from etl.courts.scraper.net_observer import NetworkObserver
 
 __all__ = ["UJSPortalScraper", "RetryableScrapeError"]
@@ -144,6 +149,7 @@ class UJSPortalScraper:
             raise ValueError(f"search_by must be one of {SEARCH_BY_OPTIONS}")
 
         from etl.courts.scraper.net_observer import NetworkObserver
+
         self._net_observer = NetworkObserver()
 
         self._retryer = Retrying(
@@ -162,8 +168,6 @@ class UJSPortalScraper:
 
     def _before_retry(self, retry_state: tenacity.RetryCallState) -> None:
         """Reset page before retry. Raises SoftBlocked after 1 retry on SOFT_BLOCKED."""
-        from etl.courts.scraper.classifier import Classification
-
         attempt = retry_state.attempt_number
         outcome = retry_state.outcome
         is_soft_blocked = False
@@ -229,6 +233,15 @@ class UJSPortalScraper:
         """Close Playwright resources."""
         self._reset_page()
 
+    def reset(self) -> None:
+        """Reset browser state before a later retry or redelivery."""
+        self._reset_page()
+
+    @property
+    def page(self) -> Page | None:
+        """Current Playwright page, exposed for failure screenshots."""
+        return self._page
+
     def _normalize_input(self, input_value: str) -> str | None:
         value = str(input_value)
         if self.search_by == "Incident Number":
@@ -250,13 +263,6 @@ class UJSPortalScraper:
         RetryableScrapeError
             If the classification is retryable.
         """
-        from etl.courts.scraper.classifier import (
-            Classification,
-            ClassificationResult,
-            classify_case_search,
-            classify_from_exception,
-        )
-
         normalized = self._normalize_input(input_value)
         if normalized is None:
             invalid_result = ClassificationResult(
@@ -294,9 +300,9 @@ class UJSPortalScraper:
 
                     if portal_results is None:
                         result = ClassificationResult(
-                            classification=Classification.ZERO_RESULTS,
-                            subreason="Results container visible but no parseable data rows",
-                            row_count=0,
+                            classification=Classification.UI_DRIFT_OR_UNKNOWN,
+                            subreason="Results rows were visible but could not be parsed",
+                            row_count=result.row_count,
                             final_url=result.final_url,
                             marker_hits=result.marker_hits,
                             status_histogram=result.status_histogram,
@@ -306,13 +312,35 @@ class UJSPortalScraper:
                         )
                 except Exception as e:
                     logger.debug(f"Failed to parse results: {e}")
+                    result = ClassificationResult(
+                        classification=Classification.UI_DRIFT_OR_UNKNOWN,
+                        subreason=f"Failed to parse results: {type(e).__name__}",
+                        row_count=result.row_count,
+                        final_url=result.final_url,
+                        marker_hits=result.marker_hits,
+                        status_histogram=result.status_histogram,
+                        requestfailed_count=result.requestfailed_count,
+                        elapsed_ms=result.elapsed_ms,
+                        page_title=result.page_title,
+                        error_message=str(e),
+                    )
 
         except PlaywrightTimeoutError as e:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            result = classify_from_exception(e, page.url if page else "", self._net_observer, elapsed_ms)
+            result = classify_from_exception(
+                e,
+                page.url if page else "",
+                self._net_observer,
+                elapsed_ms,
+            )
         except Exception as e:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            result = classify_from_exception(e, page.url if page else "", self._net_observer, elapsed_ms)
+            result = classify_from_exception(
+                e,
+                page.url if page else "",
+                self._net_observer,
+                elapsed_ms,
+            )
 
         if result.is_retryable:
             raise RetryableScrapeError(result)
@@ -327,8 +355,6 @@ class UJSPortalScraper:
         SoftBlocked
             If SOFT_BLOCKED persists after the allowed retry budget (1 retry).
         """
-        from etl.courts.scraper.classifier import Classification, ClassificationResult
-
         normalized = self._normalize_input(input_value)
         if normalized is None:
             return ScrapeOutcome(

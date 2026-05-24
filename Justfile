@@ -69,15 +69,15 @@ etl-homicides:
 etl-streets:
 	cd etl; uv run gv-dashboard-etl streets extract && uv run gv-dashboard-etl streets load
 
-# ETL courts data — incremental (only new/missing incidents)
+# ETL courts data — incremental, launches ECS monitor to finalize and dispatch processing
 [group: "etl"]
 etl-courts:
-	cd etl; uv run gv-dashboard-etl courts update
+	cd etl; uv run gv-dashboard-etl courts submit --monitor-in-ecs
 
-# ETL courts data — full weekly re-scrape of all incidents
+# ETL courts data — full weekly re-scrape, launches ECS monitor to finalize and dispatch processing
 [group: "etl"]
 etl-courts-full:
-	cd etl; uv run gv-dashboard-etl courts submit --force
+	cd etl; uv run gv-dashboard-etl courts submit --force --monitor-in-ecs
 
 # ETL courts data — aggregate results and write processed flags CSV
 [group: "etl"]

@@ -12,7 +12,7 @@ from mypy_boto3_s3.client import S3Client
 
 from app.config import settings
 from dashboard_utils.constants import DATE_FORMAT
-from dashboard_utils.paths import get_processed_key
+from dashboard_utils.paths import get_processed_key, get_reference_key
 from dashboard_utils.processed import (
     read_processed_geojson_json,
     read_processed_json,
@@ -54,7 +54,7 @@ def init_dataset_keys(app: FastAPI) -> None:
         "shootings": get_processed_key("shootings"),
         "streets": get_processed_key("street_blocks"),
         "homicides": get_processed_key("homicides_totals"),
-        "boundaries_manifest": "reference/boundaries_manifest.json",
+        "boundaries_manifest": get_reference_key("boundaries_manifest.json"),
     }
     # Track the last-seen ETag to detect upstream changes cheaply.
     app.state.dataset_etags = {}

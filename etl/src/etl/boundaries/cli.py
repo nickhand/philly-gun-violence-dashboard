@@ -3,6 +3,7 @@ from loguru import logger
 
 from dashboard_utils.aws import make_s3_client, write_json
 from dashboard_utils.config import get_s3_settings
+from dashboard_utils.paths import get_reference_key
 from dashboard_utils.registry import get_geographic_data, iter_datasets, register_datasets
 
 app = typer.Typer(
@@ -22,7 +23,7 @@ def _write_manifest(datasets: list[str]) -> None:
     write_json(
         s3,
         get_s3_settings().s3_bucket,
-        "reference/boundaries_manifest.json",
+        get_reference_key("boundaries_manifest.json"),
         manifest,
         indent=2,
     )

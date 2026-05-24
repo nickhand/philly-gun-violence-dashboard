@@ -5,7 +5,7 @@ classifications do retry up to the max attempts.
 """
 
 from etl.courts.scraper.core import RetryableScrapeError
-from etl.courts.verification.classifier import Classification, ClassificationResult
+from etl.courts.scraper.classifier import Classification, ClassificationResult
 
 
 class TestRetryableScrapeError:
@@ -116,103 +116,3 @@ class TestRetryBehavior:
         if result.is_retryable:
             error = RetryableScrapeError(result)
             assert isinstance(error, RetryableScrapeError)
-
-
-class TestAuditLoggingOnRetry:
-    """Tests that audit logging works correctly with retries."""
-
-    def test_attempt_logged_before_retry(self):
-        """Each attempt should be logged, including failed attempts."""
-        from etl.courts.verification.audit import AttemptTracker
-        from etl.courts.verification.shard import AuditContext
-
-        ctx = AuditContext(run_id="test", shard_id=0, shard_count=1)
-        tracker = AttemptTracker(
-            audit_context=ctx,
-            incident_number_raw="123",
-            incident_number_normalized="123",
-        )
-
-        # Simulate 3 attempts: fail, fail, succeed
-        attempts_logged = []
-
-        # Attempt 1: SOFT_BLOCKED
-        row1 = tracker.add_attempt(
-            result=ClassificationResult(
-                classification=Classification.SOFT_BLOCKED,
-                elapsed_ms=1000,
-            ),
-            attempt_index=1,
-            timestamp_start="2024-01-01T00:00:00Z",
-            timestamp_end="2024-01-01T00:00:01Z",
-            will_retry=True,
-            sleep_s=5.0,
-            screenshot_path=None,
-        )
-        attempts_logged.append(row1)
-
-        # Attempt 2: NETWORK_ERROR
-        row2 = tracker.add_attempt(
-            result=ClassificationResult(
-                classification=Classification.NETWORK_OR_SERVER_ERROR,
-                elapsed_ms=2000,
-            ),
-            attempt_index=2,
-            timestamp_start="2024-01-01T00:00:06Z",
-            timestamp_end="2024-01-01T00:00:08Z",
-            will_retry=True,
-            sleep_s=10.0,
-            screenshot_path=None,
-        )
-        attempts_logged.append(row2)
-
-        # Attempt 3: HAS_RESULTS
-        row3 = tracker.add_attempt(
-            result=ClassificationResult(
-                classification=Classification.HAS_RESULTS,
-                row_count=2,
-                elapsed_ms=1500,
-            ),
-            attempt_index=3,
-            timestamp_start="2024-01-01T00:00:18Z",
-            timestamp_end="2024-01-01T00:00:20Z",
-            will_retry=False,
-            sleep_s=None,
-            screenshot_path=None,
-        )
-        attempts_logged.append(row3)
-
-        # Verify all attempts logged
-        assert len(tracker.attempts) == 3
-        assert tracker.attempts[0].classification == "SOFT_BLOCKED"
-        assert tracker.attempts[0].will_retry is True
-        assert tracker.attempts[1].classification == "NETWORK_OR_SERVER_ERROR"
-        assert tracker.attempts[2].classification == "HAS_RESULTS"
-        assert tracker.attempts[2].will_retry is False
-
-    def test_sleep_time_logged(self):
-        """Sleep time before retry should be logged."""
-        from etl.courts.verification.audit import AttemptTracker
-        from etl.courts.verification.shard import AuditContext
-
-        ctx = AuditContext(run_id="test", shard_id=0, shard_count=1)
-        tracker = AttemptTracker(
-            audit_context=ctx,
-            incident_number_raw="123",
-            incident_number_normalized="123",
-        )
-
-        tracker.add_attempt(
-            result=ClassificationResult(
-                classification=Classification.SOFT_BLOCKED,
-                elapsed_ms=1000,
-            ),
-            attempt_index=1,
-            timestamp_start="2024-01-01T00:00:00Z",
-            timestamp_end="2024-01-01T00:00:01Z",
-            will_retry=True,
-            sleep_s=7.5,  # Planned sleep time
-            screenshot_path=None,
-        )
-
-        assert tracker.attempts[0].sleep_s == 7.5

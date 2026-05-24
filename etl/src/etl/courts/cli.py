@@ -1,16 +1,22 @@
-import os
 import random
 from typing import Annotated
 
 import typer
 from loguru import logger
+from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.aws import make_boto3_session, make_s3_client
+from etl.courts.config import WorkerConfig
 
 app = typer.Typer(name="courts", help="Courts portal ETL.")
 
 
-def _resolve_run_id(run_id: str | None, latest: bool, s3, config) -> str:
+def _resolve_run_id(
+    run_id: str | None,
+    latest: bool,
+    s3: S3Client,
+    config: WorkerConfig,
+) -> str:
     """Validate and resolve run_id / --latest into a concrete run ID."""
     if run_id is None and not latest:
         raise typer.BadParameter("Provide a run ID or pass --latest.")
@@ -18,6 +24,7 @@ def _resolve_run_id(run_id: str | None, latest: bool, s3, config) -> str:
         raise typer.BadParameter("Cannot pass both a run ID and --latest.")
     if latest:
         from etl.courts.batch.stats import get_latest_run_id
+
         run_id = get_latest_run_id(s3, config)
         logger.info(f"Latest run: {run_id}")
     return run_id  # type: ignore[return-value]
@@ -39,7 +46,9 @@ def submit(
     ] = 42,
     workers: Annotated[
         int | None,
-        typer.Option(help="Number of Fargate workers to launch (overrides ECS_TASK_COUNT default)."),
+        typer.Option(
+            help="Number of Fargate workers to launch (overrides ECS_TASK_COUNT default).",
+        ),
     ] = None,
     force: Annotated[
         bool,
@@ -48,24 +57,50 @@ def submit(
     soft_blocked_delay: Annotated[
         int | None,
         typer.Option(
-            help="Max SOFT_BLOCKED requeue delay in seconds (default 900). Use a small value like 60 for benchmark runs.",
+            help=(
+                "Max SOFT_BLOCKED requeue delay in seconds (default 900). "
+                "Use a small value like 60 for benchmark runs."
+            ),
         ),
     ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait",
+            help="Wait for launched ECS tasks to stop, finalize the run, and dispatch processing.",
+        ),
+    ] = False,
+    monitor_in_ecs: Annotated[
+        bool,
+        typer.Option(
+            "--monitor-in-ecs",
+            help=(
+                "Launch a Fargate monitor task and exit. Use this for runs that may exceed "
+                "the GitHub Actions job timeout."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Seed the SQS queue and launch Fargate workers. Exits immediately (non-blocking).
 
     Use `courts monitor` to wait for completion, then `courts process` to write flags.
     By default, already-scraped incidents are skipped. Pass --force to re-scrape everything.
     """
+    if wait and monitor_in_ecs:
+        raise typer.BadParameter("Use either --wait or --monitor-in-ecs, not both.")
+
     from etl.courts.config import SubmitterConfig
     from etl.courts.extract import submit_run
 
     config = SubmitterConfig()
     session = make_boto3_session()
-    submit_run(
-        session.client("s3"),
-        session.client("sqs"),
-        session.client("ecs"),
+    s3 = session.client("s3")
+    sqs = session.client("sqs")
+    ecs = session.client("ecs")
+    run_id = submit_run(
+        s3,
+        sqs,
+        ecs,
         config,
         sample=sample,
         seed=seed,
@@ -73,7 +108,12 @@ def submit(
         force=force,
         dry_run=dry_run,
         soft_blocked_delay=soft_blocked_delay,
+        monitor_in_ecs=monitor_in_ecs,
     )
+    if wait and run_id is not None and not dry_run:
+        from etl.courts.batch.aws import monitor_run
+
+        monitor_run(ecs, sqs, s3, config, run_id)
 
 
 @app.command()
@@ -87,8 +127,7 @@ def worker() -> None:
     from etl.courts.config import WorkerConfig
 
     config = WorkerConfig()
-    run_id = os.environ.get("RUN_ID", "unknown")
-    run_worker(config, run_id)
+    run_worker(config, config.run_id)
 
 
 @app.command()
@@ -118,10 +157,12 @@ def monitor(
     if run_id or latest:
         resolved = _resolve_run_id(run_id, latest, s3, config)
         from etl.courts.batch.aws import monitor_run
+
         ecs = session.client("ecs")
         monitor_run(ecs, sqs, s3, config, resolved)
     else:
         from etl.courts.batch.aws import monitor_until_empty
+
         monitor_until_empty(sqs, config, s3=None, run_id=None)
 
 
@@ -207,9 +248,8 @@ def snapshot() -> None:
 def process() -> None:
     """Aggregate scraper results and write processed courts flags.
 
-    Reads all results/*.json from S3, writes a Parquet snapshot,
-    transforms to dc_key/has_court_case flags, and writes
-    processed/scraped_courts_data.csv.
+    Reads all results/*.json from S3, transforms to dc_key/has_court_case flags,
+    and writes processed/scraped_courts_data.csv plus portal_results.json.
     """
     from etl.courts.config import WorkerConfig
     from etl.courts.pipeline import process_results

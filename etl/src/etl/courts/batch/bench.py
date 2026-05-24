@@ -5,14 +5,27 @@ import queue
 import random
 import threading
 import time
+from typing import TypedDict
 
 from loguru import logger
+
+
+class BenchResult(TypedDict):
+    """Single incident timing row emitted by the local benchmark."""
+
+    worker: int
+    incident: str
+    status: str
+    classification: str | None
+    attempt_count: int
+    elapsed_s: float
+    error: str
 
 
 def _bench_worker(
     worker_id: int,
     work_queue: "queue.Queue[str]",
-    results: list[dict],
+    results: list[BenchResult],
     results_lock: threading.Lock,
     no_jitter: bool,
 ) -> None:
@@ -30,7 +43,7 @@ def _bench_worker(
             try:
                 outcome = scraper(incident)
                 elapsed = time.perf_counter() - t0
-                row = {
+                row: BenchResult = {
                     "worker": worker_id,
                     "incident": incident,
                     "status": outcome.status.value,
@@ -80,7 +93,7 @@ def run_bench(
     for inc in incident_list:
         work_queue.put(inc)
 
-    results: list[dict] = []
+    results: list[BenchResult] = []
     results_lock = threading.Lock()
 
     threads = [
@@ -117,10 +130,17 @@ def run_bench(
     actual_throughput = len(results) / wall_elapsed * 60
 
     logger.info(f"\n--- Benchmark results ({len(results)} incidents, {workers} worker(s)) ---")
-    logger.info(f"  per-scrape: mean={mean_s:.2f}s  min={min(elapsed_vals):.2f}s  max={max(elapsed_vals):.2f}s")
+    logger.info(
+        f"  per-scrape: mean={mean_s:.2f}s  "
+        f"min={min(elapsed_vals):.2f}s  max={max(elapsed_vals):.2f}s"
+    )
     logger.info(f"  wall time: {wall_elapsed:.1f}s")
-    logger.info(f"  actual throughput: {actual_throughput:.1f} incidents/min (all workers combined)")
-    logger.info(f"  theoretical single-worker: {60/mean_s:.1f} incidents/min")
-    logger.info(f"  scaling efficiency: {actual_throughput / (60/mean_s) / workers * 100:.0f}% of linear")
+    logger.info(
+        f"  actual throughput: {actual_throughput:.1f} incidents/min (all workers combined)"
+    )
+    logger.info(f"  theoretical single-worker: {60 / mean_s:.1f} incidents/min")
+    logger.info(
+        f"  scaling efficiency: {actual_throughput / (60 / mean_s) / workers * 100:.0f}% of linear"
+    )
     logger.info(f"  status breakdown: {status_counts}")
     logger.info(f"  CSV written to: {output}")

@@ -6,21 +6,19 @@ These tests do not require network access and can run in CI.
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from etl.courts.verification.classifier import (
+from etl.courts.scraper.classifier import (
+    BLOCKED_MARKERS,
     Classification,
     ClassificationResult,
-    _check_text_markers,
-    _check_url_patterns,
-    classify_case_search,
-)
-from etl.courts.verification.config import (
-    BLOCKED_MARKERS,
     NO_RESULTS_TEXT_MARKERS,
     PORTAL_URL,
     REDIRECT_URL_PATTERNS,
     SESSION_LOST_MARKERS,
+    _check_text_markers,
+    _check_url_patterns,
+    classify_case_search,
 )
-from etl.courts.verification.net_observer import NetworkObserver
+from etl.courts.scraper.net_observer import NetworkObserver
 
 # Path to fixtures
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "ujs"
@@ -245,6 +243,19 @@ class TestClassifierWithFixtures:
         assert result.classification == Classification.NETWORK_OR_SERVER_ERROR
         assert result.marker_hits is not None
         assert result.marker_hits.get("server_error_status") is True
+
+    def test_visible_results_beat_noncritical_request_failure(self):
+        """Visible result rows should win over generic failed asset requests."""
+        content = load_fixture("results_with_rows.html")
+        page = MockPage(content)
+        observer = NetworkObserver()
+        observer.requestfailed_count = 1
+        observer.requestfailed_errors.append("https://example.invalid/tracker.js: failed")
+
+        with patch.object(page, "wait_for_selector", return_value=MagicMock()):
+            result = classify_case_search(page, observer, results_wait_timeout_ms=100)
+
+        assert result.classification == Classification.HAS_RESULTS
 
 
 class TestClassificationResult:

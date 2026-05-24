@@ -25,7 +25,7 @@ def process_results(s3: S3Client, config: WorkerConfig) -> None:
     write_portal_results(s3, portal_results)
 
     logger.info("Step 4/4: writing courts flags CSV...")
-    existing = read_existing_flags()
+    existing = read_existing_flags(s3=s3)
     if not existing.empty:
         out = pd.concat([existing, flags]).drop_duplicates(subset=["dc_key"], keep="last")
     else:
@@ -33,7 +33,5 @@ def process_results(s3: S3Client, config: WorkerConfig) -> None:
     out = out.sort_values("dc_key").reset_index(drop=True)
 
     write_flags(s3, out)
-    write_meta(subfolder="courts")
+    write_meta(subfolder="courts", s3=s3)
     logger.info(f"Done. {len(out)} incidents written.")
-
-

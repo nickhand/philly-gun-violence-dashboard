@@ -2,6 +2,7 @@
 
 import json
 import statistics
+from typing import Any
 
 from loguru import logger
 from mypy_boto3_s3.client import S3Client
@@ -36,7 +37,7 @@ def print_failures(s3: S3Client, config: WorkerConfig, run_id: str) -> None:
     prefix = f"{config.s3_scraper_prefix}/runs/{run_id}/failures/"
     paginator = s3.get_paginator("list_objects_v2")
 
-    failures: list[dict] = []
+    failures: list[dict[str, Any]] = []
     for page in paginator.paginate(Bucket=config.s3_bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key_incident = obj["Key"].removeprefix(prefix).removesuffix(".json")
@@ -67,7 +68,7 @@ def print_run_stats(s3: S3Client, config: WorkerConfig, run_id: str) -> None:
     prefix = f"{config.s3_scraper_prefix}/runs/{run_id}/logs/"
     paginator = s3.get_paginator("list_objects_v2")
 
-    worker_stats: list[dict] = []
+    worker_stats: list[dict[str, Any]] = []
     for page in paginator.paginate(Bucket=config.s3_bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             body = s3.get_object(Bucket=config.s3_bucket, Key=obj["Key"])["Body"].read()
@@ -118,7 +119,7 @@ def print_run_stats(s3: S3Client, config: WorkerConfig, run_id: str) -> None:
         logger.info(f"\nPer-scrape timing ({len(durations)} samples):")
         logger.info(f"  mean: {statistics.mean(durations):.2f}s")
         logger.info(f"  median: {statistics.median(durations):.2f}s")
-        logger.info(f"  p95: {sorted(durations)[int(len(durations)*0.95)]:.2f}s")
+        logger.info(f"  p95: {sorted(durations)[int(len(durations) * 0.95)]:.2f}s")
         logger.info(f"  min: {min(durations):.2f}s  max: {max(durations):.2f}s")
     else:
         logger.info("\nNo scrape_duration_s found (run predates timing instrumentation).")

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from etl.courts.verification.net_observer import NetworkObserver
+from etl.courts.scraper.net_observer import NetworkObserver
 
 
 class TestNetworkObserver:

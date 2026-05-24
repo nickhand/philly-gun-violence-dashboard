@@ -11,12 +11,12 @@ def data_dir() -> str:
 
 def reference_data_dir() -> str:
     """Return the S3 path to the reference data directory."""
-    return posix_join(data_dir(), "reference")
+    return posix_join(data_dir(), get_s3_settings().s3_reference_prefix)
 
 
 def processed_data_dir() -> str:
     """Return the S3 path to the processed data directory."""
-    return posix_join(data_dir(), "processed")
+    return posix_join(data_dir(), get_s3_settings().s3_processed_prefix)
 
 
 # -----------------------------------------------------------------------------
@@ -86,9 +86,9 @@ def get_processed_key(key: str) -> str:
         raise KeyError(
             f"Unknown processed dataset key '{key}'. Known keys: {sorted(_PROCESSED_PATHS)}"
         ) from exc
-    return posix_join("processed", *parts)
+    return posix_join(get_s3_settings().s3_processed_prefix, *parts)
 
 
 def get_reference_key(name: str) -> str:
     """Return the reference S3 key for a dataset name."""
-    return posix_join("reference", name)
+    return posix_join(get_s3_settings().s3_reference_prefix, name)

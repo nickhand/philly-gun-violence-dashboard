@@ -1,14 +1,10 @@
 name: Batch Courts Scraper ETL
 
 on:
-  schedule:
-    - cron: "0 7 * * 0"  # Sundays 2 AM ET (7 AM UTC) — off-hours per AOPC agreement
   workflow_dispatch:
-    inputs:
-      force:
-        description: "Re-scrape all incidents (--force). Default: incremental only."
-        type: boolean
-        default: false
+
+permissions:
+  id-token: write
 
 jobs:
   batch-courts-scraper:
@@ -16,28 +12,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
+          aws-region: us-east-1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v4
       - uses: taiki-e/install-action@just
+      - name: Verify identity
+        run: aws sts get-caller-identity
       - name: Run courts ETL
-        run: |
-          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.force }}" = "true" ]; then
-            just etl-courts-full
-          else
-            just etl-courts
-          fi
+        run: just etl-courts-full
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ENV: prod
           AWS_REGION: ${{ vars.AWS_REGION }}
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_BUCKET_NAME: ${{ vars.AWS_BUCKET_NAME }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
+          S3_PROCESSED_PREFIX: ${{ vars.S3_PROCESSED_PREFIX }}
+          S3_REFERENCE_PREFIX: ${{ vars.S3_REFERENCE_PREFIX }}
+          SQS_QUEUE_NAME: ${{ vars.SQS_QUEUE_NAME }}
+          SQS_DLQ_NAME: ${{ vars.SQS_DLQ_NAME }}
+          ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
+          ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
+          ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
+          ECS_TASK_COUNT: ${{ vars.ECS_TASK_COUNT }}
           ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
           ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
-      - name: Restart Fly API
-        uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: just fly-restart
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}

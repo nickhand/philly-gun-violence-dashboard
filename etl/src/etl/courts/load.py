@@ -9,10 +9,10 @@ from etl.courts.scraper.schema import ScrapeOutcome
 __all__ = ["read_existing_flags", "write_flags", "write_portal_results"]
 
 
-def read_existing_flags() -> pd.DataFrame:
+def read_existing_flags(s3: S3Client | None = None) -> pd.DataFrame:
     """Read existing dc_key/has_court_case flags if present."""
     try:
-        return read_processed_csv("courts_flags", dtype={"dc_key": str})
+        return read_processed_csv("courts_flags", s3=s3, dtype={"dc_key": str})
     except FileNotFoundError:
         return pd.DataFrame(columns=["dc_key", "has_court_case"])
 

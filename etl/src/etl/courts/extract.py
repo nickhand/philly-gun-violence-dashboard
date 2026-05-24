@@ -9,6 +9,7 @@ from mypy_boto3_sqs.client import SQSClient
 
 from etl.courts.batch.aws import (
     get_existing_incidents,
+    launch_monitor,
     launch_workers,
     make_run_id,
     seed_queue,
@@ -30,6 +31,7 @@ def submit_run(
     force: bool = False,
     dry_run: bool = False,
     soft_blocked_delay: int | None = None,
+    monitor_in_ecs: bool = False,
 ) -> str | None:
     """Filter incidents, seed the SQS queue, and launch Fargate workers.
 
@@ -37,7 +39,7 @@ def submit_run(
     """
     from etl.utils.storage import load_shootings_database
 
-    gdf = load_shootings_database()
+    gdf = load_shootings_database(s3=s3)
     all_incidents = gdf["dc_key"].astype(str).unique().tolist()
 
     if sample is not None:
@@ -47,10 +49,15 @@ def submit_run(
     existing = get_existing_incidents(s3, config)
     if force:
         incidents = all_incidents
-        logger.info(f"--force: queuing all {len(incidents)} incidents (ignoring {len(existing)} existing results)")
+        logger.info(
+            f"--force: queuing all {len(incidents)} incidents "
+            f"(ignoring {len(existing)} existing results)"
+        )
     else:
         incidents = [inc for inc in all_incidents if inc not in existing]
-        logger.info(f"{len(incidents)}/{len(all_incidents)} incidents missing results — seeding queue")
+        logger.info(
+            f"{len(incidents)}/{len(all_incidents)} incidents missing results — seeding queue"
+        )
 
     if not incidents:
         logger.info("All incidents already scraped. Nothing to do.")
@@ -65,12 +72,16 @@ def submit_run(
 
     if not dry_run:
         task_arns = launch_workers(
-            ecs, config, run_id,
+            ecs,
+            config,
+            run_id,
             worker_count=worker_count,
             force_rescrape=force,
             soft_blocked_delay_max=soft_blocked_delay,
         )
         write_task_arns(s3, config, run_id, task_arns)
+        if monitor_in_ecs:
+            launch_monitor(ecs, config, run_id)
     else:
         logger.info("dry_run=True: skipping ECS worker launch")
 

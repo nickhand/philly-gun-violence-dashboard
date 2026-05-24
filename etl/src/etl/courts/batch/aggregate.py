@@ -57,7 +57,7 @@ def aggregate_results(s3: S3Client, config: WorkerConfig) -> dict[str, ScrapeOut
                 logger.warning(f"Failed to fetch result for {incident} ({key})")
             done = len(results) + errors
             if done % log_every == 0:
-                logger.info(f"Fetched {done}/{total} results ({done/total*100:.0f}%)")
+                logger.info(f"Fetched {done}/{total} results ({done / total * 100:.0f}%)")
 
     if errors:
         logger.warning(f"{errors} results failed to fetch and were skipped")
@@ -81,7 +81,10 @@ def snapshot_to_parquet(s3: S3Client, config: WorkerConfig) -> str:
     from dashboard_utils.aws import make_boto3_session
 
     session = make_boto3_session()
-    creds = session.get_credentials().get_frozen_credentials()
+    credentials = session.get_credentials()
+    if credentials is None:
+        raise RuntimeError("DuckDB S3 snapshot requires resolved AWS credentials.")
+    creds = credentials.get_frozen_credentials()
 
     con = duckdb.connect()
     con.execute("INSTALL httpfs; LOAD httpfs;")
