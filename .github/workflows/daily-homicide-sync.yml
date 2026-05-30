@@ -11,20 +11,20 @@ jobs:
     name: Daily Homicides Data Sync
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
           aws-region: us-east-1
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv
       - uses: taiki-e/install-action@just
       - name: Verify identity
         run: aws sts get-caller-identity
       - name: Install Playwright Chromium
-        run: uv run --project etl playwright install chromium --with-deps
+        run: uv run --project packages/etl playwright install chromium --with-deps
       - name: Run homicides ETL
         run: just etl-homicides
         env:
