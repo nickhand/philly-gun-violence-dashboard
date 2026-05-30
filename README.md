@@ -74,9 +74,10 @@ The frontend builds GeoJSON client-side from the NDJSON rows, avoiding duplicate
 
 ## Repo structure
 ```
-api/               FastAPI service
-etl/               ETL pipelines and CLI
-dashboard-utils/   Shared AWS + data utilities + models
+packages/api/               FastAPI service
+packages/etl/               ETL pipelines and CLI
+packages/dashboard-utils/   Shared AWS + data utilities + models
+packages/aws-batch-scraper/ Reusable AWS Batch/SQS scraper framework
 frontend/          Vue 3 frontend application
 ```
 
@@ -117,7 +118,7 @@ The frontend is deployed to Netlify. Pushes to `main` trigger automatic builds.
 
 ## Deployment (Fly.io)
 - `fly.toml` defines app config.
-- `api/Dockerfile` builds the API image.
+- `packages/api/Dockerfile` builds the API image.
 
 ```bash
 just fly-secrets-api

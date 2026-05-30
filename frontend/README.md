@@ -142,6 +142,6 @@ Modern browsers with ES2020+ support:
 
 ## Related
 
-- [API Documentation](../api/README.md)
-- [ETL Pipeline](../etl/README.md)
+- [API Documentation](../packages/api/README.md)
+- [ETL Pipeline](../packages/etl/README.md)
 - [Project Root](../README.md)

@@ -6,12 +6,15 @@ build/
 .vscode
 .env
 .*
+!.dockerignore
 !.env.example
 !.python-version
+!**/.terraform.lock.hcl
 __pycache__/
 *.pyc
 .venv/
 **/.venv/
+**/.terraform/
 **/.pytest_cache/
 **/node_modules/
 frontend-vue2/

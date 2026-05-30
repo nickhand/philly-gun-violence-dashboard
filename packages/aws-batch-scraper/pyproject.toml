@@ -1,0 +1,27 @@
+[project]
+name = "aws-batch-scraper"
+version = "0.1.0"
+description = "Generic AWS batch scraper framework: SQS → Fargate → S3"
+readme = "README.md"
+authors = [{ name = "Nick Hand", email = "nicholas.adam.hand@gmail.com" }]
+requires-python = ">=3.13"
+dependencies = [
+    "boto3>=1.42.4",
+    "boto3-stubs[ecs,sqs,s3]>=1.42.19",
+    "loguru>=0.7.3",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
+    "tenacity>=8.2.3",
+    "typer>=0.20.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.16,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=8.0.0",
+    "ruff>=0.14.10",
+]

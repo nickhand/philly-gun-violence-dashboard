@@ -1,0 +1,16 @@
+[project]
+name = "simple-scraper"
+version = "0.1.0"
+description = "Minimal aws-batch-scraper example"
+requires-python = ">=3.13"
+dependencies = ["aws-batch-scraper"]
+
+[project.scripts]
+simple-scraper = "simple_scraper.cli:app"
+
+[tool.uv.sources]
+aws-batch-scraper = { path = "../..", editable = true }
+
+[build-system]
+requires = ["uv_build>=0.9.16,<0.10.0"]
+build-backend = "uv_build"

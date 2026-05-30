@@ -2,7 +2,7 @@ app = "philly-gun-violence-dashboard-api"
 primary_region = "iad"
 
 [build]
-dockerfile = "api/Dockerfile"
+dockerfile = "packages/api/Dockerfile"
 
 [env]
 PORT = "8080"

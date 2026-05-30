@@ -1,0 +1,52 @@
+data/
+frontend/
+node_modules/
+dist/
+build/
+frontend*
+
+*.log
+*.tmp
+*.sqlite
+*.db
+
+# Python virtualenvs
+**/.venv/
+**/venv/
+**/.tox/
+
+# .env
+**/.env
+**/.env.*
+**/.env.local
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# UV / packaging caches
+**/.uv/
+**/.cache/
+
+# Terraform local provider/plugin caches
+**/.terraform/
+**/.terraform.tfstate*
+**/terraform.tfstate*
+**/crash.log
+
+# Git + OS junk
+.git/
+.DS_Store
+
+# Data / build artifacts (optional; adjust to your repo)
+**/*.parquet
+**/*.csv
+**/*.geojson
+**/*.jsonl
+**/dist/
+**/build/

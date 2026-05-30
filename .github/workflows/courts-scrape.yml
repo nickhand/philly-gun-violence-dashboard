@@ -37,7 +37,7 @@ jobs:
       - name: Run courts ETL
         run: |
           if [ "${SAMPLE}" -gt 0 ]; then
-            cd etl
+            cd packages/etl
             uv run gv-dashboard-etl courts submit \
               --force \
               --monitor-in-ecs \
