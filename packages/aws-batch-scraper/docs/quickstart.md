@@ -28,8 +28,8 @@ app.add_typer(
 Run locally:
 
 ```bash
-simple-scraper bench --sample 5
-simple-scraper submit --dry-run --sample 5
+simple-scraper scraper bench --sample 5
+simple-scraper scraper submit --dry-run --sample 5
 ```
 
 ## 2. Prepare AWS Resources

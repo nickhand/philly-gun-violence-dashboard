@@ -68,13 +68,16 @@ The scraper needs existing ECR, ECS, SQS, IAM, and task definition resources.
 The image is built and pushed by the user or CI:
 
 ```bash
-just build-and-push-container
+just scraper-build-and-push-container
 ```
 
 ## Environment
 
-Required (via `.env`):
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
+Required configuration:
 - `AWS_REGION`
-- `AWS_BUCKET_NAME`
+- `S3_BUCKET` or `AWS_BUCKET_NAME`
+- `S3_PROCESSED_PREFIX` (default: `processed`)
+- `S3_REFERENCE_PREFIX` (default: `reference`)
+
+AWS credentials are resolved through boto3's default credential chain. Use
+`AWS_PROFILE` locally; GitHub Actions and ECS should use OIDC or task roles.
