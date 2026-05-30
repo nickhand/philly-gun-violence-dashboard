@@ -2,7 +2,7 @@ name: Courts Process
 
 on:
   repository_dispatch:
-    types: [courts-scrape-complete]
+    types: [scrape-complete]
   workflow_dispatch:
 
 jobs:
