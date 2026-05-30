@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class ScrapeStatus(str, Enum):
@@ -78,6 +78,28 @@ class ScrapeResult(BaseModel):
     item_id: str | None = None
     scraped_at: datetime | None = None
     run_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_payload(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+
+        normalized = dict(value)
+        if "item_id" not in normalized and "incident_number" in normalized:
+            normalized["item_id"] = normalized["incident_number"]
+        if "data" not in normalized and "results" in normalized:
+            normalized["data"] = {"results": normalized["results"]}
+        if "extra" not in normalized and "marker_hits" in normalized:
+            normalized["extra"] = {"marker_hits": normalized["marker_hits"]}
+        return normalized
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.upper()
+        return value
 
 
 @dataclass

@@ -55,6 +55,7 @@ def aggregate_results(s3: S3Client, config: WorkerConfig) -> dict[str, ScrapeRes
                 errors += 1
                 item_id, key = futures[future]
                 logger.warning(f"Failed to fetch result for {item_id} ({key})")
+                logger.warning(f"Error: {future.exception()}")
             done = len(results) + errors
             if done % log_every == 0:
                 logger.info(f"Fetched {done}/{total} results ({done / total * 100:.0f}%)")
