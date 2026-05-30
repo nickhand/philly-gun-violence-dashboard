@@ -52,10 +52,10 @@ Each domain follows this pattern:
 ## Courts Scraper
 
 The courts scraper is this repository's implementation of the generic
-`aws-batch-scraper` framework. The framework and reusable Terraform module live
-outside the courts package; UJS-specific names such as `ujs-scraper`,
-`ujs-incidents`, and `gv-dashboard-etl courts worker` are this project's
-configuration, not framework defaults.
+`aws-batch-scraper` framework. The framework lives outside the courts package;
+UJS-specific names such as `ujs-scraper`, `ujs-incidents`, and
+`gv-dashboard-etl courts worker` are this project's configuration, not framework
+defaults.
 
 The courts container is `packages/etl/Dockerfile`. It is intentionally project-specific:
 it installs `dashboard-utils`, `etl`, and Playwright Chromium, then defaults to:
@@ -64,15 +64,12 @@ it installs `dashboard-utils`, `etl`, and Playwright Chromium, then defaults to:
 uv run gv-dashboard-etl courts worker
 ```
 
-Terraform creates ECR, ECS, queues, IAM, and the task definition. The image is
-still built and pushed by the user or CI:
+The scraper needs existing ECR, ECS, SQS, IAM, and task definition resources.
+The image is built and pushed by the user or CI:
 
 ```bash
 just build-and-push-container
 ```
-
-Use `terraform/envs/courts-scraper` for this project's concrete environment and
-`terraform/modules/batch-scraper` for the reusable module.
 
 ## Environment
 

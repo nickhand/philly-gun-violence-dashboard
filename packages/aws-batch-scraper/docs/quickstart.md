@@ -1,7 +1,7 @@
 # Quickstart
 
-This guide builds a tiny scraper, deploys AWS infrastructure, pushes a container
-to ECR, and submits a run.
+This guide builds a tiny scraper, points it at existing AWS resources, pushes a
+container to ECR, and submits a run.
 
 ## 1. Create A Scraper CLI
 
@@ -32,31 +32,29 @@ simple-scraper bench --sample 5
 simple-scraper submit --dry-run --sample 5
 ```
 
-## 2. Build AWS Infrastructure
+## 2. Prepare AWS Resources
 
-Create a Terraform environment that calls `terraform/modules/batch-scraper`.
-At minimum, provide:
+Create or identify these AWS resources with your current infrastructure
+workflow:
 
+- ECR repository
+- ECS/Fargate cluster
+- ECS task definition that runs the scraper container
+- ECS task role and execution role
+- SQS queue and dead-letter queue
 - S3 bucket name
 - VPC subnet IDs
 - security group IDs
-- worker command
-- environment map
 
-Then run:
-
-```bash
-terraform init
-terraform plan
-terraform apply
-```
+The task definition should inject the runtime environment variables documented
+in `docs/container.md` and use the worker command for the container.
 
 ## 3. Build And Push The Container
 
 Choose a Dockerfile template from `examples/docker/`.
 
 ```bash
-ECR_URL=$(terraform output -raw ecr_repository_url)
+ECR_URL=123456789012.dkr.ecr.us-east-1.amazonaws.com/simple-scraper
 AWS_REGION=us-east-1
 AWS_ACCOUNT_ID=123456789012
 
@@ -71,7 +69,7 @@ docker push "$ECR_URL:latest"
 
 ## 4. Configure Local Submitter Environment
 
-Set values from Terraform outputs and your AWS account:
+Set values from your AWS resources:
 
 ```bash
 export ENV=prod

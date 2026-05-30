@@ -28,8 +28,8 @@ Your container image must:
 
 ## Runtime Environment
 
-The Terraform module injects non-secret variables from its `environment` input
-and secret variables from its `secrets` input. Common variables are:
+Inject runtime configuration through your ECS task definition or deployment
+system. Common variables are:
 
 ```text
 ENV=prod
@@ -50,10 +50,10 @@ ECS_SECURITY_GROUP_IDS=sg-a
 
 ## Build And Push To ECR
 
-After Terraform creates ECR:
+After your ECR repository exists:
 
 ```bash
-ECR_URL=$(terraform -chdir=terraform/envs/my-scraper output -raw ecr_repository_url)
+ECR_URL=123456789012.dkr.ecr.us-east-1.amazonaws.com/my-scraper
 AWS_REGION=us-east-1
 AWS_ACCOUNT_ID=123456789012
 
@@ -66,8 +66,7 @@ docker tag my-scraper:latest "$ECR_URL:latest"
 docker push "$ECR_URL:latest"
 ```
 
-The module task definition defaults to `<module ECR repository>:latest`, or you
-can pass an explicit `image_uri`.
+Point your ECS task definition at the image URI you pushed.
 
 ## Optional Just Recipes
 

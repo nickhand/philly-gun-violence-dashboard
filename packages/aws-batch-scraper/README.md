@@ -122,11 +122,11 @@ subclass defaults:
 - `ECS_SUBNET_IDS`, `ECS_SECURITY_GROUP_IDS`
 - `RUN_ID`, set by the submitter for worker and monitor tasks
 
-Use the Terraform module in `terraform/modules/batch-scraper` to provision the
-AWS pieces. See:
+Provision those AWS resources with your current infrastructure workflow. The
+framework only needs the runtime values above and AWS credentials from the
+default boto3 credential chain. See:
 
 - `docs/quickstart.md`
-- `docs/terraform.md`
 - `docs/container.md`
 
 ## Container Contract

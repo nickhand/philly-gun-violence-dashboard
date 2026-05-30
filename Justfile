@@ -18,7 +18,6 @@ import "packages/etl/just/etl.just"
 import "frontend/just/frontend.just"
 import "just/data.just"
 import "just/python.just"
-import "terraform/just/terraform.just"
 
 # Show available recipes
 [private]
