@@ -203,7 +203,7 @@ requires-dist = [
     { name = "botocore", extras = ["crt"], specifier = ">=1.42.17" },
     { name = "geopandas", specifier = ">=1.1.1" },
     { name = "loguru", specifier = ">=0.7.3" },
-    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "pandas", specifier = ">=2.3.3,<3" },
     { name = "pandas-stubs", specifier = ">=2.3.3.251219" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
