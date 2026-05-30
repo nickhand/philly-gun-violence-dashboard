@@ -5,6 +5,9 @@ on:
     types: [scrape-complete]
   workflow_dispatch:
 
+permissions:
+  id-token: write
+  
 jobs:
   courts-process:
     name: Process courts scraper results
