@@ -21,14 +21,6 @@ def make_boto3_session(
         or "us-east-1"
     )
     session = boto3.Session(
-        aws_access_key_id=(
-            config.aws_access_key_id if config is not None else os.getenv("AWS_ACCESS_KEY_ID")
-        ),
-        aws_secret_access_key=(
-            config.aws_secret_access_key
-            if config is not None
-            else os.getenv("AWS_SECRET_ACCESS_KEY")
-        ),
         profile_name=config.aws_profile if config is not None else os.getenv("AWS_PROFILE"),
         region_name=resolved_region,
     )

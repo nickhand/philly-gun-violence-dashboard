@@ -31,8 +31,6 @@ class ScraperBaseConfig(BaseSettings):
         case_sensitive=False,
     )
 
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
     aws_account_id: str | None = None
     aws_profile: str | None = None
     aws_region: str = "us-east-1"

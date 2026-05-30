@@ -276,7 +276,7 @@ def test_scrape_result_accepts_legacy_courts_payload() -> None:
 
 
 def test_boto_session_uses_resolved_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Boto clients should use the same settings object as Pydantic config."""
+    """Boto clients should defer credentials to boto3's default chain."""
     calls = []
 
     class Session:
@@ -293,8 +293,6 @@ def test_boto_session_uses_resolved_config(monkeypatch: pytest.MonkeyPatch) -> N
         _env_file=None,
         s3_bucket="bucket",
         aws_account_id="123456789012",
-        aws_access_key_id="key",
-        aws_secret_access_key="secret",
         aws_profile="profile",
         aws_region="us-west-2",
         ecs_subnet_ids=["subnet-1"],
@@ -305,8 +303,6 @@ def test_boto_session_uses_resolved_config(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert calls == [
         {
-            "aws_access_key_id": "key",
-            "aws_secret_access_key": "secret",
             "profile_name": "profile",
             "region_name": "us-west-2",
         }

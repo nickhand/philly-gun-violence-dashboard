@@ -70,13 +70,10 @@ class AWSConfig(_Base):
     """Base AWS settings consumed by boto3's credential chain.
 
     Credentials are resolved in priority order:
-    1. ``aws_access_key_id`` / ``aws_secret_access_key`` (explicit key pair).
-    2. ``aws_profile`` — developer laptops only; must be unset in ECS/Fly.
-    3. boto3 credential chain (task role in ECS, env vars in CI).
+    1. ``aws_profile`` — developer laptops only; must be unset in ECS/Fly.
+    2. boto3 credential chain (task role in ECS, env vars in CI).
     """
 
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
     aws_account_id: str | None = None
     aws_profile: str | None = None
     aws_region: Literal["us-east-1"] | BucketLocationConstraintType = "us-east-1"

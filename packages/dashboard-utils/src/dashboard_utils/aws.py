@@ -17,8 +17,6 @@ def make_boto3_session(*, region_name: str | None = None) -> boto3.Session:
     """Create a boto3 session from dashboard AWS settings."""
     settings = get_aws_settings()
     session = boto3.Session(
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
         profile_name=settings.aws_profile,
         region_name=region_name or str(settings.aws_region),
     )
