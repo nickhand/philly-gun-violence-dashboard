@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
+          aws-region: us-east-1
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -19,13 +23,10 @@ jobs:
       - name: Process results
         run: just etl-courts-process
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ENV: prod
           AWS_REGION: ${{ vars.AWS_REGION }}
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_BUCKET_NAME: ${{ vars.AWS_BUCKET_NAME }}
-          ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
-          ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
       - name: Restart Fly API
         uses: superfly/flyctl-actions/setup-flyctl@master
       - run: just fly-restart
