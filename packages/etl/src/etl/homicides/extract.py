@@ -68,7 +68,7 @@ def fetch_homicide_dom(url: str = DEFAULT_URL, debug: bool = False) -> JustHTML:
             browser = p.chromium.launch(headless=not debug)
             page = browser.new_page()
             try:
-                page.goto(url, wait_until="networkidle", timeout=PLAYWRIGHT_TIMEOUT_MS)
+                page.goto(url, wait_until="domcontentloaded", timeout=PLAYWRIGHT_TIMEOUT_MS)
                 page.wait_for_selector(CRIME_TABLE_SELECTOR, timeout=PLAYWRIGHT_TIMEOUT_MS)
                 html = page.content()
             finally:
