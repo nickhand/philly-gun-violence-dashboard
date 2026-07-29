@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:lighthouse": "vue-tsc --noEmit && VITE_LIGHTHOUSE=true VITE_API_BASE_URL= VITE_POSTHOG_KEY= vite build",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
     "preview": "vite preview",
     "type-check": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.tests.json",
     "test": "vitest run",
@@ -13,10 +15,11 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:chromium": "playwright test --project=chromium --project=mobile-chrome",
-    "test:e2e:a11y": "playwright test --grep @a11y"
+    "test:e2e:a11y": "playwright test --grep @a11y",
+    "test:lighthouse": "npm run build:lighthouse && lhci autorun --config=./lighthouserc.cjs"
   },
   "dependencies": {
-    "@mdi/font": "^7.4.47",
+    "@mdi/js": "^7.4.47",
     "@types/d3-transition": "^3.0.9",
     "@types/maplibre-gl": "^1.13.2",
     "@unhead/vue": "^2.1.1",
@@ -38,6 +41,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@lhci/cli": "0.15.1",
     "@playwright/test": "^1.62.0",
     "@types/d3-array": "^3.2.2",
     "@types/d3-format": "^3.0.4",

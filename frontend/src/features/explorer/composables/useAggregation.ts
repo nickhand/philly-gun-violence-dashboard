@@ -9,8 +9,13 @@
 
 import { ref, type Ref } from "vue";
 import { rollup, extent } from "d3-array";
-import * as d3Scale from "d3-scale";
-import * as d3ScaleChromatic from "d3-scale-chromatic";
+import {
+  scaleLinear,
+  scaleLog,
+  type ScaleLinear,
+  type ScaleLogarithmic,
+} from "d3-scale";
+import { getColorInterpolator } from "../config/colorSchemes";
 import type { LayerConfig } from "../types";
 
 /**
@@ -26,10 +31,10 @@ export interface LegendConfig {
 /**
  * Scale name to d3 scale function mapping.
  */
-const SCALE_FUNCTIONS: Record<string, typeof d3Scale.scaleLinear> = {
-  Log: d3Scale.scaleLog as typeof d3Scale.scaleLinear,
-  Linear: d3Scale.scaleLinear,
-  Sequential: d3Scale.scaleLinear,
+const SCALE_FUNCTIONS: Record<string, typeof scaleLinear> = {
+  Log: scaleLog as typeof scaleLinear,
+  Linear: scaleLinear,
+  Sequential: scaleLinear,
 };
 
 /**
@@ -57,20 +62,6 @@ export function useAggregation(filteredFeaturesRef: Ref<GeoJSON.Feature[]>) {
   const legendVisible = ref(false);
 
   /**
-   * Get the d3 color interpolator for a color scheme.
-   *
-   * @param colorScheme - Name of the color scheme (e.g., "Reds", "Blues")
-   * @returns Color interpolator function or null
-   */
-  function getColorInterpolator(
-    colorScheme: string
-  ): ((t: number) => string) | null {
-    const interpolatorKey =
-      `interpolate${colorScheme}` as keyof typeof d3ScaleChromatic;
-    return (d3ScaleChromatic[interpolatorKey] as (t: number) => string) ?? null;
-  }
-
-  /**
    * Create a scale function for mapping counts to color range.
    *
    * @param scaleName - Scale type ("Log", "Linear", "Sequential")
@@ -83,9 +74,9 @@ export function useAggregation(filteredFeaturesRef: Ref<GeoJSON.Feature[]>) {
     domain: [number, number],
     range: [number, number]
   ):
-    | d3Scale.ScaleLinear<number, number>
-    | d3Scale.ScaleLogarithmic<number, number> {
-    const scaleFunction = SCALE_FUNCTIONS[scaleName] ?? d3Scale.scaleLinear;
+    | ScaleLinear<number, number>
+    | ScaleLogarithmic<number, number> {
+    const scaleFunction = SCALE_FUNCTIONS[scaleName] ?? scaleLinear;
 
     // For log scale, ensure domain doesn't include 0 (log(0) is undefined)
     const safeDomain: [number, number] =

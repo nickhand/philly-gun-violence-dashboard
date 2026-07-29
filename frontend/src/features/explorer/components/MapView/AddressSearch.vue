@@ -1,7 +1,7 @@
 <template>
   <div class="address-search" :class="{ 'address-search--open': showResults }">
     <div class="search-input-wrapper">
-      <v-icon icon="mdi-magnify" size="18" class="search-icon" />
+      <v-icon icon="$magnify" size="18" class="search-icon" />
       <input
         ref="inputRef"
         v-model="query"
@@ -31,7 +31,7 @@
         aria-label="Clear search"
         @click="handleClear"
       >
-        <v-icon icon="mdi-close" size="16" />
+        <v-icon icon="$close" size="16" />
       </button>
       <div v-if="isLoading" class="loading-indicator">
         <v-progress-circular
@@ -64,7 +64,7 @@
         @click="handleSelect(result)"
         @mouseenter="activeIndex = index"
       >
-        <v-icon icon="mdi-map-marker" size="16" class="result-icon" />
+        <v-icon icon="$mapMarker" size="16" class="result-icon" />
         <span class="result-text">{{ result.shortName }}</span>
       </button>
     </div>

@@ -30,6 +30,9 @@ npm run dev
 # Build for production
 npm run build
 
+# Check compressed production bundle budgets
+npm run check:bundle
+
 # Preview production build
 npm run preview
 ```
@@ -50,6 +53,9 @@ npm run test:e2e
 
 # WCAG 2.1 A/AA automated checks
 npm run test:e2e:a11y
+
+# Production Lighthouse audit with performance thresholds
+npm run test:lighthouse
 ```
 
 Browser tests use deterministic API fixtures and a browser-safe map placeholder,
@@ -57,6 +63,15 @@ so they do not depend on production data, third-party map services, or CI GPU
 availability. See
 [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) for the manual WCAG 2.1 AA evaluation
 checklist.
+
+## Bundle budgets
+
+The production build emits a Vite manifest and `npm run check:bundle` enforces
+gzip budgets for the initial app shell, the asynchronously loaded map, their
+combined core experience, and deferred analytics. The check also prevents the
+full Material Design icon font from being bundled again. Lighthouse runs three
+desktop audits against deterministic local data and a local map style, then
+enforces scores and Core Web Vitals-oriented thresholds.
 
 ## Project Structure
 

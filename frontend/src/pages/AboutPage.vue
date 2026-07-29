@@ -16,7 +16,7 @@
       <section class="content-section">
         <div class="section-header">
           <div class="section-icon">
-            <v-icon icon="mdi-information-outline" size="24" />
+            <v-icon icon="$informationOutline" size="24" />
           </div>
           <h2 class="section-title">About This Project</h2>
         </div>
@@ -50,7 +50,7 @@
       <section class="content-section">
         <div class="section-header">
           <div class="section-icon">
-            <v-icon icon="mdi-database-outline" size="24" />
+            <v-icon icon="$databaseOutline" size="24" />
           </div>
           <h2 class="section-title">Data Sources</h2>
         </div>
@@ -127,7 +127,7 @@
       <section class="content-section">
         <div class="section-header">
           <div class="section-icon">
-            <v-icon icon="mdi-update" size="24" />
+            <v-icon icon="$update" size="24" />
           </div>
           <h2 class="section-title">Data Freshness</h2>
         </div>
@@ -146,7 +146,7 @@
             <span>Loading data freshness...</span>
           </div>
           <div v-else-if="metaError" class="freshness-error">
-            <v-icon icon="mdi-alert-circle-outline" size="18" />
+            <v-icon icon="$alertCircleOutline" size="18" />
             <span>Unable to load data freshness information</span>
           </div>
           <div v-else class="freshness-grid">
@@ -194,7 +194,7 @@
       <section class="content-section">
         <div class="section-header">
           <div class="section-icon">
-            <v-icon icon="mdi-clipboard-text-outline" size="24" />
+            <v-icon icon="$clipboardTextOutline" size="24" />
           </div>
           <h2 class="section-title">Methodology & Limitations</h2>
         </div>
@@ -263,7 +263,7 @@
       <section class="content-section">
         <div class="section-header">
           <div class="section-icon">
-            <v-icon icon="mdi-github" size="24" />
+            <v-icon icon="$github" size="24" />
           </div>
           <h2 class="section-title">Open Source</h2>
         </div>
@@ -286,9 +286,9 @@
               )
             "
           >
-            <v-icon icon="mdi-github" size="20" />
+            <v-icon icon="$github" size="20" />
             <span>View on GitHub</span>
-            <v-icon icon="mdi-arrow-right" size="18" />
+            <v-icon icon="$arrowRight" size="18" />
           </a>
         </div>
       </section>
@@ -297,7 +297,7 @@
       <section class="content-section contact-section">
         <div class="section-header section-header-centered">
           <div class="section-icon">
-            <v-icon icon="mdi-email-outline" size="24" />
+            <v-icon icon="$emailOutline" size="24" />
           </div>
           <h2 class="section-title">Get in Touch</h2>
         </div>
@@ -314,7 +314,7 @@
                 )
               "
             >
-              <v-icon icon="mdi-email" size="20" />
+              <v-icon icon="$email" size="20" />
               <span>nicholas.adam.hand@gmail.com</span>
             </a>
             <a
@@ -324,7 +324,7 @@
               class="contact-button"
               @click="trackExternalLink('Website', 'https://nickhand.dev')"
             >
-              <v-icon icon="mdi-web" size="20" />
+              <v-icon icon="$web" size="20" />
               <span>nickhand.dev</span>
             </a>
           </div>

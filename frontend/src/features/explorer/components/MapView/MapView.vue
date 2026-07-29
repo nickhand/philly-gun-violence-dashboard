@@ -45,8 +45,7 @@
  * @component
  */
 
-import { ref, computed, onMounted } from "vue";
-import MapCanvas from "./MapCanvas.vue";
+import { ref, computed, onMounted, defineAsyncComponent } from "vue";
 import AddressSearch from "./AddressSearch.vue";
 import SearchMarker from "./SearchMarker.vue";
 import type { AddressResult } from "../../composables/useGeocoding";
@@ -64,6 +63,15 @@ interface Props {
 
 const props = defineProps<Props>();
 const isE2E = import.meta.env.VITE_E2E;
+const loadMapCanvas = () => import("./MapCanvas.vue");
+const MapCanvas = defineAsyncComponent(
+  loadMapCanvas,
+) as (typeof import("./MapCanvas.vue"))["default"];
+
+// Start fetching the map code without making it block initial app startup.
+if (!isE2E) {
+  void loadMapCanvas();
+}
 
 // Emits
 const emit = defineEmits<{

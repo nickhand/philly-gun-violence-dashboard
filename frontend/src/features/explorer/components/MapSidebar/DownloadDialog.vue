@@ -15,7 +15,7 @@
         block
         class="download-trigger"
       >
-        <v-icon icon="mdi-download" class="mr-2" />
+        <v-icon icon="$download" class="mr-2" />
         Download Data
       </v-btn>
     </template>
@@ -23,7 +23,7 @@
     <!-- Dialog Content -->
     <v-card class="download-card">
       <v-card-title id="download-dialog-title" class="download-card__title">
-        <v-icon icon="mdi-download" class="mr-3" aria-hidden="true" />
+        <v-icon icon="$download" class="mr-3" aria-hidden="true" />
         Download Data
       </v-card-title>
 
@@ -38,11 +38,11 @@
             class="option-toggle"
           >
             <v-btn :value="'filtered'" variant="outlined">
-              <v-icon icon="mdi-filter" class="mr-2" />
+              <v-icon icon="$filter" class="mr-2" />
               Filtered Data
             </v-btn>
             <v-btn :value="'all'" variant="outlined">
-              <v-icon icon="mdi-database" class="mr-2" />
+              <v-icon icon="$database" class="mr-2" />
               All Data
             </v-btn>
           </v-btn-toggle>
@@ -67,11 +67,11 @@
             class="option-toggle"
           >
             <v-btn :value="'csv'" variant="outlined">
-              <v-icon icon="mdi-file-delimited" class="mr-2" />
+              <v-icon icon="$fileDelimited" class="mr-2" />
               CSV
             </v-btn>
             <v-btn :value="'geojson'" variant="outlined">
-              <v-icon icon="mdi-map-marker" class="mr-2" />
+              <v-icon icon="$mapMarker" class="mr-2" />
               GeoJSON
             </v-btn>
           </v-btn-toggle>
@@ -123,7 +123,7 @@
           :loading="isDownloading"
           @click="handleDownload"
         >
-          <v-icon icon="mdi-download" class="mr-2" />
+          <v-icon icon="$download" class="mr-2" />
           Download
         </v-btn>
       </v-card-actions>

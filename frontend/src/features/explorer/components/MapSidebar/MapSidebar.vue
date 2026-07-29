@@ -50,7 +50,7 @@
           :disabled="!filterHelpers.hasAnyActiveFilters()"
           @click="$emit('reset-all')"
         >
-          <v-icon icon="mdi-refresh" class="mr-2" />
+          <v-icon icon="$refresh" class="mr-2" />
           Reset All Filters
         </v-btn>
       </div>

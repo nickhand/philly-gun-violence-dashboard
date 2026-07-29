@@ -24,6 +24,7 @@ __pycache__/
 **/node_modules/
 frontend/coverage/
 frontend/dist/
+frontend/lighthouse-report/
 frontend/playwright-report/
 frontend/test-results/
 frontend-vue2/

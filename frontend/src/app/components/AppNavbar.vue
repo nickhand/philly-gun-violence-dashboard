@@ -11,7 +11,7 @@
       :ripple="false"
       @click="handleBackClick"
     >
-      <v-icon start icon="mdi-arrow-left" />
+      <v-icon start icon="$arrowLeft" />
       <span>Back</span>
     </v-btn>
 
@@ -27,7 +27,7 @@
       title="About page"
       @click="handleInfoClick"
     >
-      <v-icon start icon="mdi-information-outline" />
+      <v-icon start icon="$informationOutline" />
       <span>Info</span>
     </v-btn>
 

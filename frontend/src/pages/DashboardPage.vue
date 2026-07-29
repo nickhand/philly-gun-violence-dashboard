@@ -40,7 +40,7 @@
     >
       <v-card class="error-modal">
         <v-card-title id="error-dialog-title" class="error-title">
-          <v-icon icon="mdi-alert-circle-outline" class="mr-2" aria-hidden="true" />
+          <v-icon icon="$alertCircleOutline" class="mr-2" aria-hidden="true" />
           Unable to Load Data
         </v-card-title>
         <v-card-text id="error-dialog-description" class="error-body">
@@ -53,7 +53,7 @@
           <v-spacer />
           <v-btn variant="flat" color="primary" @click="retryLoad">
             <v-icon
-              icon="mdi-refresh"
+              icon="$refresh"
               class="mr-1"
               size="small"
               aria-hidden="true"

@@ -16,4 +16,11 @@ export default defineConfig(({ command }) => ({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  build: {
+    // The manifest powers compressed-size budgets in scripts/check-bundle-size.mjs.
+    manifest: true,
+    // MapLibre is intentionally isolated in a non-blocking async chunk. Gzipped
+    // transfer-size limits are enforced separately by npm run check:bundle.
+    chunkSizeWarningLimit: 900,
+  },
 }));

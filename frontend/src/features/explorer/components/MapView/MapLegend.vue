@@ -53,7 +53,7 @@
 import { ref, computed, nextTick, watch } from "vue";
 import { select } from "d3-selection";
 import { format } from "d3-format";
-import * as d3ScaleChromatic from "d3-scale-chromatic";
+import { getColorInterpolator } from "../../config/colorSchemes";
 
 // Props
 interface Props {
@@ -116,9 +116,7 @@ function hide(): void {
 function updateGradient(): void {
   if (!svgRef.value) return;
 
-  const key =
-    `interpolate${options.value.colorScheme}` as keyof typeof d3ScaleChromatic;
-  const interpolator = d3ScaleChromatic[key] as (t: number) => string;
+  const interpolator = getColorInterpolator(options.value.colorScheme);
 
   if (!interpolator) {
     console.error(`Color scheme ${options.value.colorScheme} not found`);
