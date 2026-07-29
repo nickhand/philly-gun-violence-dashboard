@@ -1,7 +1,15 @@
 <template>
   <section class="dashboard-view">
     <!-- Loading overlay (simple div, not v-overlay which teleports) -->
-    <div v-if="showLoading" class="loading-overlay" />
+    <div
+      v-if="showLoading"
+      class="loading-overlay"
+      role="status"
+      aria-live="polite"
+      aria-label="Loading dashboard data"
+    >
+      <span class="sr-only">Loading dashboard data</span>
+    </div>
 
     <!-- Skip Links for Keyboard Navigation -->
     <nav class="skip-links" aria-label="Skip navigation">
@@ -18,18 +26,24 @@
     />
 
     <!-- Map dashboard with filters, header, and charts -->
-    <main id="main-content">
+    <main id="main-content" tabindex="-1">
       <mapping-dashboard />
     </main>
 
     <!-- Error modal -->
-    <v-dialog v-model="showErrorDialog" max-width="500" persistent>
+    <v-dialog
+      v-model="showErrorDialog"
+      max-width="500"
+      persistent
+      aria-labelledby="error-dialog-title"
+      aria-describedby="error-dialog-description"
+    >
       <v-card class="error-modal">
-        <v-card-title class="error-title">
-          <v-icon icon="mdi-alert-circle-outline" class="mr-2" />
+        <v-card-title id="error-dialog-title" class="error-title">
+          <v-icon icon="mdi-alert-circle-outline" class="mr-2" aria-hidden="true" />
           Unable to Load Data
         </v-card-title>
-        <v-card-text class="error-body">
+        <v-card-text id="error-dialog-description" class="error-body">
           {{ currentError || defaultErrorMessage }}
         </v-card-text>
         <v-card-actions class="error-actions">
@@ -38,7 +52,12 @@
           </router-link>
           <v-spacer />
           <v-btn variant="flat" color="primary" @click="retryLoad">
-            <v-icon icon="mdi-refresh" class="mr-1" size="small" />
+            <v-icon
+              icon="mdi-refresh"
+              class="mr-1"
+              size="small"
+              aria-hidden="true"
+            />
             Retry
           </v-btn>
         </v-card-actions>

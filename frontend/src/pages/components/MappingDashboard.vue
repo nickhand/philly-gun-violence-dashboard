@@ -2,8 +2,8 @@
   <div class="mapping-dashboard-wrapper">
     <!-- Dashboard Header with stats -->
     <dashboard-header
-      :fatal="fatalCount"
-      :nonfatal="nonfatalCount"
+      :fatal="filteredCounts.fatal"
+      :nonfatal="filteredCounts.nonfatal"
       :current-year="currentYear"
       :min-year="minYear"
       :selected-year="selectedYear"
@@ -26,11 +26,12 @@
       <map-explorer
         ref="mapExplorerRef"
         :filtered-features="filteredFeatures"
+        :filtered-count="filteredRows.length"
         :layer-configs="layers"
         :filters="filters"
         :active-filters="activeFilters"
         :slider-limits="sliderLimits"
-        :total-count="totalFeatures"
+        :total-count="totalRows"
         :toggleable-layer-names="toggleableLayerNames"
         :choropleth-layer-names="choroplethLayerNames"
         :default-toggled-layer-names="defaultToggledLayerNames"
@@ -44,7 +45,7 @@
     </template>
 
     <!-- Chart dashboard showing breakdowns by category -->
-    <chart-dashboard id="charts" :features="filteredFeatures" />
+    <chart-dashboard id="charts" :rows="filteredRows" />
   </div>
 </template>
 
@@ -86,8 +87,6 @@ const {
   selectedYear,
   loadedYears,
   sortedYears: dataYears,
-  fatalCount,
-  nonfatalCount,
 } = storeToRefs(shootingsStore);
 
 // Track whether the map component is ready
@@ -114,6 +113,7 @@ const {
 const {
   activeFilters,
   sliderLimits,
+  filteredRows,
   filteredFeatures,
   initialize: initializeArquero,
   applyFilter,
@@ -125,8 +125,19 @@ const {
 // Histograms composable for slider filter charts
 const { histograms, initializeHistograms, updateHistograms } = useHistograms();
 
-// Download composable for export functionality
-const { handleDownload } = useDownload({ filteredFeatures, layers });
+// All selected-year rows are kept separately from the filtered map features.
+// This preserves records without coordinates in charts, counts, and downloads.
+const allRows = computed<ShootingRow[]>(() => {
+  const year = selectedYear.value;
+  if (year === null || year === undefined) {
+    return dataYears.value.flatMap(
+      (dataYear) => shootingsStore.rowsByYear[dataYear] ?? [],
+    );
+  }
+  return shootingsStore.rowsByYear[year] ?? [];
+});
+
+const { handleDownload } = useDownload({ filteredRows, allRows, layers });
 
 // Map Explorer ref (layer state is managed internally by MapExplorer)
 const mapExplorerRef = ref<InstanceType<typeof MapExplorer> | null>(null);
@@ -152,13 +163,13 @@ const minYear = computed(() =>
 
 /**
  * Combined fatal/nonfatal counts for screen reader summary.
- * Single pass over filteredFeatures for efficiency.
+ * Single pass over filtered rows for efficiency.
  */
 const filteredCounts = computed(() => {
   let fatal = 0;
   let nonfatal = 0;
-  for (const f of filteredFeatures.value) {
-    if (f.properties?.fatal === true) {
+  for (const row of filteredRows.value) {
+    if (row.fatal === true) {
       fatal++;
     } else {
       nonfatal++;
@@ -171,7 +182,7 @@ const filteredCounts = computed(() => {
  * Announcement text for screen readers when filters change.
  */
 const filterAnnouncement = computed(() => {
-  const count = filteredFeatures.value.length;
+  const count = filteredRows.value.length;
   if (
     previousFilteredCount.value !== null &&
     previousFilteredCount.value !== count
@@ -185,7 +196,7 @@ const filterAnnouncement = computed(() => {
 
 // Update previous count when filtered features change
 watch(
-  () => filteredFeatures.value.length,
+  () => filteredRows.value.length,
   (_, oldCount) => {
     previousFilteredCount.value = oldCount;
   },
@@ -205,7 +216,7 @@ useUrlState(normalizedYear, activeLayers, mapInstance, [
  * Total feature count for current year.
  * Uses loadedYears.size as dependency to trigger recalculation when data loads.
  */
-const totalFeatures = computed(() => {
+const totalRows = computed(() => {
   // Reference loadedYears to make this reactive to data loading
   void loadedYears.value.size;
   const year = selectedYear.value;
@@ -227,7 +238,7 @@ const pointsOnMap = computed(() => mapExplorerRef.value?.pointsOnMap ?? 0);
  * Generate a text summary of map data for screen readers.
  */
 const mapSummaryText = computed(() => {
-  const total = filteredFeatures.value.length;
+  const total = filteredRows.value.length;
   const onMap = pointsOnMap.value;
   const { fatal, nonfatal } = filteredCounts.value;
 

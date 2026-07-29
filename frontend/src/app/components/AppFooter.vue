@@ -34,7 +34,8 @@ const currentYear = new Date().getFullYear();
 
 .footer-link {
   color: rgb(var(--v-theme-secondary));
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
   transition: color 0.2s ease;
 }
 

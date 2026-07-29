@@ -15,7 +15,7 @@ Interactive Vue 3 dashboard visualizing gun violence data in Philadelphia with m
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20.19+ or 22.12+
 - npm 9+
 
 ## Getting Started
@@ -35,6 +35,27 @@ npm run preview
 ```
 
 The development server runs at `http://localhost:5173`.
+
+## Testing
+
+```bash
+# Unit and component tests
+npm test
+
+# Unit tests with enforced coverage thresholds
+npm run test:coverage
+
+# Chromium, Firefox, WebKit, and mobile Chromium browser tests
+npm run test:e2e
+
+# WCAG 2.1 A/AA automated checks
+npm run test:e2e:a11y
+```
+
+Browser tests use deterministic API fixtures and a local map style, so they do
+not depend on production data or third-party map services. See
+[`ACCESSIBILITY.md`](./ACCESSIBILITY.md) for the manual WCAG 2.1 AA evaluation
+checklist.
 
 ## Project Structure
 

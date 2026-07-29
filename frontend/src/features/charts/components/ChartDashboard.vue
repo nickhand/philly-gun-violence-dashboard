@@ -1,6 +1,6 @@
 <template>
   <section
-    v-if="features.length > 0"
+    v-if="rows.length > 0"
     class="chart-dashboard"
     role="region"
     aria-label="Shooting Statistics Charts"
@@ -10,7 +10,7 @@
     <!-- Top row: Outcome, Court Cases, Gender -->
     <div class="chart-row">
       <HistogramChart
-        :features="features"
+        :rows="rows"
         title="Outcome"
         accessor="fatal"
         :color="colors.coral"
@@ -19,7 +19,7 @@
         :label-width="120"
       />
       <HistogramChart
-        :features="features"
+        :rows="rows"
         title="Public Court Record"
         accessor="has_court_case"
         :color="colors.slate"
@@ -28,7 +28,7 @@
         :label-width="100"
       />
       <HistogramChart
-        :features="features"
+        :rows="rows"
         title="Gender"
         accessor="sex"
         :color="colors.sage"
@@ -41,7 +41,7 @@
     <!-- Bottom row: Race/Ethnicity, Age -->
     <div class="chart-row chart-row--bottom">
       <HistogramChart
-        :features="features"
+        :rows="rows"
         title="Race/Ethnicity"
         accessor="race"
         :color="colors.teal"
@@ -64,7 +64,7 @@
         :responsive-label-width="90"
       />
       <HistogramChart
-        :features="features"
+        :rows="rows"
         title="Age Group"
         accessor="age_group"
         :color="colors.mauve"
@@ -108,17 +108,14 @@
  * @component
  */
 
+import type { ShootingRow } from "@/shared/types/shootings";
 import HistogramChart from "./HistogramChart.vue";
 import { CHART_COLORS } from "@/shared/constants";
 
 // Types
-interface Feature {
-  properties: Record<string, unknown> | null;
-}
-
 interface Props {
-  /** Filtered GeoJSON features to visualize */
-  features: Feature[];
+  /** Filtered records to visualize, including records without coordinates */
+  rows: ShootingRow[];
 }
 
 defineProps<Props>();

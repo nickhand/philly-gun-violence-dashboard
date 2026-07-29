@@ -1,8 +1,21 @@
 <template>
-  <div v-if="visible" class="map-legend">
+  <div
+    v-if="visible"
+    class="map-legend"
+    role="img"
+    :aria-label="`${options.title} map legend from ${formatNumber(
+      options.domain[0],
+    )} to ${formatNumber(options.domain[1])}`"
+  >
     <div class="legend-label">{{ options.title }}</div>
     <div class="legend-bar-container">
-      <svg ref="svgRef" :width="width" :height="height">
+      <svg
+        ref="svgRef"
+        :width="width"
+        :height="height"
+        aria-hidden="true"
+        focusable="false"
+      >
         <defs>
           <linearGradient
             id="legend-gradient"

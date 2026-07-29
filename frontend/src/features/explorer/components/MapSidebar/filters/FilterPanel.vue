@@ -1,26 +1,26 @@
 <template>
   <v-expansion-panel class="filter-panel" elevation="0">
-    <v-expansion-panel-title
-      :ripple="false"
-      :hide-actions="hideActions"
-      :class="{ 'switch-panel-title': hideActions }"
-    >
-      <template v-if="hideActions">
+    <template v-if="hideActions">
+      <div class="switch-panel-title">
         <slot name="title" />
-      </template>
-      <template v-else>
-        <div class="filter-header">
+      </div>
+    </template>
+    <template v-else>
+      <div class="filter-header">
+        <v-expansion-panel-title :ripple="false">
           <span>{{ label }}</span>
-          <span
-            v-if="showReset"
-            class="reset-link"
-            @click.stop="$emit('reset')"
-          >
-            Reset
-          </span>
-        </div>
-      </template>
-    </v-expansion-panel-title>
+        </v-expansion-panel-title>
+        <button
+          v-if="showReset"
+          type="button"
+          class="reset-button"
+          :aria-label="`Reset ${label} filter`"
+          @click="$emit('reset')"
+        >
+          Reset
+        </button>
+      </div>
+    </template>
     <v-expansion-panel-text v-if="$slots.default">
       <slot />
     </v-expansion-panel-text>
@@ -60,19 +60,26 @@ defineEmits<{
 
 .filter-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   width: 100%;
 }
 
-.reset-link {
+.filter-header :deep(.v-expansion-panel-title) {
+  flex: 1;
+}
+
+.reset-button {
   color: #7ab5e5;
   font-weight: 500;
   cursor: pointer;
-  margin-right: 1rem;
+  margin-right: 0.75rem;
+  padding: 0.5rem;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
 }
 
-.reset-link:hover {
+.reset-button:hover {
   text-decoration: underline;
 }
 
@@ -81,5 +88,7 @@ defineEmits<{
   flex-direction: column;
   justify-content: center;
   align-items: flex-start;
+  min-height: 44px;
+  padding: 4px 24px;
 }
 </style>

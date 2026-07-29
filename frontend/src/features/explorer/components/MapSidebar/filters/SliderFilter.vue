@@ -20,6 +20,7 @@
 
       <v-range-slider
         :model-value="modelValue"
+        :aria-label="`${label} range`"
         :min="min"
         :max="max"
         :step="step"

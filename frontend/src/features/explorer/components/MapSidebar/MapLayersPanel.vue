@@ -26,14 +26,17 @@
         density="compact"
       />
 
-      <div class="opacity-control mt-2">
+      <div
+        v-if="localSelectedChoropleth !== null"
+        class="opacity-control mt-2"
+      >
         <v-slider
           v-model="choroplethOpacity"
-          :disabled="localSelectedChoropleth === null"
           :min="0"
           :max="50"
           :step="1"
           label="Opacity"
+          aria-label="Choropleth layer opacity"
           hide-details
           class="opacity-slider"
           color="primary"
@@ -195,6 +198,11 @@ onMounted(() => {
 
 .opacity-slider {
   flex: 1;
+}
+
+.opacity-slider :deep(.v-label) {
+  color: #ffffff;
+  opacity: 1;
 }
 
 .opacity-slider :deep(.v-slider-track__fill) {

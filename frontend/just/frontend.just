@@ -24,3 +24,18 @@ ui-type-check:
 [group: "ui"]
 ui-lint:
 	cd frontend; npm run type-check
+
+# Run frontend unit and component tests
+[group: "ui"]
+ui-test:
+	cd frontend; npm test
+
+# Run frontend tests with coverage
+[group: "ui"]
+ui-test-coverage:
+	cd frontend; npm run test:coverage
+
+# Run frontend end-to-end tests in all configured browsers
+[group: "ui"]
+ui-test-e2e:
+	cd frontend; npm run test:e2e

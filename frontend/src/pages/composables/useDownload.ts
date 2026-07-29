@@ -11,9 +11,10 @@ import type { Ref, ComputedRef } from "vue";
 import { useBoundariesStore } from "@/shared/stores/boundaries";
 import { sourceIdToDataset } from "@/features/explorer/config/sources";
 import type { LayerConfig } from "@/features/explorer/types";
+import type { ShootingRow } from "@/shared/types/shootings";
 
 // Types
-interface Feature {
+export interface ExportFeature {
   type: "Feature";
   properties: Record<string, unknown> | null;
   geometry: GeoJSON.Geometry | null;
@@ -26,7 +27,8 @@ interface DownloadOptions {
 }
 
 interface UseDownloadOptions {
-  filteredFeatures: ComputedRef<Feature[]>;
+  filteredRows: ComputedRef<ShootingRow[]>;
+  allRows: ComputedRef<ShootingRow[]>;
   layers: Ref<LayerConfig[]>;
 }
 
@@ -42,19 +44,56 @@ const EXCLUDED_EXPORT_FIELDS = new Set([
 ]);
 
 /**
+ * Convert table rows to GeoJSON features for export.
+ *
+ * Map rendering omits rows without coordinates. Exports retain those records
+ * with null geometry so counts, charts, and downloaded data stay consistent.
+ */
+export function rowsToExportFeatures(rows: ShootingRow[]): ExportFeature[] {
+  return rows.map((row) => {
+    const properties = { ...row } as Record<string, unknown>;
+    delete properties.lon;
+    delete properties.lat;
+
+    const hasValidCoordinates =
+      row.lon !== null &&
+      row.lat !== null &&
+      Number.isFinite(row.lon) &&
+      Number.isFinite(row.lat);
+
+    return {
+      type: "Feature",
+      geometry: hasValidCoordinates
+        ? {
+            type: "Point",
+            coordinates: [row.lon as number, row.lat as number],
+          }
+        : null,
+      properties,
+    };
+  });
+}
+
+/**
  * Composable for handling data download/export functionality.
  *
  * @param options - Configuration options
  * @returns Download handler function
  */
-export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
+export function useDownload({
+  filteredRows,
+  allRows,
+  layers,
+}: UseDownloadOptions) {
   const boundariesStore = useBoundariesStore();
 
   /**
    * Clean features for export by removing internal/derived fields.
    * Creates a new array with cleaned properties (does not mutate original).
    */
-  function cleanFeaturesForExport(features: Feature[]): Feature[] {
+  function cleanFeaturesForExport(
+    features: ExportFeature[],
+  ): ExportFeature[] {
     return features.map((f) => {
       if (!f.properties) return f;
 
@@ -76,7 +115,7 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
    * Convert features to CSV format.
    * Extracts properties from each feature and formats as CSV.
    */
-  function convertToCSV(features: Feature[]): string {
+  function convertToCSV(features: ExportFeature[]): string {
     if (features.length === 0) return "";
 
     // Get all unique property keys from all features
@@ -154,7 +193,7 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
    * Groups shooting features by the boundary column and computes summary statistics.
    */
   function aggregateByBoundary(
-    features: Feature[],
+    features: ExportFeature[],
     layerName: string,
   ): Array<Record<string, unknown>> {
     // Find the layer config to get the column name
@@ -296,7 +335,8 @@ export function useDownload({ filteredFeatures, layers }: UseDownloadOptions) {
    * Exports features in requested format based on dialog options.
    */
   async function handleDownload(options: DownloadOptions): Promise<void> {
-    const features = filteredFeatures.value;
+    const rows = options.useFiltered ? filteredRows.value : allRows.value;
+    const features = rowsToExportFeatures(rows);
     const timestamp = new Date().toISOString().split("T")[0];
     const suffix = options.useFiltered ? "filtered" : "all";
 

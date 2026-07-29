@@ -38,6 +38,18 @@ const DEFAULT_OPTIONS: Required<MapOptions> = {
   maxZoom: MAP_DEFAULTS.maxZoom,
 };
 
+const TEST_MAP_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {},
+  layers: [
+    {
+      id: "background",
+      type: "background",
+      paint: { "background-color": "#1d2224" },
+    },
+  ],
+};
+
 /**
  * Custom Home control to reset map to initial bounds.
  */
@@ -162,7 +174,9 @@ export function useMapInstance(options: MapOptions = {}) {
 
     mapInstance.value = new maplibregl.Map({
       container: mapContainer.value,
-      style: mapStyle as maplibregl.StyleSpecification,
+      style: import.meta.env.VITE_E2E
+        ? TEST_MAP_STYLE
+        : (mapStyle as maplibregl.StyleSpecification),
       center: config.center,
       zoom: config.zoom,
       minZoom: config.minZoom,

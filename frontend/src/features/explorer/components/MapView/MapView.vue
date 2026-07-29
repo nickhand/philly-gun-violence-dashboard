@@ -1,7 +1,7 @@
 <template>
   <div
     class="map-view"
-    role="application"
+    role="region"
     aria-label="Interactive map showing shooting locations in Philadelphia"
   >
     <map-canvas

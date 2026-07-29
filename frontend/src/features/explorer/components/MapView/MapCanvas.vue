@@ -2,14 +2,23 @@
   <div ref="mapContainer" class="map-wrapper">
     <!-- Map renders here via MapLibre GL -->
     <div v-if="isLoading" class="map-loading">
-      <v-progress-circular indeterminate color="primary" />
+      <v-progress-circular
+        indeterminate
+        color="primary"
+        aria-label="Loading map"
+      />
       <p class="mt-2">Loading map...</p>
     </div>
 
     <!-- Loading spinner overlay (shows during data loading) -->
     <div class="map-overlay">
       <div class="map-overlay__inner" v-if="showLoadingSpinner">
-        <v-progress-circular indeterminate size="32" color="white" />
+        <v-progress-circular
+          indeterminate
+          size="32"
+          color="white"
+          aria-label="Loading map data"
+        />
       </div>
     </div>
 

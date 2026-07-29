@@ -357,7 +357,7 @@ export function useArquero(): UseArqueroReturn {
     }
 
     // Use d3 bin to create histogram
-    const histogram = bin<number>().thresholds(numBins);
+    const histogram = bin().thresholds(numBins);
     const bins = histogram(values);
 
     // Convert d3 bins to our HistogramBin format

@@ -3,6 +3,7 @@
     class="map-sidebar"
     role="complementary"
     aria-label="Map filters and controls"
+    tabindex="-1"
   >
     <!-- Loading indicator -->
     <v-overlay
@@ -11,7 +12,11 @@
       persistent
       class="sidebar-overlay"
     >
-      <v-progress-circular indeterminate color="primary" />
+      <v-progress-circular
+        indeterminate
+        color="primary"
+        aria-label="Loading filters"
+      />
     </v-overlay>
 
     <!-- Sidebar Header -->

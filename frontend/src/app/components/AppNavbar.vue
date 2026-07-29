@@ -37,6 +37,7 @@
       <v-select
         class="year-select"
         v-model="value"
+        aria-label="Viewing data for year"
         :items="yearOptions"
         variant="underlined"
         density="compact"
