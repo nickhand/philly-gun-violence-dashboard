@@ -137,7 +137,12 @@
             below indicate the most recent data included in each dataset:
           </p>
           <div v-if="metaLoading" class="freshness-loading">
-            <v-progress-circular indeterminate size="20" width="2" />
+            <v-progress-circular
+              indeterminate
+              size="20"
+              width="2"
+              aria-label="Loading data freshness"
+            />
             <span>Loading data freshness...</span>
           </div>
           <div v-else-if="metaError" class="freshness-error">
@@ -590,7 +595,7 @@ useHead({
 .source-origin {
   display: inline-block;
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.72);
   background: rgba(255, 255, 255, 0.05);
   padding: 4px 10px;
   border-radius: 4px;
@@ -661,7 +666,7 @@ useHead({
 
 .freshness-updated {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 /* Methodology Grid */

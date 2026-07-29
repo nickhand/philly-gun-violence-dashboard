@@ -14,7 +14,7 @@ export const vuetify = createVuetify({
           surface: "#353d42",
           primary: "#fff",
           secondary: "#b2beb5",
-          error: "#d84545",
+          error: "#ff8a8a",
           warning: "#e5dc8e",
           info: "#2196F3",
           success: "#4CAF50",

@@ -13,6 +13,8 @@
           :width="chartWidth"
           :height="computedHeight"
           class="histogram-chart__svg"
+          aria-hidden="true"
+          focusable="false"
         >
           <g
             ref="chartGroupRef"
@@ -66,12 +68,9 @@ import { scaleBand, scaleLinear } from "d3-scale";
 import { select } from "d3-selection";
 import { format } from "d3-format";
 import "d3-transition";
+import type { ShootingRow } from "@/shared/types/shootings";
 
 // Types
-interface Feature {
-  properties: Record<string, unknown> | null;
-}
-
 interface ChartDataItem {
   category: string;
   label: string;
@@ -82,8 +81,8 @@ interface ChartDataItem {
 }
 
 interface Props {
-  /** Array of GeoJSON features to visualize */
-  features: Feature[];
+  /** Array of filtered records to visualize */
+  rows: ShootingRow[];
   /** Property key to group by */
   accessor: string;
   /** Chart title */
@@ -170,7 +169,7 @@ const formatCount = format(",");
 const formatPercent = (p: number) => `${(p * 100).toFixed(0)}%`;
 
 // Computed values
-const hasData = computed(() => props.features.length > 0);
+const hasData = computed(() => props.rows.length > 0);
 const accessibleLabel = computed(() => `${props.title} distribution breakdown`);
 
 // Chart dimensions
@@ -204,16 +203,16 @@ const innerHeight = computed(
  * Group features by accessor and build chart data.
  */
 const chartData = computed<ChartDataItem[]>(() => {
-  if (!props.features.length) return [];
+  if (!props.rows.length) return [];
 
   // Group by accessor value
   const grouped = rollup(
-    props.features,
-    (v: Feature[]) => v.length,
-    (d: Feature) => d.properties?.[props.accessor]
+    props.rows,
+    (v: ShootingRow[]) => v.length,
+    (d: ShootingRow) => d[props.accessor as keyof ShootingRow]
   );
 
-  const total = props.features.length;
+  const total = props.rows.length;
 
   return props.categories.map((cat: string | number | boolean) => {
     const key = String(cat);

@@ -67,21 +67,27 @@
    Visible focus rings for keyboard navigation only
    ========================================================================== */
 
-/* 
- * Remove ALL outlines by default - we'll add them back only where needed 
- * This prevents the unwanted blue focus boxes on click
+/*
+ * Preserve a strong, consistent focus indicator across native, Vuetify,
+ * MapLibre, and custom controls. The :focus rule is the Safari 14 fallback;
+ * newer browsers suppress it for pointer clicks when :focus-visible is false.
  */
 *:focus {
+  outline: 3px solid var(--focus-ring-color) !important;
+  outline-offset: 2px !important;
+}
+
+*:focus:not(:focus-visible) {
   outline: none !important;
 }
 
-/* 
- * Only show focus ring on skip links when using keyboard
- * Skip links are the primary a11y navigation feature
- */
-.skip-link:focus {
-  outline: 2px solid var(--focus-ring-color) !important;
+*:focus-visible {
+  outline: 3px solid var(--focus-ring-color) !important;
   outline-offset: 2px !important;
+}
+
+.skip-link:focus-visible {
+  outline-color: #ffffff !important;
 }
 
 /* ==========================================================================

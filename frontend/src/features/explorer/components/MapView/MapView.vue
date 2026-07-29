@@ -1,16 +1,18 @@
 <template>
   <div
     class="map-view"
-    role="application"
+    role="region"
     aria-label="Interactive map showing shooting locations in Philadelphia"
   >
     <map-canvas
+      v-if="!isE2E"
       ref="mapCanvasRef"
       :filtered-features="filteredFeatures"
       :layer-configs="layerConfigs"
       :active-layers="activeLayers"
       @map-ready="handleMapReady"
     />
+    <div v-else class="map-test-placeholder" aria-hidden="true" />
 
     <!-- Address search overlay -->
     <div class="address-search-container">
@@ -43,7 +45,7 @@
  * @component
  */
 
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import MapCanvas from "./MapCanvas.vue";
 import AddressSearch from "./AddressSearch.vue";
 import SearchMarker from "./SearchMarker.vue";
@@ -61,6 +63,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const isE2E = import.meta.env.VITE_E2E;
 
 // Emits
 const emit = defineEmits<{
@@ -96,6 +99,12 @@ function handleMapReady(): void {
 
   emit("map-ready");
 }
+
+onMounted(() => {
+  if (isE2E) {
+    emit("map-ready");
+  }
+});
 
 /**
  * Handle address selection from the AddressSearch component.
@@ -197,6 +206,11 @@ defineExpose({
   top: 10px;
   left: 10px;
   z-index: 10;
+}
+
+.map-test-placeholder {
+  flex: 1;
+  background: #1d2224;
 }
 
 @media screen and (max-width: 767.98px) {

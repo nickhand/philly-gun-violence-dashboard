@@ -8,7 +8,15 @@
         type="text"
         class="search-input"
         placeholder="Search address..."
+        role="combobox"
         aria-label="Search for an address in Philadelphia"
+        aria-autocomplete="list"
+        :aria-expanded="showResults && results.length > 0"
+        aria-controls="address-search-results"
+        :aria-activedescendant="
+          activeIndex >= 0 ? `address-search-result-${activeIndex}` : undefined
+        "
+        :aria-busy="isLoading"
         @input="handleInput"
         @focus="showResults = results.length > 0"
         @keydown.escape="handleEscape"
@@ -26,13 +34,20 @@
         <v-icon icon="mdi-close" size="16" />
       </button>
       <div v-if="isLoading" class="loading-indicator">
-        <v-progress-circular indeterminate size="16" width="2" color="white" />
+        <v-progress-circular
+          indeterminate
+          size="16"
+          width="2"
+          color="white"
+          aria-label="Searching addresses"
+        />
       </div>
     </div>
 
     <!-- Results dropdown -->
     <div
       v-if="showResults && results.length > 0"
+      id="address-search-results"
       class="search-results"
       role="listbox"
       aria-label="Address search results"
@@ -40,9 +55,11 @@
       <button
         v-for="(result, index) in results"
         :key="result.id"
+        :id="`address-search-result-${index}`"
         class="search-result"
         :class="{ 'search-result--active': index === activeIndex }"
         role="option"
+        tabindex="-1"
         :aria-selected="index === activeIndex"
         @click="handleSelect(result)"
         @mouseenter="activeIndex = index"
@@ -58,6 +75,8 @@
         showResults && query.length >= 3 && !isLoading && results.length === 0
       "
       class="search-no-results"
+      role="status"
+      aria-live="polite"
     >
       No addresses found in Philadelphia
     </div>
@@ -253,7 +272,7 @@ defineExpose({
 }
 
 .search-input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .clear-button {
@@ -262,8 +281,8 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   background: transparent;
   border: none;

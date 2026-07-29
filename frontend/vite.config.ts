@@ -6,7 +6,11 @@ import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig(({ command }) => ({
   base: process.env.VITE_PUBLIC_BASE ?? "/philly-gun-violence-map/",
-  plugins: [vue(), vueDevTools(), vuetify({ autoImport: true })],
+  plugins: [
+    vue(),
+    ...(process.env.VITE_E2E ? [] : [vueDevTools()]),
+    vuetify({ autoImport: true }),
+  ],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

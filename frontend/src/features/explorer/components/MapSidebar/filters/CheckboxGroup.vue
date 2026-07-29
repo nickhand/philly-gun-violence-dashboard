@@ -1,35 +1,33 @@
 <template>
   <div class="checkbox-grid">
-    <v-hover
+    <div
       v-for="item in normalizedItems"
       :key="String(item.value)"
-      v-slot="{ isHovering, props: hoverProps }"
+      class="checkbox-item"
+      :style="getItemStyle()"
     >
-      <div v-bind="hoverProps" class="checkbox-item" :style="getItemStyle()">
-        <v-checkbox
-          :model-value="selectedValues.includes(item.value)"
-          :disabled="disabled"
-          color="#7ab5e5"
-          hide-details
-          density="compact"
-          @click.capture="handleCheckboxClick"
-          @update:model-value="handleChange(item.value, $event)"
-        >
-          <template #label>
-            <div class="checkbox-label">
-              {{ item.text }}
-              <span
-                v-if="isHovering && !disabled && showOnly"
-                class="only-link"
-                @mousedown.stop.prevent="handleOnlyClick(item.value)"
-              >
-                only
-              </span>
-            </div>
-          </template>
-        </v-checkbox>
-      </div>
-    </v-hover>
+      <v-checkbox
+        :model-value="selectedValues.includes(item.value)"
+        :disabled="disabled"
+        color="#7ab5e5"
+        hide-details
+        density="compact"
+        @update:model-value="handleChange(item.value, $event)"
+      >
+        <template #label>
+          <span class="checkbox-label">{{ item.text }}</span>
+        </template>
+      </v-checkbox>
+      <button
+        v-if="!disabled && showOnly"
+        type="button"
+        class="only-button"
+        :aria-label="`Show only ${item.text}`"
+        @click="emit('only', item.value)"
+      >
+        only
+      </button>
+    </div>
   </div>
 </template>
 
@@ -48,7 +46,7 @@
  * @component
  */
 
-import { ref, computed } from "vue";
+import { computed } from "vue";
 
 /** Item can be either a simple string or an object with value/text */
 type CheckboxItem = string | { value: any; text: string };
@@ -80,9 +78,6 @@ const emit = defineEmits<{
   only: [value: any];
 }>();
 
-/** Flag to track if "only" was clicked (prevents checkbox toggle) */
-const onlyClicked = ref(false);
-
 /** Normalize items to always have value/text structure */
 const normalizedItems = computed(() =>
   props.items.map((item) =>
@@ -96,24 +91,9 @@ function getItemStyle(): Record<string, string> {
   return { minWidth: width, width };
 }
 
-/** Intercept checkbox clicks - block if "only" was just clicked */
-function handleCheckboxClick(event: Event): void {
-  if (onlyClicked.value) {
-    event.stopPropagation();
-    event.preventDefault();
-    onlyClicked.value = false;
-  }
-}
-
 /** Handle checkbox toggle */
 function handleChange(value: any, checked: boolean | null): void {
   emit("change", value, checked ?? false);
-}
-
-/** Handle "only" link click - select just this value */
-function handleOnlyClick(value: any): void {
-  onlyClicked.value = true;
-  emit("only", value);
 }
 </script>
 
@@ -123,20 +103,40 @@ function handleOnlyClick(value: any): void {
   flex-wrap: wrap;
 }
 
-.checkbox-label {
+.checkbox-item {
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 
-.only-link {
+.checkbox-item :deep(.v-checkbox) {
+  flex: 1;
+}
+
+.checkbox-label {
+  display: inline-block;
+}
+
+.only-button {
   color: #7ab5e5;
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  padding: 0.4rem;
+  margin-right: 0.25rem;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
 }
 
-.only-link:hover {
+.checkbox-item:hover .only-button,
+.checkbox-item:focus-within .only-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.only-button:hover {
   text-decoration: underline;
 }
 </style>

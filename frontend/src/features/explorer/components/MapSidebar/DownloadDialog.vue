@@ -4,6 +4,7 @@
     max-width="480"
     class="download-dialog"
     scrim="rgba(0, 0, 0, 0.95)"
+    aria-labelledby="download-dialog-title"
   >
     <!-- Trigger Button -->
     <template #activator="{ props: activatorProps }">
@@ -21,8 +22,8 @@
 
     <!-- Dialog Content -->
     <v-card class="download-card">
-      <v-card-title class="download-card__title">
-        <v-icon icon="mdi-download" class="mr-3" />
+      <v-card-title id="download-dialog-title" class="download-card__title">
+        <v-icon icon="mdi-download" class="mr-3" aria-hidden="true" />
         Download Data
       </v-card-title>
 
@@ -91,6 +92,7 @@
           </div>
           <v-select
             v-model="aggregateBy"
+            aria-label="Aggregate download by geography"
             :items="aggregationOptions"
             item-title="title"
             item-value="value"
@@ -280,7 +282,7 @@ function handleDownload(): void {
 
 .option-group__optional {
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.7);
   margin-left: 6px;
   font-size: 0.85rem;
 }
@@ -326,7 +328,7 @@ function handleDownload(): void {
 
 .option-hint {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.72);
   margin-top: 10px;
   line-height: 1.5;
 }

@@ -16,7 +16,7 @@
       :filters="filters"
       :active-filters="activeFilters"
       :slider-limits="sliderLimits"
-      :feature-count="filteredFeatures.length"
+      :feature-count="filteredCount"
       :total-count="totalCount"
       :points-on-map="pointsOnMap"
       :toggleable-layer-names="toggleableLayerNames"
@@ -70,6 +70,8 @@ import type { FilterConfig, LayerConfig, HistogramBin } from "../types";
 interface Props {
   /** Filtered GeoJSON features to display on the map */
   filteredFeatures: GeoJSON.Feature[];
+  /** Filtered record count, including records without map coordinates */
+  filteredCount: number;
   /** Layer configurations for the map */
   layerConfigs: LayerConfig[];
   /** Filter configurations for the sidebar */

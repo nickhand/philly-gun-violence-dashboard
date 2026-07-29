@@ -1,12 +1,13 @@
 <template>
   <div class="dashboard-header">
-    <div class="header-message">Mapping Philadelphia's Gun Violence</div>
+    <h1 class="header-message">Mapping Philadelphia's Gun Violence</h1>
 
     <div>
       <!-- Homicide summary (only show when data is available) -->
-      <div
+      <p
         v-if="displayHasHomicideData"
         class="header-submessage"
+        :aria-hidden="!isDataReady"
         :style="{
           opacity: isDataReady ? 1 : 0,
           transition: 'opacity 0.2s ease-in',
@@ -15,8 +16,9 @@
       />
 
       <!-- Shooting victims summary -->
-      <div
+      <p
         class="header-submessage"
+        :aria-hidden="!isDataReady"
         :style="{
           opacity: isDataReady ? 1 : 0,
           transition: 'opacity 0.2s ease-in',
@@ -348,23 +350,16 @@ const shootingMessage = computed((): string => {
   let dateText: string;
   if (props.selectedYear === props.currentYear) {
     dateText = `so far in <span class="date-color">${props.currentYear}.</span>`;
-  } else if (props.selectedYear === null) {
-    dateText = `since <span class="date-color">${props.minYear}.</span>`;
+  } else if (props.selectedYear === null || props.selectedYear === undefined) {
+    dateText =
+      props.minYear === null
+        ? "across all available years."
+        : `since <span class="date-color">${props.minYear}.</span>`;
   } else {
     dateText = `in <span class="date-color">${props.selectedYear}.</span>`;
   }
 
   return `This map shows the victims of gun violence: ${nonfatalText} and ${fatalText} shooting victims ${dateText}`;
-});
-
-const displayShootingMessage = computed(() => {
-  const result = cachedShootingMessage.value ?? shootingMessage.value;
-  if (import.meta.env.DEV) {
-    console.log(
-      `[DashboardHeader] displayShootingMessage computed: cached="${cachedShootingMessage.value?.slice(0, 50)}...", current="${shootingMessage.value.slice(0, 50)}...", using cached=${cachedShootingMessage.value !== null}`,
-    );
-  }
-  return result;
 });
 
 /**
@@ -374,6 +369,18 @@ const isDataReady = computed(() => {
   const notLoading = !props.showLoading && !isLoadingHomicides.value;
   const hasValidCounts = (props.fatal ?? 0) > 0 || (props.nonfatal ?? 0) > 0;
   return notLoading && hasValidCounts;
+});
+
+const displayShootingMessage = computed(() => {
+  const result = isDataReady.value
+    ? shootingMessage.value
+    : (cachedShootingMessage.value ?? shootingMessage.value);
+  if (import.meta.env.DEV) {
+    console.log(
+      `[DashboardHeader] displayShootingMessage computed: cached="${cachedShootingMessage.value?.slice(0, 50)}...", current="${shootingMessage.value.slice(0, 50)}...", using cached=${cachedShootingMessage.value !== null}`,
+    );
+  }
+  return result;
 });
 
 /**

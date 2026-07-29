@@ -1,6 +1,12 @@
 <template>
   <div class="histogram-chart" ref="containerRef">
-    <svg :width="chartWidth" :height="height" class="histogram-svg">
+    <svg
+      :width="chartWidth"
+      :height="height"
+      class="histogram-svg"
+      aria-hidden="true"
+      focusable="false"
+    >
       <!-- Bars -->
       <g class="bars">
         <rect
