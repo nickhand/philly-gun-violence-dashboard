@@ -52,8 +52,9 @@ npm run test:e2e
 npm run test:e2e:a11y
 ```
 
-Browser tests use deterministic API fixtures and a local map style, so they do
-not depend on production data or third-party map services. See
+Browser tests use deterministic API fixtures and a browser-safe map placeholder,
+so they do not depend on production data, third-party map services, or CI GPU
+availability. See
 [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) for the manual WCAG 2.1 AA evaluation
 checklist.
 
