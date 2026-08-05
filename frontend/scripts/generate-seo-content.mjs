@@ -211,9 +211,9 @@ function buildFaq(s) {
     },
     {
       q: "How can I download Philadelphia shooting data?",
-      a: `You can download the data as CSV or GeoJSON from the interactive dashboard at ${CANONICAL_BASE}/, fetch machine-readable JSON from the public API at ${API_BASE}/shootings/meta, or get the source data from OpenDataPhilly.`,
+      a: `You can download the data as CSV or GeoJSON from the interactive dashboard at ${CANONICAL_BASE}/, use the public JSON API (documentation at ${API_BASE}/docs), or get the source data from OpenDataPhilly.`,
       // HTML variant for the visible page only; JSON-LD keeps the plain text.
-      aHtml: `Download CSV or GeoJSON from the <a href="/philly-gun-violence-map/">interactive dashboard</a>, fetch JSON from the <a href="${API_BASE}/shootings/meta">public API</a>, or get the source data from <a href="https://opendataphilly.org/datasets/shooting-victims/" rel="noopener">OpenDataPhilly</a>.`,
+      aHtml: `Download CSV or GeoJSON from the <a href="/philly-gun-violence-map/">interactive dashboard</a>, use the <a href="${API_BASE}/docs">public JSON API</a>, or get the source data from <a href="https://opendataphilly.org/datasets/shooting-victims/" rel="noopener">OpenDataPhilly</a>.`,
     },
   ];
 }
@@ -523,8 +523,8 @@ ${JSON.stringify(faqJsonLd, null, 2)}
             <p>Filtered downloads from the <a href="/philly-gun-violence-map/">interactive dashboard</a>.</p>
           </div>
           <div class="get-cell">
-            <h3>Public API</h3>
-            <p>Machine-readable JSON at <a href="${API_BASE}/shootings/meta">/shootings/meta</a>.</p>
+            <h3>For developers</h3>
+            <p>A public JSON API with interactive <a href="${API_BASE}/docs">documentation</a>.</p>
           </div>
           <div class="get-cell">
             <h3>Source &amp; code</h3>
