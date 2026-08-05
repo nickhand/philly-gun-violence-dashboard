@@ -3,16 +3,19 @@
     <h1 class="header-message">Mapping Philadelphia's Gun Violence</h1>
 
     <div>
-      <!-- Homicide summary (only show when data is available) -->
+      <!--
+        Homicide summary. Always rendered (with reserved min-height) so the
+        content below does not shift when the data arrives; opacity and
+        aria-hidden handle the loading state.
+      -->
       <p
-        v-if="displayHasHomicideData"
-        class="header-submessage"
+        class="header-submessage header-submessage--homicide"
         :aria-hidden="!isDataReady"
         :style="{
-          opacity: isDataReady ? 1 : 0,
+          opacity: isDataReady && displayHasHomicideData ? 1 : 0,
           transition: 'opacity 0.2s ease-in',
         }"
-        v-html="displayHomicideMessage"
+        v-html="displayHasHomicideData ? displayHomicideMessage : ''"
       />
 
       <!-- Shooting victims summary -->
@@ -483,6 +486,15 @@ watch(
   margin-top: 50px;
 }
 
+/*
+ * Reserve the homicide line's space before its data loads so the map below
+ * doesn't jump when the text appears. 2 lines at desktop widths, 3 at
+ * mobile widths (line-height 1.2), measured against the live message.
+ */
+.header-submessage--homicide {
+  min-height: 2.4em;
+}
+
 @media only screen and (max-width: 767px) {
   .header-submessage {
     font-size: 1.6rem;
@@ -490,6 +502,10 @@ watch(
     text-align: center;
     line-height: 1.2;
     padding: 0 1.5rem;
+  }
+
+  .header-submessage--homicide {
+    min-height: 3.6em;
   }
 
   .header-message {
