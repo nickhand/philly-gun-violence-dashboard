@@ -40,7 +40,6 @@
         </div>
         <div class="cr-content">
           <p>
-            This dashboard was originally developed by
             <a
               href="https://nickhand.dev"
               target="_blank"
@@ -49,15 +48,15 @@
               @click="trackExternalLink('Nick Hand', 'https://nickhand.dev')"
               >Nick Hand</a
             >
-            while serving as Director of Finance, Policy, and Data at the
-            Philadelphia City Controller's Office. It was created to provide
-            transparent, accessible insight into gun violence trends across the
-            city as violence rose to crisis levels.
+            built the first version of this dashboard while serving as
+            Director of Finance, Policy, and Data at the Philadelphia City
+            Controller's Office. The goal was to give the public a clear view
+            of gun violence trends as violence rose to crisis levels.
           </p>
           <p>
-            Since leaving the Controller's Office, he has continued to maintain
-            the dashboard as an independent project, rebuilt with modern web
-            technologies, new features, and enhanced accessibility.
+            He has kept the dashboard going as an independent project since
+            leaving the Controller's Office. He rebuilt it with modern web
+            tools, new features, and better accessibility.
           </p>
         </div>
       </section>
@@ -152,8 +151,7 @@
         </div>
         <div class="cr-content">
           <p class="stats-page-note">
-            For current headline numbers and frequently asked questions, see
-            the
+            For the latest numbers and common questions, see the
             <a :href="statsPageUrl" class="text-link">statistics summary page</a
             >.
           </p>
@@ -205,17 +203,17 @@
           <div class="def-row">
             <h3 class="def-label">Data updates</h3>
             <p class="def-value">
-              Shooting victim data is updated daily via automated pipelines.
-              PPD's statistics unit enters data from detective reports,
-              typically by 10:30 AM on weekdays.
+              Shooting victim data is updated daily through automated
+              pipelines. PPD's statistics unit enters data from detective
+              reports, usually by 10:30 AM on weekdays.
             </p>
           </div>
           <div class="def-row">
             <h3 class="def-label">Officer-involved shootings</h3>
             <p class="def-value">
-              Only criminal shooting victims are included; officer-involved
-              shootings are excluded due to differences in reporting fields.
-              See
+              This dashboard only includes criminal shooting victims.
+              Officer-involved shootings are left out because they are reported
+              with different fields. See
               <a
                 href="https://www.phillypolice.com/ois"
                 target="_blank"
@@ -242,16 +240,16 @@
           <div class="def-row">
             <h3 class="def-label">Homicide counts</h3>
             <p class="def-value">
-              PPD homicide totals include all homicides, not only firearm
-              deaths; fatal shootings here may undercount total gun homicides.
+              PPD homicide totals include all homicides, not just gun deaths.
+              Fatal shootings here may undercount total gun homicides.
             </p>
           </div>
           <div class="def-row">
             <h3 class="def-label">Data accuracy</h3>
             <p class="def-value">
               All data is preliminary and may differ from other official
-              sources. This tool is informational and should not be the sole
-              basis for research or policy decisions.
+              sources. This tool is for information only and should not be the
+              only source for research or policy decisions.
             </p>
           </div>
         </div>
@@ -265,9 +263,10 @@
         </div>
         <div class="cr-content">
           <p>
-            Built with Vue 3, TypeScript, and MapLibre GL on the frontend, with
-            a FastAPI backend and automated Python ETL pipelines. The complete
-            codebase is public — to explore, learn from, or contribute to.
+            The frontend is built with Vue 3, TypeScript, and MapLibre GL. The
+            backend uses FastAPI and automated Python ETL pipelines. The
+            complete codebase is public. Anyone can explore it, learn from it,
+            or contribute.
           </p>
           <a
             href="https://github.com/nickhand/philly-gun-violence-dashboard"
@@ -292,7 +291,10 @@
           <h2 class="cr-title">Contact</h2>
         </div>
         <div class="cr-content">
-          <p>Corrections, suggestions, and collaboration inquiries are welcome.</p>
+          <p>
+            Corrections, suggestions, and ideas for working together are
+            welcome.
+          </p>
           <div class="def-row contact-row">
             <div class="contact-label">Email</div>
             <a
@@ -429,7 +431,7 @@ useHead({
     {
       name: "description",
       content:
-        "Learn about the Philadelphia Gun Violence Dashboard - an open-source project visualizing shooting incidents with daily-updated public data. Built with Vue 3, FastAPI, and MapLibre.",
+        "Learn about the Philadelphia Gun Violence Dashboard, an open-source project that maps shooting incidents with public data updated daily. Built with Vue 3, FastAPI, and MapLibre.",
     },
   ],
   link: [

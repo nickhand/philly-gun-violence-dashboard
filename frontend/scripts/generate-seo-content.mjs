@@ -207,7 +207,7 @@ function buildFaq(s) {
     },
     {
       q: "Where does this data come from?",
-      a: "Shooting victim data comes from the Philadelphia Police Department via OpenDataPhilly and is updated daily. Homicide totals come from the PPD Statistics Unit. Court records are linked from Pennsylvania's Unified Judicial System portal. All data is preliminary and may differ from other official sources.",
+      a: "Shooting victim data comes from the Philadelphia Police Department through OpenDataPhilly and is updated daily. Homicide totals come from the PPD Statistics Unit. Court records come from Pennsylvania's Unified Judicial System portal. All data is preliminary and may differ from other official sources.",
     },
     {
       q: "How can I download Philadelphia shooting data?",
@@ -237,7 +237,7 @@ function buildColoredSummary(s) {
       ? ""
       : `As of ${asOf}, Philadelphia has recorded <span class="c-fatal">${fmt(s.homicidesYtd)} homicides</span> in ${s.currentYear}${homicideChange}`;
   const p2 =
-    `There have been ${fmt(s.currentTotal)} shooting victims this year: ` +
+    `There have been ${fmt(s.currentTotal)} shooting victims in Philadelphia in ${s.currentYear}: ` +
     `<span class="c-fatal">${fmt(s.currentFatal)} fatal</span> and <span class="c-nonfatal">${fmt(s.currentNonfatal)} nonfatal</span>. ` +
     `Since <span class="c-date">${s.minYear}</span>, Philadelphia has recorded ${fmt(s.totalVictimsAllYears)} shooting victims. ` +
     `The worst year on record is <span class="c-date">${s.peak.year}</span>, with ${fmt(s.peak.victims)} victims${s.peak.homicides ? ` and ${fmt(s.peak.homicides)} total homicides` : ""}.`;
@@ -507,7 +507,7 @@ ${JSON.stringify(faqJsonLd, null, 2)}
             ${tableRows}
           </tbody>
         </table>
-        <p class="note">Homicide totals include all homicides, not only firearm deaths, so they are not a subset of shooting victims. All data is preliminary and may differ from other official sources.</p>
+        <p class="note">Homicide totals include all homicides, not just gun deaths, so the homicide count is not part of the shooting victim count. All data is preliminary and may differ from other official sources.</p>
       </section>
 
       <section>
@@ -531,13 +531,86 @@ ${JSON.stringify(faqJsonLd, null, 2)}
             <p><a href="https://opendataphilly.org/datasets/shooting-victims/" rel="noopener">OpenDataPhilly</a> · open source <a href="https://github.com/nickhand/philly-gun-violence-dashboard" rel="noopener">on GitHub</a>.</p>
           </div>
         </div>
-        <p class="footnote">This dashboard was originally built for the Philadelphia City Controller's Office and is now independently maintained and updated daily. See the <a href="/philly-gun-violence-map/about">about page</a> for methodology and limitations.</p>
+        <p class="footnote">This dashboard was first built for the Philadelphia City Controller's Office. It is now maintained independently and updated daily. See the <a href="/philly-gun-violence-map/about">about page</a> for methodology and limitations.</p>
       </section>
     </main>
     <footer>Built in Wissahickon by <a href="https://www.nickhand.dev">Nick Hand</a> • ${s.currentYear}</footer>
   </body>
 </html>
 `;
+}
+
+/**
+ * Visually-hidden summary for the About page snapshot, mirroring the page's
+ * key facts for crawlers that don't run JavaScript.
+ */
+function buildHiddenAboutSummary(s) {
+  const asOf = fmtDate(s.dataThrough);
+  return `
+      <div style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0">
+        <h2>About the Philadelphia Gun Violence Dashboard</h2>
+        <p>Nick Hand first built this dashboard while serving as Director of Finance, Policy, and Data at the Philadelphia City Controller's Office. He now maintains it as an independent project, rebuilt with modern web tools and updated daily. Data is current through ${asOf}.</p>
+        <p>Data sources: shooting victim records from the Philadelphia Police Department through OpenDataPhilly, updated daily; official homicide counts from the PPD Statistics Unit; and public court records from Pennsylvania's Unified Judicial System portal, linked by police DC number.</p>
+        <p>Notes: the dashboard only includes criminal shooting victims, not officer-involved shootings. Homicide totals include all homicides, not just gun deaths. All data is preliminary and may differ from other official sources.</p>
+        <p><a href="${CANONICAL_BASE}/stats">Current statistics and FAQ</a> | <a href="${CANONICAL_BASE}/">Interactive dashboard</a> | <a href="https://github.com/nickhand/philly-gun-violence-dashboard">Source code on GitHub</a></p>
+      </div>`;
+}
+
+/**
+ * Build the About page snapshot from the processed index.html: same app
+ * bundle (so the SPA boots normally for visitors), but with About-specific
+ * title, description, canonical URL, and hidden summary for crawlers.
+ */
+function buildAboutStatic(indexHtml, s) {
+  const aboutUrl = `${CANONICAL_BASE}/about`;
+  const aboutTitle = "About | Philadelphia Gun Violence Dashboard";
+  const aboutDescription =
+    "Learn about the Philadelphia Gun Violence Dashboard, an open-source project that maps shooting incidents with public data updated daily. First built at the City Controller's Office, now independently maintained.";
+
+  let html = indexHtml;
+  html = html.replace(/<title>[^<]*<\/title>/, `<title>${aboutTitle}</title>`);
+  for (const name of ["title", "twitter:title"]) {
+    html = html.replace(
+      new RegExp(`(name="${name}"\\s+content=")[^"]*(")`),
+      `$1${aboutTitle}$2`,
+    );
+  }
+  html = html.replace(
+    /(property="og:title"\s+content=")[^"]*(")/,
+    `$1${aboutTitle}$2`,
+  );
+  for (const name of ["description", "twitter:description"]) {
+    html = html.replace(
+      new RegExp(`(name="${name}"\\s+content=")[^"]*(")`),
+      `$1${aboutDescription}$2`,
+    );
+  }
+  html = html.replace(
+    /(property="og:description"\s+content=")[^"]*(")/,
+    `$1${aboutDescription}$2`,
+  );
+  html = html.replace(
+    /(<link\s+rel="canonical"\s+href=")[^"]*(")/,
+    `$1${aboutUrl}$2`,
+  );
+  html = html.replace(/(property="og:url"\s+content=")[^"]*(")/, `$1${aboutUrl}$2`);
+  html = html.replace(/(name="twitter:url"\s+content=")[^"]*(")/, `$1${aboutUrl}$2`);
+
+  // Swap the homepage's hidden stats summary for the About summary. The app
+  // div is the last element in <body>, so its close is the last </div>
+  // before </body> (the summary nests its own divs, so the first </div>
+  // after the marker would be wrong).
+  const marker = '<div id="app">';
+  const start = html.indexOf(marker);
+  const bodyEnd = html.indexOf("</body>");
+  const end = html.lastIndexOf("</div>", bodyEnd);
+  if (start !== -1 && end > start) {
+    html =
+      html.slice(0, start + marker.length) +
+      buildHiddenAboutSummary(s) +
+      html.slice(end);
+  }
+  return html;
 }
 
 function buildSitemap(lastmod) {
@@ -566,7 +639,7 @@ ${entries}
 async function main() {
   const indexPath = path.join(distDir, "index.html");
   if (!existsSync(indexPath)) {
-    console.error(`[seo] ${indexPath} not found — run vite build first`);
+    console.error(`[seo] ${indexPath} not found; run vite build first`);
     process.exit(1);
   }
 
@@ -590,6 +663,11 @@ async function main() {
     mkdirSync(statsDir, { recursive: true });
     writeFileSync(path.join(statsDir, "index.html"), buildStatsPage(stats));
     console.log("[seo] stats/index.html: generated static statistics page");
+
+    const aboutDir = path.join(distDir, "about");
+    mkdirSync(aboutDir, { recursive: true });
+    writeFileSync(path.join(aboutDir, "index.html"), buildAboutStatic(html, stats));
+    console.log("[seo] about/index.html: generated About page snapshot");
   }
 
   writeFileSync(

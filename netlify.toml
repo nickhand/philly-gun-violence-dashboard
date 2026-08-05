@@ -19,6 +19,18 @@ from = "/philly-gun-violence-map/stats/"
 to = "/stats/index.html"
 status = 200
 
+# About page snapshot: same app bundle as index.html but with About-specific
+# meta tags and crawler summary. The SPA still boots for visitors.
+[[redirects]]
+from = "/philly-gun-violence-map/about"
+to = "/about/index.html"
+status = 200
+
+[[redirects]]
+from = "/philly-gun-violence-map/about/"
+to = "/about/index.html"
+status = 200
+
 # SEO/static files that must resolve under the subpath on the canonical
 # domain (www.nickhand.dev proxies this path here); without these the SPA
 # fallback would return index.html for them.
