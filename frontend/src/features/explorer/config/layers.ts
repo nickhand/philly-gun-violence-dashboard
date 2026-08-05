@@ -159,7 +159,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
         "circle-color": [
           "case",
           ["boolean", ["get", "fatal"], false],
-          "#d84545",
+          "#ff8a8a",
           "#e5dc8e",
         ],
         "circle-stroke-width": 1,
@@ -167,7 +167,7 @@ export function getLayerConfigs(selectedYear: number | null): LayerConfig[] {
         "circle-stroke-color": [
           "case",
           ["boolean", ["get", "fatal"], false],
-          "#af2828",
+          "#d84545",
           "#d3c913",
         ],
       },
