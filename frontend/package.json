@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build && node scripts/generate-seo-content.mjs",
     "build:lighthouse": "vue-tsc --noEmit && VITE_LIGHTHOUSE=true VITE_API_BASE_URL= VITE_POSTHOG_KEY= vite build",
     "check:bundle": "node scripts/check-bundle-size.mjs",
     "preview": "vite preview",

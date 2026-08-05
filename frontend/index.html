@@ -49,14 +49,14 @@
     />
     <link
       rel="canonical"
-      href="https://nickhand.dev/philly-gun-violence-map/"
+      href="https://www.nickhand.dev/philly-gun-violence-map/"
     />
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta
       property="og:url"
-      content="https://nickhand.dev/philly-gun-violence-map/"
+      content="https://www.nickhand.dev/philly-gun-violence-map/"
     />
     <meta
       property="og:title"
@@ -68,7 +68,7 @@
     />
     <meta
       property="og:image"
-      content="https://phillygunviolence.netlify.app/og-image.png"
+      content="https://www.nickhand.dev/philly-gun-violence-map/og-image.png"
     />
     <meta property="og:site_name" content="Nick Hand" />
     <meta property="og:locale" content="en_US" />
@@ -77,7 +77,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:url"
-      content="https://nickhand.dev/philly-gun-violence-map/"
+      content="https://www.nickhand.dev/philly-gun-violence-map/"
     />
     <meta
       name="twitter:title"
@@ -89,7 +89,7 @@
     />
     <meta
       name="twitter:image"
-      content="https://phillygunviolence.netlify.app/og-image.png"
+      content="https://www.nickhand.dev/philly-gun-violence-map/og-image.png"
     />
 
     <!-- Geo Tags -->
@@ -103,14 +103,14 @@
         "@type": "WebApplication",
         "name": "Philadelphia Gun Violence Dashboard",
         "description": "Download Philadelphia gun violence data in CSV and GeoJSON formats. Interactive map of 17,000+ shooting incidents updated daily.",
-        "url": "https://nickhand.dev/philly-gun-violence-map/",
+        "url": "https://www.nickhand.dev/philly-gun-violence-map/",
         "applicationCategory": "DataVisualization",
         "operatingSystem": "Any",
         "browserRequirements": "Requires JavaScript",
         "author": {
           "@type": "Person",
           "name": "Nick Hand",
-          "url": "https://nickhand.dev"
+          "url": "https://www.nickhand.dev"
         },
         "publisher": {
           "@type": "Person",
@@ -121,7 +121,7 @@
           "price": "0",
           "priceCurrency": "USD"
         },
-        "image": "https://phillygunviolence.netlify.app/og-image.png",
+        "image": "https://www.nickhand.dev/philly-gun-violence-map/og-image.png",
         "about": {
           "@type": "Thing",
           "name": "Gun Violence in Philadelphia",
@@ -146,19 +146,20 @@
         "@type": "Dataset",
         "name": "Philadelphia Gun Violence and Shooting Victims Data",
         "description": "Comprehensive dataset of shooting incidents in Philadelphia including victim demographics, geographic coordinates, outcomes (fatal/nonfatal), and linked court cases. Updated daily from official Philadelphia Police Department data.",
-        "url": "https://nickhand.dev/philly-gun-violence-map/",
+        "url": "https://www.nickhand.dev/philly-gun-violence-map/",
         "license": "https://opendatacommons.org/licenses/pddl/1-0/",
         "isAccessibleForFree": true,
         "creator": {
           "@type": "Person",
           "name": "Nick Hand",
-          "url": "https://nickhand.dev"
+          "url": "https://www.nickhand.dev"
         },
         "provider": {
           "@type": "Organization",
           "name": "OpenDataPhilly",
           "url": "https://www.opendataphilly.org"
         },
+        "dateModified": "__DATA_THROUGH__",
         "temporalCoverage": "2015/..",
         "spatialCoverage": {
           "@type": "Place",
@@ -171,15 +172,27 @@
         "distribution": [
           {
             "@type": "DataDownload",
-            "encodingFormat": "text/csv",
-            "contentUrl": "https://nickhand.dev/philly-gun-violence-map/"
+            "name": "Shootings dataset metadata (JSON)",
+            "description": "Current dataset version, available years, and links to per-year NDJSON data files with all shooting victim records",
+            "encodingFormat": "application/json",
+            "contentUrl": "https://philly-gun-violence-dashboard-api.fly.dev/shootings/meta"
           },
           {
             "@type": "DataDownload",
-            "encodingFormat": "application/geo+json",
-            "contentUrl": "https://nickhand.dev/philly-gun-violence-map/"
+            "name": "Data freshness and headline totals (JSON)",
+            "description": "Last-updated dates, row counts, and year-to-date homicide total for all datasets",
+            "encodingFormat": "application/json",
+            "contentUrl": "https://philly-gun-violence-dashboard-api.fly.dev/meta"
+          },
+          {
+            "@type": "DataDownload",
+            "name": "Source shooting victims data on OpenDataPhilly",
+            "encodingFormat": "text/csv",
+            "contentUrl": "https://opendataphilly.org/datasets/shooting-victims/"
           }
         ],
+        "isBasedOn": "https://opendataphilly.org/datasets/shooting-victims/",
+        "sameAs": "https://github.com/nickhand/philly-gun-violence-dashboard",
         "variableMeasured": [
           {
             "@type": "PropertyValue",
@@ -265,7 +278,7 @@
     </script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><!-- __SEO_SUMMARY__ --></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

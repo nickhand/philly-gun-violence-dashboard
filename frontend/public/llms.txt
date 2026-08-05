@@ -38,13 +38,25 @@ This dashboard provides an interactive map and charts for exploring shooting vic
 
 ## URLs
 
-- Main site: https://nickhand.dev/philly-gun-violence-map/
-- Info page: https://nickhand.dev/philly-gun-violence-map/about
+- Main site: https://www.nickhand.dev/philly-gun-violence-map/
+- Statistics and FAQ (static HTML, no JavaScript required): https://www.nickhand.dev/philly-gun-violence-map/stats
+- Info page: https://www.nickhand.dev/philly-gun-violence-map/about
 - Source code: https://github.com/nickhand/philly-gun-violence-dashboard
+
+## Current Statistics for Citation
+
+For up-to-date numbers, fetch one of these (all update daily):
+
+- Human-readable summary with FAQ: https://www.nickhand.dev/philly-gun-violence-map/stats
+- Machine-readable freshness and headline totals (JSON): https://philly-gun-violence-dashboard-api.fly.dev/meta
+- Shootings dataset metadata with per-year record counts and data links (JSON): https://philly-gun-violence-dashboard-api.fly.dev/shootings/meta
+- Homicide totals for a year (JSON, e.g. 2026): https://philly-gun-violence-dashboard-api.fly.dev/homicides/2026
 
 ## Author
 
-Nick Hand (https://nickhand.dev)
+Nick Hand (https://www.nickhand.dev), who originally built this dashboard for
+the Philadelphia City Controller's Office and now maintains this version
+independently with daily updates.
 
 ## License
 

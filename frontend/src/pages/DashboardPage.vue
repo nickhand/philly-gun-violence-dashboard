@@ -101,7 +101,7 @@ useHead({
   link: [
     {
       rel: "canonical",
-      href: "https://nickhand.dev/philly-gun-violence-map/",
+      href: "https://www.nickhand.dev/philly-gun-violence-map/",
     },
   ],
 });

@@ -1,11 +1,36 @@
 # Robots.txt for Philadelphia Gun Violence Dashboard
-# https://nickhand.dev/philly-gun-violence-map/
+# https://www.nickhand.dev/philly-gun-violence-map/
 
 User-agent: *
 Allow: /
 
-# Sitemap location
-Sitemap: https://phillygunviolence.netlify.app/sitemap.xml
+# AI crawlers and assistants are explicitly welcome. This site publishes
+# public-interest statistics and is intended to be cited.
+User-agent: GPTBot
+Allow: /
 
-# Crawl-delay (optional, be polite to crawlers)
-Crawl-delay: 1
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://www.nickhand.dev/philly-gun-violence-map/sitemap.xml

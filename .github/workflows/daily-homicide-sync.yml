@@ -38,3 +38,16 @@ jobs:
       - run: just fly-restart
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Trigger Netlify rebuild
+        # Rebuilds the frontend so build-time SEO content (baked stats summary,
+        # stats page, sitemap) reflects the freshly synced data.
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+        run: |
+          if [ -n "$NETLIFY_BUILD_HOOK" ]; then
+            # Give the restarted API a moment to come up before the build fetches from it
+            sleep 60
+            curl -sf -X POST "$NETLIFY_BUILD_HOOK"
+          else
+            echo "NETLIFY_BUILD_HOOK secret not set; skipping frontend rebuild"
+          fi

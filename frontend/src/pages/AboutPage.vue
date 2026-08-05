@@ -134,7 +134,10 @@
         <div class="section-content">
           <p>
             Data is automatically updated via scheduled ETL pipelines. The dates
-            below indicate the most recent data included in each dataset:
+            below indicate the most recent data included in each dataset. For
+            current headline numbers and frequently asked questions, see the
+            <a :href="statsPageUrl" class="text-link">statistics summary page</a
+            >.
           </p>
           <div v-if="metaLoading" class="freshness-loading">
             <v-progress-circular
@@ -352,6 +355,10 @@ function trackExternalLink(label: string, url: string): void {
   track("external_link_clicked", { label, url });
 }
 
+// The stats page is static HTML generated at build time (outside the SPA
+// router), so link to it with a full-page navigation under the app base path.
+const statsPageUrl = `${import.meta.env.BASE_URL}stats`;
+
 // Data freshness state
 const meta = ref<AllDatasetsMeta | null>(null);
 const metaLoading = ref(true);
@@ -417,7 +424,7 @@ useHead({
   link: [
     {
       rel: "canonical",
-      href: "https://nickhand.dev/philly-gun-violence-map/about",
+      href: "https://www.nickhand.dev/philly-gun-violence-map/about",
     },
   ],
 });
