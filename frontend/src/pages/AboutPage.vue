@@ -3,24 +3,42 @@
     <app-navbar :show-overlay="false" :show-back-button="true" />
 
     <main class="about-page">
-      <!-- Hero Section -->
+      <!-- Hero -->
       <header class="hero-section">
+        <p class="hero-kicker">About this dashboard</p>
         <h1 class="hero-title">Philadelphia Gun Violence Dashboard</h1>
         <p class="hero-subtitle">
           An open-source, interactive visualization of shooting incidents in
-          Philadelphia, updated daily with public data.
+          Philadelphia, <span class="accent-date">updated daily</span> with
+          public data.
         </p>
       </header>
 
-      <!-- Project Background -->
-      <section class="content-section">
-        <div class="section-header">
-          <div class="section-icon">
-            <v-icon icon="$informationOutline" size="24" />
+      <!-- Meta strip -->
+      <div class="meta-strip">
+        <div class="meta-cell">
+          <div class="meta-label">Data through</div>
+          <div class="meta-value">
+            {{ formatDateLong(meta?.shootings?.data_through) }}
           </div>
-          <h2 class="section-title">About This Project</h2>
         </div>
-        <div class="section-content">
+        <div class="meta-cell">
+          <div class="meta-label">Update cadence</div>
+          <div class="meta-value">Daily, automated</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-label">Records since 2015</div>
+          <div class="meta-value">{{ recordsValue }}</div>
+        </div>
+      </div>
+
+      <!-- 01 Background -->
+      <section class="cr-section">
+        <div class="cr-label">
+          <span class="cr-num">01</span>
+          <h2 class="cr-title">Background</h2>
+        </div>
+        <div class="cr-content">
           <p>
             This dashboard was originally developed by
             <a
@@ -32,304 +50,273 @@
               >Nick Hand</a
             >
             while serving as Director of Finance, Policy, and Data at the
-            Philadelphia City Controller's Office. The project was created to
-            provide transparent, accessible insights into gun violence trends
-            across the city, during a time when gun violence was spiking to
-            crisis levels.
+            Philadelphia City Controller's Office. It was created to provide
+            transparent, accessible insight into gun violence trends across the
+            city as violence rose to crisis levels.
           </p>
           <p>
-            Since leaving the Controller's Office, I have continued to maintain
-            the dashboard as an independent project and have completely rebuilt
-            it with modern web technologies, new features, and enhanced
-            accessibility.
+            Since leaving the Controller's Office, he has continued to maintain
+            the dashboard as an independent project, rebuilt with modern web
+            technologies, new features, and enhanced accessibility.
           </p>
         </div>
       </section>
 
-      <!-- Data Sources -->
-      <section class="content-section">
-        <div class="section-header">
-          <div class="section-icon">
-            <v-icon icon="$databaseOutline" size="24" />
-          </div>
-          <h2 class="section-title">Data Sources</h2>
+      <!-- 02 Data sources -->
+      <section class="cr-section">
+        <div class="cr-label">
+          <span class="cr-num">02</span>
+          <h2 class="cr-title">Data sources</h2>
         </div>
-        <div class="section-content">
+        <div class="cr-content">
           <p>
-            This dashboard relies on publicly available data from the City of
-            Philadelphia and Pennsylvania's Unified Judicial System:
+            All data is publicly available from the City of Philadelphia and
+            Pennsylvania's Unified Judicial System.
           </p>
-          <div class="data-sources">
-            <a
-              href="https://www.opendataphilly.org/dataset/shooting-victims"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="data-source-card"
-              @click="
-                trackExternalLink(
-                  'Shooting Victims',
-                  'https://www.opendataphilly.org/dataset/shooting-victims'
-                )
-              "
-            >
-              <div class="source-header">Shooting Victims</div>
-              <p>
-                Individual-level data on shooting incidents from the City's open
-                data program, updated daily.
-              </p>
-              <span class="source-origin">OpenDataPhilly.org</span>
-            </a>
-
-            <a
-              href="https://www.phillypolice.com/crime-data/crime-statistics/#homicide_numbers"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="data-source-card"
-              @click="
-                trackExternalLink(
-                  'Homicide Statistics',
-                  'https://www.phillypolice.com/crime-data/crime-statistics/#homicide_numbers'
-                )
-              "
-            >
-              <div class="source-header">Homicide Statistics</div>
-              <p>
-                Official homicide counts from the Philadelphia Police
-                Department's (PPD's) statistics unit.
-              </p>
-              <span class="source-origin">PhillyPolice.com</span>
-            </a>
-
-            <a
-              href="https://ujsportal.pacourts.us/CaseSearch"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="data-source-card"
-              @click="
-                trackExternalLink(
-                  'Court Records',
-                  'https://ujsportal.pacourts.us/CaseSearch'
-                )
-              "
-            >
-              <div class="source-header">Public Court Records</div>
-              <p>
-                Public court records linked via DC number from Pennsylvania's
-                Unified Judicial System portal.
-              </p>
-              <span class="source-origin">PA Courts Portal</span>
-            </a>
+          <div class="source-register">
+            <div class="source-row">
+              <div>
+                <h3 class="source-name">Shooting victims</h3>
+                <p class="source-desc">
+                  Individual-level records of shooting incidents from the City's
+                  open data program, updated daily.
+                </p>
+              </div>
+              <a
+                href="https://www.opendataphilly.org/dataset/shooting-victims"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="source-link"
+                @click="
+                  trackExternalLink(
+                    'Shooting Victims',
+                    'https://www.opendataphilly.org/dataset/shooting-victims'
+                  )
+                "
+                >OpenDataPhilly.org <span aria-hidden="true">↗</span></a
+              >
+            </div>
+            <div class="source-row">
+              <div>
+                <h3 class="source-name">Homicide statistics</h3>
+                <p class="source-desc">
+                  Official homicide counts from the Philadelphia Police
+                  Department's statistics unit.
+                </p>
+              </div>
+              <a
+                href="https://www.phillypolice.com/crime-data/crime-statistics/#homicide_numbers"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="source-link"
+                @click="
+                  trackExternalLink(
+                    'Homicide Statistics',
+                    'https://www.phillypolice.com/crime-data/crime-statistics/#homicide_numbers'
+                  )
+                "
+                >PhillyPolice.com <span aria-hidden="true">↗</span></a
+              >
+            </div>
+            <div class="source-row">
+              <div>
+                <h3 class="source-name">Public court records</h3>
+                <p class="source-desc">
+                  Court dockets linked to incidents by police DC number through
+                  Pennsylvania's Unified Judicial System.
+                </p>
+              </div>
+              <a
+                href="https://ujsportal.pacourts.us/CaseSearch"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="source-link"
+                @click="
+                  trackExternalLink(
+                    'Court Records',
+                    'https://ujsportal.pacourts.us/CaseSearch'
+                  )
+                "
+                >PA Courts Portal <span aria-hidden="true">↗</span></a
+              >
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- Data Freshness -->
-      <section class="content-section">
-        <div class="section-header">
-          <div class="section-icon">
-            <v-icon icon="$update" size="24" />
-          </div>
-          <h2 class="section-title">Data Freshness</h2>
+      <!-- 03 Data currency -->
+      <section class="cr-section">
+        <div class="cr-label">
+          <span class="cr-num">03</span>
+          <h2 class="cr-title">Data currency</h2>
         </div>
-        <div class="section-content">
-          <p>
-            Data is automatically updated via scheduled ETL pipelines. The dates
-            below indicate the most recent data included in each dataset. For
-            current headline numbers and frequently asked questions, see the
+        <div class="cr-content">
+          <p class="stats-page-note">
+            For current headline numbers and frequently asked questions, see
+            the
             <a :href="statsPageUrl" class="text-link">statistics summary page</a
             >.
           </p>
-          <div v-if="metaLoading" class="freshness-loading">
-            <v-progress-circular
-              indeterminate
-              size="20"
-              width="2"
-              aria-label="Loading data freshness"
-            />
-            <span>Loading data freshness...</span>
+          <div v-if="metaLoading" class="currency-status" role="status">
+            Loading data freshness…
           </div>
-          <div v-else-if="metaError" class="freshness-error">
-            <v-icon icon="$alertCircleOutline" size="18" />
-            <span>Unable to load data freshness information</span>
+          <div v-else-if="metaError" class="currency-status currency-error">
+            Unable to load data freshness information
           </div>
-          <div v-else class="freshness-grid">
-            <div class="freshness-item">
-              <div class="freshness-label">Shooting Victims</div>
-              <div class="freshness-value">
-                <span class="freshness-date">{{
-                  formatDate(meta?.shootings?.data_through)
-                }}</span>
-                <span class="freshness-updated"
-                  >Updated
-                  {{ formatRelativeTime(meta?.shootings?.last_updated) }}</span
-                >
+          <div v-else class="currency-grid">
+            <div class="currency-cell">
+              <div class="currency-label">Shooting victims</div>
+              <div class="currency-date">
+                {{ formatDate(meta?.shootings?.data_through) }}
+              </div>
+              <div class="currency-updated">
+                Updated {{ formatRelativeTime(meta?.shootings?.last_updated) }}
               </div>
             </div>
-            <div class="freshness-item">
-              <div class="freshness-label">Homicide Statistics</div>
-              <div class="freshness-value">
-                <span class="freshness-date">{{
-                  formatDate(meta?.homicides?.data_through)
-                }}</span>
-                <span class="freshness-updated"
-                  >Updated
-                  {{ formatRelativeTime(meta?.homicides?.last_updated) }}</span
-                >
+            <div class="currency-cell">
+              <div class="currency-label">Homicide statistics</div>
+              <div class="currency-date">
+                {{ formatDate(meta?.homicides?.data_through) }}
+              </div>
+              <div class="currency-updated">
+                Updated {{ formatRelativeTime(meta?.homicides?.last_updated) }}
               </div>
             </div>
-            <div class="freshness-item">
-              <div class="freshness-label">Court Records</div>
-              <div class="freshness-value">
-                <span class="freshness-date">{{
-                  formatDate(meta?.courts?.data_through)
-                }}</span>
-                <span class="freshness-updated"
-                  >Updated
-                  {{ formatRelativeTime(meta?.courts?.last_updated) }}</span
-                >
+            <div class="currency-cell">
+              <div class="currency-label">Court records</div>
+              <div class="currency-date">
+                {{ formatDate(meta?.courts?.data_through) }}
+              </div>
+              <div class="currency-updated">
+                Updated {{ formatRelativeTime(meta?.courts?.last_updated) }}
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Methodology -->
-      <section class="content-section">
-        <div class="section-header">
-          <div class="section-icon">
-            <v-icon icon="$clipboardTextOutline" size="24" />
-          </div>
-          <h2 class="section-title">Methodology & Limitations</h2>
+      <!-- 04 Methodology & limitations -->
+      <section class="cr-section">
+        <div class="cr-label">
+          <span class="cr-num">04</span>
+          <h2 class="cr-title">Methodology &amp; limitations</h2>
         </div>
-        <div class="section-content">
-          <div class="methodology-grid">
-            <div class="method-item">
-              <h3>Data Updates</h3>
-              <p>
-                Shooting victim data is updated daily via automated ETL
-                pipelines. The Philadelphia Police Department's Statistics Unit
-                manually enters data from detective reports, with updates
-                typically available by 10:30 AM on weekdays.
-              </p>
-            </div>
-            <div class="method-item">
-              <h3>Officer-Involved Shootings</h3>
-              <p>
-                This dashboard only includes data for criminal shooting victims,
-                excluding officer-involved shootings, due to differences in
-                reporting fields between the datasets. For more information, see
-                the
-                <a
-                  href="https://www.phillypolice.com/ois"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  @click="
-                    trackExternalLink(
-                      'Officer-Involved Shootings',
-                      'https://www.phillypolice.com/ois'
-                    )
-                  "
-                  >PPD's website</a
-                >
-                on officer-involed shootings.
-              </p>
-            </div>
-            <div class="method-item">
-              <h3>Court Case Linkage</h3>
-              <p>
-                Public court records are updated weekly by searching for each
-                incident's police DC number in the Pennsylvania Unified Judicial
-                System's public portal using automated web scraping.
-              </p>
-            </div>
-            <div class="method-item">
-              <h3>Homicide Counts</h3>
-              <p>
-                The total homicide count from PPD includes all homicides, not
-                just firearm-related deaths. Fatal shootings in this dataset may
-                undercount total gun homicides.
-              </p>
-            </div>
-            <div class="method-item">
-              <h3>Data Accuracy</h3>
-              <p>
-                All data is preliminary and may differ from other official
-                sources. This tool is for informational purposes and should not
-                be used as the sole source for research or policy decisions.
-              </p>
-            </div>
+        <div class="cr-content">
+          <div class="def-row">
+            <h3 class="def-label">Data updates</h3>
+            <p class="def-value">
+              Shooting victim data is updated daily via automated pipelines.
+              PPD's statistics unit enters data from detective reports,
+              typically by 10:30 AM on weekdays.
+            </p>
+          </div>
+          <div class="def-row">
+            <h3 class="def-label">Officer-involved shootings</h3>
+            <p class="def-value">
+              Only criminal shooting victims are included; officer-involved
+              shootings are excluded due to differences in reporting fields.
+              See
+              <a
+                href="https://www.phillypolice.com/ois"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-link"
+                @click="
+                  trackExternalLink(
+                    'Officer-Involved Shootings',
+                    'https://www.phillypolice.com/ois'
+                  )
+                "
+                >PPD's website</a
+              >
+              for that data.
+            </p>
+          </div>
+          <div class="def-row">
+            <h3 class="def-label">Court case linkage</h3>
+            <p class="def-value">
+              Court records are refreshed weekly by searching each incident's
+              police DC number in the state's public portal.
+            </p>
+          </div>
+          <div class="def-row">
+            <h3 class="def-label">Homicide counts</h3>
+            <p class="def-value">
+              PPD homicide totals include all homicides, not only firearm
+              deaths; fatal shootings here may undercount total gun homicides.
+            </p>
+          </div>
+          <div class="def-row">
+            <h3 class="def-label">Data accuracy</h3>
+            <p class="def-value">
+              All data is preliminary and may differ from other official
+              sources. This tool is informational and should not be the sole
+              basis for research or policy decisions.
+            </p>
           </div>
         </div>
       </section>
 
-      <!-- Open Source -->
-      <section class="content-section">
-        <div class="section-header">
-          <div class="section-icon">
-            <v-icon icon="$github" size="24" />
-          </div>
-          <h2 class="section-title">Open Source</h2>
+      <!-- 05 Open source -->
+      <section class="cr-section">
+        <div class="cr-label">
+          <span class="cr-num">05</span>
+          <h2 class="cr-title">Open source</h2>
         </div>
-        <div class="section-content">
+        <div class="cr-content">
           <p>
-            This project is fully open source. Built with Vue 3, TypeScript, and
-            MapLibre GL on the frontend, with a FastAPI backend and automated
-            Python ETL pipelines, the complete codebase is available for anyone
-            to explore, learn from, or contribute to.
+            Built with Vue 3, TypeScript, and MapLibre GL on the frontend, with
+            a FastAPI backend and automated Python ETL pipelines. The complete
+            codebase is public — to explore, learn from, or contribute to.
           </p>
           <a
             href="https://github.com/nickhand/philly-gun-violence-dashboard"
             target="_blank"
             rel="noopener noreferrer"
-            class="github-button"
+            class="repo-link"
             @click="
               trackExternalLink(
                 'GitHub Repository',
                 'https://github.com/nickhand/philly-gun-violence-dashboard'
               )
             "
+            >View the repository on GitHub <span aria-hidden="true">↗</span></a
           >
-            <v-icon icon="$github" size="20" />
-            <span>View on GitHub</span>
-            <v-icon icon="$arrowRight" size="18" />
-          </a>
         </div>
       </section>
 
-      <!-- Contact -->
-      <section class="content-section contact-section">
-        <div class="section-header section-header-centered">
-          <div class="section-icon">
-            <v-icon icon="$emailOutline" size="24" />
-          </div>
-          <h2 class="section-title">Get in Touch</h2>
+      <!-- 06 Contact -->
+      <section class="cr-section">
+        <div class="cr-label">
+          <span class="cr-num">06</span>
+          <h2 class="cr-title">Contact</h2>
         </div>
-        <div class="section-content">
-          <p>Found a bug? Have a suggestion? Interested in working together?</p>
-          <div class="contact-links">
+        <div class="cr-content">
+          <p>Corrections, suggestions, and collaboration inquiries are welcome.</p>
+          <div class="def-row contact-row">
+            <div class="contact-label">Email</div>
             <a
               href="mailto:nicholas.adam.hand@gmail.com"
-              class="contact-button"
+              class="contact-link"
               @click="
                 trackExternalLink(
                   'Email',
                   'mailto:nicholas.adam.hand@gmail.com'
                 )
               "
+              >nicholas.adam.hand@gmail.com</a
             >
-              <v-icon icon="$email" size="20" />
-              <span>nicholas.adam.hand@gmail.com</span>
-            </a>
+          </div>
+          <div class="def-row contact-row">
+            <div class="contact-label">Web</div>
             <a
               href="https://nickhand.dev"
               target="_blank"
               rel="noopener noreferrer"
-              class="contact-button"
+              class="contact-link"
               @click="trackExternalLink('Website', 'https://nickhand.dev')"
+              >nickhand.dev</a
             >
-              <v-icon icon="$web" size="20" />
-              <span>nickhand.dev</span>
-            </a>
           </div>
         </div>
       </section>
@@ -341,7 +328,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useHead } from "@unhead/vue";
 import AppNavbar from "@/app/components/AppNavbar.vue";
 import AppFooter from "@/app/components/AppFooter.vue";
@@ -376,6 +363,30 @@ function formatDate(dateStr: string | undefined): string {
     year: "numeric",
   });
 }
+
+/**
+ * Format a date string (YYYY-MM-DD) with the full month name, for the
+ * meta strip (e.g. "August 4, 2026").
+ */
+function formatDateLong(dateStr: string | undefined): string {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr + "T00:00:00");
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/**
+ * Meta-strip value for total records, e.g. "17,669 victims".
+ */
+const recordsValue = computed(() => {
+  const count = meta.value?.shootings?.row_count;
+  return typeof count === "number"
+    ? `${count.toLocaleString("en-US")} victims`
+    : "—";
+});
 
 /**
  * Format an ISO timestamp to a relative time string (e.g., "2 hours ago").
@@ -432,7 +443,7 @@ useHead({
 
 <style scoped>
 .about-page-wrapper {
-  background-color: #2a3136;
+  background-color: #353d42;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -440,94 +451,130 @@ useHead({
 
 .about-page {
   flex: 1;
-  max-width: 900px;
+  max-width: 860px;
   width: 100%;
   margin: 0 auto;
-  padding: 0 24px 40px;
+  padding: 0 44px;
 }
 
-/* Hero Section */
+/* Hero */
 .hero-section {
   text-align: center;
-  padding: 100px 0 60px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 48px;
+  padding: 44px 0 36px;
+}
+
+.hero-kicker {
+  font-family: var(--heading-font-family);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #b2beb5;
+  margin: 0 0 14px;
 }
 
 .hero-title {
   font-family: var(--heading-font-family);
-  font-size: 2.5rem;
-  font-weight: 700;
+  font-size: 40px;
+  font-weight: 500;
+  line-height: 1.15;
   color: #ffffff;
-  margin-bottom: 16px;
-  letter-spacing: -0.02em;
+  margin: 0 0 16px;
 }
 
 .hero-subtitle {
-  font-size: 1.2rem;
-  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--heading-font-family);
+  font-weight: 300;
+  font-size: 19px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.8);
   max-width: 600px;
   margin: 0 auto;
-  line-height: 1.6;
 }
 
-/* Content Sections */
-.content-section {
-  margin-bottom: 56px;
-  position: relative;
+.accent-date {
+  color: #b2beb5;
 }
 
-/* Section Header - icon and title inline */
-.section-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 20px;
+/* Meta strip */
+.meta-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 16px 0;
+  margin-bottom: 44px;
 }
 
-.section-header-centered {
-  justify-content: center;
+.meta-cell {
+  text-align: center;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.section-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  background: linear-gradient(135deg, #4a7080 0%, #5a7a8f 100%);
-  border-radius: 10px;
-  color: white;
-  flex-shrink: 0;
+.meta-cell:first-child {
+  border-left: none;
 }
 
-.section-title {
+.meta-label {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 6px;
+}
+
+.meta-value {
+  font-size: 14.5px;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Numbered sections */
+.cr-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 26px 0 38px;
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 32px;
+}
+
+.cr-num {
+  display: block;
   font-family: var(--heading-font-family);
-  font-size: 1.5rem;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #b2beb5;
+  margin-bottom: 6px;
+}
+
+.cr-title {
+  font-family: var(--heading-font-family);
+  font-size: 15px;
   font-weight: 600;
   color: #ffffff;
-  letter-spacing: -0.01em;
   margin: 0;
+  line-height: 1.4;
 }
 
-.section-content {
-  color: rgba(255, 255, 255, 0.85);
+.cr-content {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14.5px;
   line-height: 1.7;
+  min-width: 0;
 }
 
-.section-content p {
-  margin-bottom: 16px;
+.cr-content > p {
+  margin: 0 0 16px;
 }
 
-.section-content p:last-child {
+.cr-content > p:last-child {
   margin-bottom: 0;
 }
 
-/* Text Links */
+/* Text links */
 .text-link {
   color: #7ab5e5;
   text-decoration: none;
-  font-weight: 500;
   transition: color 0.2s;
 }
 
@@ -536,305 +583,223 @@ useHead({
   text-decoration: underline;
 }
 
-/* Feature List */
-.feature-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/* 02 Source register */
+.source-register {
+  margin-top: 8px;
+}
+
+.source-row {
   display: grid;
-  gap: 12px;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: baseline;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 }
 
-.feature-list li {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.source-row:last-child {
+  border-bottom: none;
 }
 
-.list-icon {
-  color: #5a9a6e;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-/* Data Sources */
-.data-sources {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 20px;
-  margin-top: 20px;
-}
-
-.data-source-card {
-  display: block;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 24px;
-  text-decoration: none;
-  transition: all 0.2s ease;
-}
-
-.data-source-card:hover {
-  background: rgba(74, 112, 128, 0.25);
-  border-color: rgba(122, 181, 229, 0.4);
-  transform: translateY(-2px);
-}
-
-.source-header {
+.source-name {
+  font-family: var(--heading-font-family);
+  font-size: 14.5px;
+  font-weight: 600;
   color: #ffffff;
-  font-weight: 600;
-  font-size: 1.05rem;
-  margin-bottom: 12px;
+  margin: 0 0 6px;
 }
 
-.data-source-card p {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.9rem;
-  line-height: 1.5;
-  margin-bottom: 12px;
+.source-desc {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.62);
+  margin: 0;
 }
 
-.source-origin {
-  display: inline-block;
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.72);
-  background: rgba(255, 255, 255, 0.05);
-  padding: 4px 10px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.data-source-card:hover .source-origin {
-  background: rgba(122, 181, 229, 0.2);
-  color: #7ab5e5;
-}
-
-.source-origin:hover {
-  background: rgba(122, 181, 229, 0.4) !important;
-  color: #ffffff !important;
-}
-
-/* Data Freshness */
-.freshness-loading,
-.freshness-error {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 0.9rem;
-}
-
-.freshness-error {
-  color: rgba(255, 150, 150, 0.8);
-}
-
-.freshness-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-top: 16px;
-}
-
-.freshness-item {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  padding: 16px 20px;
-}
-
-.freshness-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.6);
+.source-link {
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  margin-bottom: 8px;
-}
-
-.freshness-value {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.freshness-date {
-  font-size: 1.1rem;
-  font-weight: 500;
   color: #7ab5e5;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.2s;
 }
 
-.freshness-updated {
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.72);
+.source-link:hover {
+  color: #9ecbf0;
+  text-decoration: underline;
 }
 
-/* Methodology Grid */
-.methodology-grid {
+/* 03 Data currency */
+.stats-page-note {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.currency-status {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.62);
+  padding: 12px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.currency-error {
+  color: #ff8a8a;
+}
+
+.currency-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 24px;
   margin-top: 8px;
 }
 
-.method-item {
-  padding: 20px;
-  background: rgba(255, 255, 255, 0.02);
-  border-left: 3px solid #5a7a8f;
-  border-radius: 0 8px 8px 0;
+.currency-cell {
+  border-top: 2px solid rgba(255, 255, 255, 0.3);
+  padding-top: 12px;
 }
 
-.method-item h3 {
-  font-family: var(--heading-font-family);
-  font-size: 1rem;
-  font-weight: 600;
-  color: #ffffff;
+.currency-label {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
   margin-bottom: 8px;
 }
 
-.method-item p {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.9rem;
+.currency-date {
+  font-family: var(--heading-font-family);
+  font-size: 18px;
+  font-weight: 500;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+
+.currency-updated {
+  font-size: 12px;
+  color: #b2beb5;
+}
+
+/* 04 / 06 Definition rows */
+.def-row {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.def-row:last-child {
+  border-bottom: none;
+}
+
+.def-label {
+  font-family: var(--heading-font-family);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
   line-height: 1.6;
+}
+
+.def-value {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.7);
   margin: 0;
 }
 
-/* GitHub Button */
-.github-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  background: linear-gradient(135deg, #4a7080 0%, #5a7a8f 100%);
-  color: white;
-  padding: 14px 24px;
-  border-radius: 8px;
+/* 05 Repo link */
+.repo-link {
+  display: inline-block;
+  font-size: 13.5px;
+  color: #7ab5e5;
   text-decoration: none;
-  font-weight: 400;
-  font-size: 0.95rem;
-  margin-top: 16px;
-  transition: all 0.2s ease;
+  border-bottom: 1px solid rgba(122, 181, 229, 0.5);
+  padding-bottom: 2px;
+  transition: color 0.2s;
 }
 
-.github-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(74, 112, 128, 0.4);
+.repo-link:hover {
+  color: #9ecbf0;
 }
 
-/* Contact Section */
-.contact-section {
-  text-align: center;
-  padding: 48px 0 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  margin-top: 48px;
-  margin-bottom: 0;
+/* 06 Contact rows */
+.contact-row {
+  align-items: baseline;
 }
 
-.contact-section .section-content p {
-  font-size: 1.1rem;
-  color: rgba(255, 255, 255, 0.7);
+.contact-label {
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
 }
 
-.contact-links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 24px;
-}
-
-.contact-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.9);
-  padding: 12px 20px;
-  border-radius: 8px;
+.contact-link {
+  font-size: 14px;
+  color: #7ab5e5;
   text-decoration: none;
-  font-size: 0.95rem;
-  transition: all 0.2s ease;
+  transition: color 0.2s;
+  justify-self: start;
 }
 
-.contact-button:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(122, 181, 229, 0.3);
-}
-
-/* Footer */
-.about-footer {
-  text-align: center;
-  padding-top: 48px;
+.contact-link:hover {
+  color: #9ecbf0;
+  text-decoration: underline;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
-  .hero-section {
-    padding: 80px 0 40px;
-  }
-
   .hero-title {
-    font-size: 1.8rem;
+    font-size: 28px;
   }
 
   .hero-subtitle {
-    font-size: 1rem;
+    font-size: 16px;
   }
 
-  .section-header {
-    gap: 12px;
+  .cr-section {
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
 
-  .section-icon {
-    width: 38px;
-    height: 38px;
+  .meta-strip {
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
 
-  .section-title {
-    font-size: 1.3rem;
+  .meta-cell {
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    padding-top: 12px;
   }
 
-  .tech-grid,
-  .data-sources,
-  .methodology-grid {
+  .meta-cell:first-child {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .currency-grid {
     grid-template-columns: 1fr;
   }
 
-  .feature-list li {
-    padding: 10px 12px;
+  .source-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
-  .contact-links {
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .contact-button {
-    width: 100%;
-    max-width: 300px;
-    justify-content: center;
+  .def-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }
 
 @media (max-width: 480px) {
   .about-page {
-    padding: 0 16px 40px;
-  }
-
-  .hero-title {
-    font-size: 1.5rem;
-  }
-
-  .github-button {
-    width: 100%;
-    justify-content: center;
+    padding: 0 20px;
   }
 }
 </style>

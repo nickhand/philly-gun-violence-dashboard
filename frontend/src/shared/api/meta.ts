@@ -8,6 +8,8 @@ export interface DatasetMeta {
   last_updated: string;
   /** Date string (YYYY-MM-DD) indicating the latest data in the dataset */
   data_through: string;
+  /** Total number of records in the dataset (present for shootings) */
+  row_count?: number;
 }
 
 /**

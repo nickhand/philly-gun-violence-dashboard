@@ -49,3 +49,5 @@ pnpm-debug.log*
 *.sw?
 
 CLAUDE*
+
+.claude/
