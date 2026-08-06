@@ -15,34 +15,40 @@
       {{ filterAnnouncement }}
     </div>
 
-    <!-- Map Explorer (map + sidebar + address search) -->
-    <template v-if="dataReady">
-      <!-- Screen reader description of map content -->
-      <div class="sr-only" role="region" aria-label="Map data summary">
-        <h2>Map Summary</h2>
-        <p>{{ mapSummaryText }}</p>
-      </div>
+    <!--
+      Map Explorer (map + sidebar + address search). The slot wrapper is
+      always rendered with the explorer's final height reserved, so content
+      below does not shift when the explorer mounts after data loads.
+    -->
+    <div class="map-explorer-slot">
+      <template v-if="dataReady">
+        <!-- Screen reader description of map content -->
+        <div class="sr-only" role="region" aria-label="Map data summary">
+          <h2>Map Summary</h2>
+          <p>{{ mapSummaryText }}</p>
+        </div>
 
-      <map-explorer
-        ref="mapExplorerRef"
-        :filtered-features="filteredFeatures"
-        :filtered-count="filteredRows.length"
-        :layer-configs="layers"
-        :filters="filters"
-        :active-filters="activeFilters"
-        :slider-limits="sliderLimits"
-        :total-count="totalRows"
-        :toggleable-layer-names="toggleableLayerNames"
-        :choropleth-layer-names="choroplethLayerNames"
-        :default-toggled-layer-names="defaultToggledLayerNames"
-        :histograms="histograms"
-        @map-ready="handleMapReady"
-        @filter-change="handleFilterChange"
-        @filter-reset="handleFilterReset"
-        @reset-all="handleResetAll"
-        @download="handleDownload"
-      />
-    </template>
+        <map-explorer
+          ref="mapExplorerRef"
+          :filtered-features="filteredFeatures"
+          :filtered-count="filteredRows.length"
+          :layer-configs="layers"
+          :filters="filters"
+          :active-filters="activeFilters"
+          :slider-limits="sliderLimits"
+          :total-count="totalRows"
+          :toggleable-layer-names="toggleableLayerNames"
+          :choropleth-layer-names="choroplethLayerNames"
+          :default-toggled-layer-names="defaultToggledLayerNames"
+          :histograms="histograms"
+          @map-ready="handleMapReady"
+          @filter-change="handleFilterChange"
+          @filter-reset="handleFilterReset"
+          @reset-all="handleResetAll"
+          @download="handleDownload"
+        />
+      </template>
+    </div>
 
     <!-- Chart dashboard showing breakdowns by category -->
     <chart-dashboard id="charts" :rows="filteredRows" />
@@ -378,5 +384,19 @@ watch(
 </script>
 
 <style scoped>
-/* MapExplorer now handles its own styling */
+/*
+ * Reserve the map explorer's final height before it mounts. Desktop: map
+ * and sidebar are 800px side by side plus 5px borders. Mobile: they stack
+ * (60vh map + 800px sidebar + borders). Keep in sync with the height rules
+ * in MapView.vue and MapSidebar.vue.
+ */
+.map-explorer-slot {
+  min-height: 810px;
+}
+
+@media screen and (max-width: 767.98px) {
+  .map-explorer-slot {
+    min-height: calc(60vh + 810px);
+  }
+}
 </style>
