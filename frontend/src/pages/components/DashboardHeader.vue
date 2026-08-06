@@ -20,7 +20,7 @@
 
       <!-- Shooting victims summary -->
       <p
-        class="header-submessage"
+        class="header-submessage header-submessage--shooting"
         :aria-hidden="!isDataReady"
         :style="{
           opacity: isDataReady ? 1 : 0,
@@ -375,9 +375,14 @@ const isDataReady = computed(() => {
 });
 
 const displayShootingMessage = computed(() => {
+  // On first load (no cached message yet) render nothing rather than the
+  // zero-count fallback text: the fallback can wrap to a different number
+  // of lines than the real message (it does in Safari), shifting the layout
+  // when the real text swaps in. The paragraph's reserved min-height keeps
+  // the space stable while empty.
   const result = isDataReady.value
     ? shootingMessage.value
-    : (cachedShootingMessage.value ?? shootingMessage.value);
+    : (cachedShootingMessage.value ?? "");
   if (import.meta.env.DEV) {
     console.log(
       `[DashboardHeader] displayShootingMessage computed: cached="${cachedShootingMessage.value?.slice(0, 50)}...", current="${shootingMessage.value.slice(0, 50)}...", using cached=${cachedShootingMessage.value !== null}`,
@@ -393,7 +398,11 @@ watch(
   [shootingMessage, () => props.showLoading, isLoadingHomicides],
   ([message, loadingMain, loadingHomicides]) => {
     const isLoading = loadingMain || loadingHomicides;
-    if (!isLoading) {
+    // Only cache messages built from real counts. At mount the loading flags
+    // can be momentarily false before fetching starts, which used to cache
+    // the zero-count fallback text and display it during the initial load.
+    const hasValidCounts = (props.fatal ?? 0) > 0 || (props.nonfatal ?? 0) > 0;
+    if (!isLoading && hasValidCounts) {
       if (import.meta.env.DEV) {
         console.log(`[DashboardHeader] Caching shooting message: "${message}"`);
       }
@@ -495,6 +504,11 @@ watch(
   min-height: 2.4em;
 }
 
+/* Same reservation for the shooting message: 4 lines desktop, 5 mobile. */
+.header-submessage--shooting {
+  min-height: 4.8em;
+}
+
 @media only screen and (max-width: 767px) {
   .header-submessage {
     font-size: 1.6rem;
@@ -506,6 +520,10 @@ watch(
 
   .header-submessage--homicide {
     min-height: 3.6em;
+  }
+
+  .header-submessage--shooting {
+    min-height: 6em;
   }
 
   .header-message {
