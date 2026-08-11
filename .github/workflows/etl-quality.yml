@@ -1,0 +1,36 @@
+name: ETL quality
+
+on:
+  pull_request:
+    paths:
+      - "packages/etl/**"
+      - "packages/dashboard-utils/**"
+      - ".github/workflows/etl-quality.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/etl/**"
+      - "packages/dashboard-utils/**"
+      - ".github/workflows/etl-quality.yml"
+
+concurrency:
+  group: etl-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ETL tests and static checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/etl
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      - run: uv run --group dev ruff check src/etl/shootings tests/test_shootings_transform.py
+      - run: uv run --group dev ruff format --check src/etl/shootings tests/test_shootings_transform.py
+      - run: uv run --group dev mypy --config-file ../../mypy.ini src/etl/shootings
+      - run: uv run --group dev pytest tests

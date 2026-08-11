@@ -15,6 +15,57 @@ from etl.utils.storage import load_courts_flags, load_shootings_database
 
 __all__ = ["clean_shootings"]
 
+BINARY_COLUMNS = ("fatal", "inside", "outside", "latino")
+TRUE_BINARY_STRINGS = frozenset({"1", "1.0", "true", "t", "yes", "y"})
+FALSE_BINARY_STRINGS = frozenset({"0", "0.0", "false", "f", "no", "n"})
+MAX_FATAL_COUNT_DECREASE = 10
+
+
+def _normalize_binary_value(value: object, column: str) -> bool:
+    """Normalize a source binary value without silently guessing."""
+    if value is None or value is pd.NA or value is pd.NaT:
+        raise ValueError(f"Raw shootings column '{column}' contains a missing binary value")
+    if isinstance(value, (float, np.floating)) and np.isnan(value):
+        raise ValueError(f"Raw shootings column '{column}' contains a missing binary value")
+
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in TRUE_BINARY_STRINGS:
+            return True
+        if normalized in FALSE_BINARY_STRINGS:
+            return False
+    elif isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    elif isinstance(value, (int, float, np.integer, np.floating)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+
+    raise ValueError(f"Raw shootings column '{column}' contains unsupported binary value {value!r}")
+
+
+def _normalize_binary_columns(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Return a copy with source binary fields normalized to real booleans."""
+    normalized = df.copy()
+    for column in BINARY_COLUMNS:
+        normalized[column] = [
+            _normalize_binary_value(value, column) for value in normalized[column].tolist()
+        ]
+    return normalized
+
+
+def _require_plausible_outcomes(df: pd.DataFrame) -> None:
+    """Reject a dataset that has lost either fatal or nonfatal victims."""
+    fatal_count = int(df["fatal"].sum())
+    nonfatal_count = len(df) - fatal_count
+    if fatal_count == 0 or nonfatal_count == 0:
+        raise ValueError(
+            "Shootings outcome quality check failed: found "
+            f"{fatal_count:,d} fatal and {nonfatal_count:,d} nonfatal victims; "
+            "refusing to publish the dataset."
+        )
+
 
 def _run_checks(df_new: gpd.GeoDataFrame, *, s3: S3Client | None = None) -> None:
     """Validate shooting victims data."""
@@ -37,6 +88,19 @@ def _run_checks(df_new: gpd.GeoDataFrame, *, s3: S3Client | None = None) -> None
         logger.info(f"Length of old data: {len(df_old)}")
         raise ValueError(
             "New data seems to have too few rows...please manually confirm new data is correct."
+        )
+
+    # Fatal shootings are cumulative historical records. A small decrease can
+    # reflect source revisions, but a large drop is usually a parsing or source
+    # schema regression and must not replace the known-good dataset.
+    old_fatal_count = int(df_old["fatal"].sum())
+    new_fatal_count = int(df_new["fatal"].sum())
+    if old_fatal_count - new_fatal_count > MAX_FATAL_COUNT_DECREASE:
+        logger.info(f"Fatal count in new data: {new_fatal_count}")
+        logger.info(f"Fatal count in old data: {old_fatal_count}")
+        raise ValueError(
+            "New data has an implausible decrease in fatal shooting victims; "
+            "please manually confirm the source data is correct."
         )
 
 
@@ -130,6 +194,10 @@ def clean_shootings(
         n = missing_dc_keys.sum()
         raise ValueError(f"Found {n} rows with missing DC keys")
 
+    # CARTO has returned these fields as both numeric 0/1 and string "0"/"1"
+    # over time. Normalize both forms before any downstream logic uses them.
+    df = _normalize_binary_columns(df)
+
     # Format
     df = (
         df.assign(
@@ -151,7 +219,7 @@ def clean_shootings(
             ),
         )
         .assign(
-            race=lambda df: df.race.where(df.latino != 1, other="H"),
+            race=lambda df: df.race.where(~df.latino, other="H"),
         )
         .drop(
             labels=["point_x", "point_y", "date_", "time", "objectid", "cartodb_id"],
@@ -161,11 +229,6 @@ def clean_shootings(
         .reset_index(drop=True)
         .assign(date=lambda df: df.date.dt.strftime(DATE_FORMAT))
     )
-
-    # Handle boolean columns
-    boolean_columns = ["fatal", "inside", "outside", "latino"]
-    for col in boolean_columns:
-        df[col] = df[col].apply(lambda value: value == 1)
 
     # Add a parsed block number column
     # We use the parsed block numbers to de-duplicate street matches later
@@ -181,6 +244,9 @@ def clean_shootings(
     if future_dates.sum() > 0:
         logger.warning(f"Found {future_dates.sum()} future date(s) in the data")
         df = df.loc[~future_dates].reset_index(drop=True)
+
+    # This is an intrinsic output invariant, so --ignore-checks cannot bypass it.
+    _require_plausible_outcomes(df)
 
     # CHECKS
     if not ignore_checks:

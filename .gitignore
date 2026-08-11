@@ -13,6 +13,7 @@ build/
 !.github/workflows/
 .github/workflows/*
 !.github/workflows/frontend-quality.yml
+!.github/workflows/etl-quality.yml
 !.python-version
 !**/.terraform.lock.hcl
 __pycache__/
