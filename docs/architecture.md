@@ -32,8 +32,8 @@ OpenDataPhilly / PPD / reference sources
   -> transform and validation modules
   -> S3 processed datasets + metadata
   -> FastAPI startup/lazy refresh cache
-  -> versioned API endpoints
-  -> browser-side maps and charts
+  -> versioned data endpoints + cached statistics HTML
+  -> browser-side maps/charts or Netlify SEO-route proxy
 ```
 
 The courts pipeline has a separate batch path:
@@ -58,6 +58,12 @@ The shootings API uses content-addressed URLs:
 This avoids repeatedly transferring a single large GeoJSON file and lets browsers
 cache stable year/version URLs aggressively.
 
+The same loaded shooting and homicide datasets also produce `/stats` and
+`/sitemap.xml`. Their rendered responses are cached by dataset version and ETag,
+then re-rendered after startup or a lazy S3 refresh. Netlify proxies the canonical
+`/philly-gun-violence-map/stats` and sitemap URLs to these endpoints. Shooting and
+homicide freshness dates remain separate so each figure is labeled accurately.
+
 ## Runtime Configuration
 
 Python services use Pydantic settings and boto3's default credential chain.
@@ -76,6 +82,6 @@ container commands documented in the package READMEs.
 - GitHub Actions run scheduled or manually triggered ETL jobs.
 - ETL jobs write processed data and `meta.json` files to S3.
 - The API refreshes its S3-backed caches on startup and on a TTL.
-- Netlify serves the frontend.
+- Netlify deploys only for frontend/config changes and proxies dynamic SEO routes.
 - Fly.io serves the API.
 - Courts scraping runs through ECS/SQS so individual scrape failures are isolated.

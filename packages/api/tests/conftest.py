@@ -72,11 +72,23 @@ HOMICIDES_TOTALS: dict[str, Any] = {
 }
 
 
-META_SAMPLE: dict[str, Any] = {"last_updated": "2023-01-15T00:00:00Z", "data_through": "2023-01-14"}
+SHOOTINGS_META_SAMPLE: dict[str, Any] = {
+    "last_updated": "2023-01-16T00:00:00Z",
+    "data_through": "2023-01-15",
+}
+
+HOMICIDES_META_SAMPLE: dict[str, Any] = {
+    "last_updated": "2023-01-17T00:00:00Z",
+    "data_through": "2023-01-16",
+}
 
 
 def _mock_meta_read_json(name: str, s3: Any = None) -> dict[str, Any]:
-    return META_SAMPLE
+    if name == "shootings_meta":
+        return SHOOTINGS_META_SAMPLE
+    if name == "homicides_meta":
+        return HOMICIDES_META_SAMPLE
+    return {}
 
 
 def _mock_read_geojson(name: str, s3: Any = None) -> dict[str, Any]:
@@ -90,6 +102,10 @@ def _mock_read_geojson(name: str, s3: Any = None) -> dict[str, Any]:
 def _mock_read_json(name: str, s3: Any = None) -> dict[str, Any]:
     if name == "homicides_totals":
         return HOMICIDES_TOTALS
+    if name == "shootings_meta":
+        return SHOOTINGS_META_SAMPLE
+    if name == "homicides_meta":
+        return HOMICIDES_META_SAMPLE
     return {}
 
 
@@ -115,6 +131,6 @@ def client():
         patch("app.data_loader.read_processed_json", side_effect=_mock_read_json),
         patch("app.data_loader.read_reference_json", side_effect=_mock_read_reference),
         patch("app.routers.meta.read_processed_json", side_effect=_mock_meta_read_json),
+        TestClient(app) as c,
     ):
-        with TestClient(app) as c:
-            yield c
+        yield c

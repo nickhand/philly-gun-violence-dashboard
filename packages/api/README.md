@@ -22,6 +22,10 @@ FastAPI service for the Philadelphia Gun Violence Dashboard. Provides versioned,
 - `GET /meta` — Last updated timestamps for all datasets
 - `GET /meta/shootings`, `GET /meta/homicides`, `GET /meta/courts`
 
+### Crawler-visible statistics
+- `GET /stats` — Current server-rendered statistics, year table, and FAQ HTML
+- `GET /sitemap.xml` — Sitemap with modification dates from the loaded datasets
+
 ### Health
 - `GET /health` — Health check endpoint
 
@@ -32,6 +36,11 @@ The API uses a versioned, content-addressed caching strategy:
 1. **Meta endpoint** (`/shootings/meta`) returns a content-based version hash and ETag
 2. **Year-specific endpoints** include the version in the URL path, making them immutable
 3. Frontend caches versioned URLs for 1 year (`Cache-Control: public, max-age=31536000, immutable`)
+
+The statistics HTML and sitemap are rendered once after startup from the same
+in-memory data used by the JSON endpoints. They are invalidated when either the
+shooting or homicide cache refreshes, use ETags for revalidation, and preserve
+the distinct freshness date for each dataset.
 
 ## Environment
 
@@ -51,6 +60,13 @@ Optional:
 
 ```bash
 just api-dev
+```
+
+Audit every visible stats-page figure, table row, freshness date, JSON-LD answer,
+and sitemap date against the API payloads:
+
+```bash
+python scripts/audit_stats_consistency.py http://127.0.0.1:8000
 ```
 
 ## Deployment (Fly.io)

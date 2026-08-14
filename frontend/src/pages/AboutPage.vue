@@ -344,8 +344,8 @@ function trackExternalLink(label: string, url: string): void {
   track("external_link_clicked", { label, url });
 }
 
-// The stats page is static HTML generated at build time (outside the SPA
-// router), so link to it with a full-page navigation under the app base path.
+// The stats page is server-rendered by the API and proxied through Netlify
+// (outside the SPA router), so use a full-page navigation under the app base.
 const statsPageUrl = `${import.meta.env.BASE_URL}stats`;
 
 // Data freshness state

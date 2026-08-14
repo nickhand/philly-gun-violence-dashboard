@@ -21,7 +21,9 @@ from app.routers.health import router as health_router
 from app.routers.homicides import router as homicides_router
 from app.routers.meta import router as meta_router
 from app.routers.shootings import router as shootings_router
+from app.routers.stats import router as stats_router
 from app.routers.streets import router as streets_router
+from app.stats_page import render_and_cache_stats_page
 from dashboard_utils.aws import make_s3_client
 
 
@@ -67,6 +69,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     load_homicides_data(app)
     logger.info(f"Homicides data loaded in {(time.perf_counter() - homicides_start) * 1000:.1f}ms")
 
+    stats_start = time.perf_counter()
+    render_and_cache_stats_page(app)
+    logger.info(f"Statistics page rendered in {(time.perf_counter() - stats_start) * 1000:.1f}ms")
+
     total_time = (time.perf_counter() - startup_start) * 1000
     logger.info(f"API initialization complete in {total_time:.1f}ms")
     yield
@@ -108,3 +114,4 @@ app.include_router(streets_router)
 app.include_router(homicides_router)
 app.include_router(meta_router)
 app.include_router(health_router)
+app.include_router(stats_router)

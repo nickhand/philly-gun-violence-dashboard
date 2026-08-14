@@ -106,6 +106,8 @@ just data-sync
 2. **API** loads data from S3 at startup, indexes by year, and caches in memory
 3. **Frontend** fetches metadata, then loads year-specific NDJSON data on demand
 4. **GitHub Actions** trigger ETL + Fly restart on schedules for freshness
+5. **Stats HTML and sitemap** are rendered from the same in-memory API data and
+   proxied through Netlify, so data refreshes do not redeploy the frontend
 
 For more detail, see [docs/architecture.md](docs/architecture.md).
 
@@ -113,6 +115,8 @@ For more detail, see [docs/architecture.md](docs/architecture.md).
 The shootings endpoint uses a versioned, content-addressed caching strategy:
 - `GET /shootings/meta` — Returns version hash, available years, and per-year URLs
 - `GET /shootings/rows/{version}/{year}.ndjson` — Year-specific data (immutable, cached 1 year)
+- `GET /stats` — Current crawler-visible statistics and FAQ HTML
+- `GET /sitemap.xml` — Data-aware sitemap used at the canonical frontend URL
 
 The frontend builds GeoJSON client-side from the NDJSON rows, avoiding duplicate data transfer.
 
@@ -167,7 +171,9 @@ npm run build      # Production build to dist/
 ```
 
 **Deployment:**
-The frontend is deployed to Netlify. Pushes to `main` trigger automatic builds.
+The frontend is deployed to Netlify. Pushes to `main` only build when
+`frontend/**` or `netlify.toml` changes. Daily ETL refreshes the Fly API and its
+server-rendered statistics without creating a Netlify production deploy.
 
 ## Deployment (Fly.io)
 - `fly.toml` defines app config.

@@ -39,7 +39,7 @@ This dashboard provides an interactive map and charts for exploring shooting vic
 ## URLs
 
 - Main site: https://www.nickhand.dev/philly-gun-violence-map/
-- Statistics and FAQ (static HTML, no JavaScript required): https://www.nickhand.dev/philly-gun-violence-map/stats
+- Statistics and FAQ (current server-rendered HTML, no JavaScript required): https://www.nickhand.dev/philly-gun-violence-map/stats
 - Info page: https://www.nickhand.dev/philly-gun-violence-map/about
 - Source code: https://github.com/nickhand/philly-gun-violence-dashboard
 

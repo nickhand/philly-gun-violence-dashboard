@@ -26,7 +26,9 @@ class TestImports:
         import app.routers.homicides  # noqa: F401
         import app.routers.meta  # noqa: F401
         import app.routers.shootings  # noqa: F401
+        import app.routers.stats  # noqa: F401
         import app.routers.streets  # noqa: F401
+        import app.stats_page  # noqa: F401
 
 
 class TestHealth:
@@ -102,3 +104,52 @@ class TestMeta:
     def test_meta_200(self, client):
         resp = client.get("/meta")
         assert resp.status_code == 200
+
+    def test_meta_uses_same_loaded_snapshot_as_stats(self, client):
+        body = client.get("/meta").json()
+
+        assert body["shootings"]["data_through"] == "2023-01-15"
+        assert body["homicides"]["data_through"] == "2023-01-16"
+
+
+class TestStatsPage:
+    def test_stats_page_is_crawler_visible_html(self, client):
+        resp = client.get("/stats")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/html")
+        canonical = (
+            '<link rel="canonical" href="https://www.nickhand.dev/philly-gun-violence-map/stats"'
+        )
+        assert canonical in resp.text
+        assert '"@type": "FAQPage"' in resp.text
+        assert "No JavaScript required" in resp.text
+
+    def test_stats_page_uses_loaded_counts_and_separate_freshness_dates(self, client):
+        resp = client.get("/stats")
+
+        assert '<div class="figure">1</div>' in resp.text
+        assert '<span class="c-fatal">0 fatal</span>' in resp.text
+        assert '<span class="c-nonfatal">1 nonfatal</span>' in resp.text
+        freshness = "Shootings through January 15, 2023 · Homicides through January 16, 2023"
+        assert freshness in resp.text
+        assert "As of January 15, 2023, there have been 1 shooting victims" in resp.text
+        assert "As of January 16, 2023, Philadelphia has recorded 450 homicides" in resp.text
+
+    def test_stats_page_revalidates_with_etag(self, client):
+        first = client.get("/stats")
+        etag = first.headers["etag"]
+
+        second = client.get("/stats", headers={"If-None-Match": etag})
+
+        assert first.headers["cache-control"] == "public, max-age=0, must-revalidate"
+        assert second.status_code == 304
+        assert second.content == b""
+
+    def test_dynamic_sitemap(self, client):
+        resp = client.get("/sitemap.xml")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/xml")
+        assert "https://www.nickhand.dev/philly-gun-violence-map/stats" in resp.text
+        assert "<lastmod>2023-01-16</lastmod>" in resp.text

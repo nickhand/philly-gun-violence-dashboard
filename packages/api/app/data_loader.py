@@ -195,7 +195,9 @@ def load_shootings_data(app: FastAPI) -> None:
     app.state.shootings_rows_by_year = shootings_rows_by_year
     app.state.shootings_meta = shootings_meta
     app.state.shootings_version = version
+    app.state.shootings_freshness = read_processed_json("shootings_meta", s3=s3)
     app.state.dataset_etags["shootings"] = _get_s3_etag(s3, shootings_key)
+    app.state.stats_page_cache = None
 
 
 def load_boundary_data(app: FastAPI) -> None:
@@ -249,7 +251,9 @@ def load_homicides_data(app: FastAPI) -> None:
     s3 = app.state.s3
     homicides_key = app.state.dataset_keys["homicides"]
     app.state.homicides_totals = read_processed_json("homicides_totals", s3=s3)
+    app.state.homicides_freshness = read_processed_json("homicides_meta", s3=s3)
     app.state.dataset_etags["homicides"] = _get_s3_etag(s3, homicides_key)
+    app.state.stats_page_cache = None
 
 
 def refresh_if_stale(app: FastAPI, names: list[str]) -> None:
