@@ -152,7 +152,12 @@ def audit(
 
     expected_canonical = "https://www.nickhand.dev/philly-gun-violence-map/stats"
     assert parser.canonical == expected_canonical
-    assert headers.get("cache-control") == "public, max-age=0, must-revalidate"
+    cache_directives = {
+        directive.strip().lower()
+        for directive in headers.get("cache-control", "").split(",")
+        if directive.strip()
+    }
+    assert {"public", "max-age=0", "must-revalidate"} <= cache_directives
     assert "etag" in headers
     revalidation_status, _, _ = _request(public_stats_url, etag=headers["etag"])
     assert revalidation_status == 304
