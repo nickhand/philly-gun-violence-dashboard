@@ -27,6 +27,20 @@ to = "https://philly-gun-violence-dashboard-api.fly.dev/stats"
 status = 200
 force = true
 
+# www.nickhand.dev mounts this Netlify site below /philly-gun-violence-map
+# and strips that prefix before forwarding. Keep root aliases for that proxy.
+[[redirects]]
+from = "/stats"
+to = "https://philly-gun-violence-dashboard-api.fly.dev/stats"
+status = 200
+force = true
+
+[[redirects]]
+from = "/stats/"
+to = "https://philly-gun-violence-dashboard-api.fly.dev/stats"
+status = 200
+force = true
+
 # About page snapshot: same app bundle as index.html but with About-specific
 # meta tags and crawler summary. The SPA still boots for visitors.
 [[redirects]]
@@ -42,6 +56,12 @@ status = 200
 # Keep sitemap freshness tied to the loaded datasets too.
 [[redirects]]
 from = "/philly-gun-violence-map/sitemap.xml"
+to = "https://philly-gun-violence-dashboard-api.fly.dev/sitemap.xml"
+status = 200
+force = true
+
+[[redirects]]
+from = "/sitemap.xml"
 to = "https://philly-gun-violence-dashboard-api.fly.dev/sitemap.xml"
 status = 200
 force = true
