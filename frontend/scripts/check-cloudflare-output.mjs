@@ -8,6 +8,13 @@ const workerEntry = join(output, "server", "index.mjs");
 const publicDirectory = join(output, "public");
 const appPublicDirectory = join(publicDirectory, "philly-gun-violence-map");
 const config = JSON.parse(readFileSync(join(root, "wrangler.jsonc"), "utf8"));
+const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const installedVue = JSON.parse(
+  readFileSync(join(root, "node_modules", "vue", "package.json"), "utf8"),
+);
+const installedVueRouter = JSON.parse(
+  readFileSync(join(root, "node_modules", "vue-router", "package.json"), "utf8"),
+);
 const environmentName = process.argv[2];
 const environment = config.env?.[environmentName];
 
@@ -20,6 +27,24 @@ assert.equal(config.main, ".output/server/index.mjs");
 assert.equal(config.assets?.directory, ".output/public");
 assert.ok(config.compatibility_flags?.includes("nodejs_compat"));
 assert.equal(config.observability?.enabled, true);
+assert.equal(
+  packageJson.dependencies?.vue,
+  installedVue.version,
+  "The app and Nuxt must use one Vue runtime or Cloudflare SSR can emit unresolved links.",
+);
+assert.equal(
+  packageJson.dependencies?.["vue-router"],
+  installedVueRouter.version,
+  "The app and Nuxt must use one Vue Router runtime or hydration can mismatch.",
+);
+assert.ok(
+  !existsSync(join(root, "node_modules", "nuxt", "node_modules", "vue")),
+  "Nuxt unexpectedly installed a second Vue runtime.",
+);
+assert.ok(
+  !existsSync(join(root, "node_modules", "nuxt", "node_modules", "vue-router")),
+  "Nuxt unexpectedly installed a second Vue Router runtime.",
+);
 assert.ok(environment, `Wrangler is missing its ${environmentName} environment.`);
 assert.equal(
   environment.vars?.NUXT_PUBLIC_DOWNLOADS_BASE_URL,

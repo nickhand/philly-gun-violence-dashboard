@@ -281,8 +281,12 @@ has separate environments:
 - `npm run deploy:nuxt:staging` builds a `noindex` Workers preview and deploys
   only to its `workers.dev` hostname.
 - `npm run deploy:nuxt:production` builds an indexable release and deploys the
-  Worker routes for `nickhand.dev/philly-gun-violence-map*` and
-  `www.nickhand.dev/philly-gun-violence-map*`.
+  exact and slash-subtree Worker routes for
+  `www.nickhand.dev/philly-gun-violence-map`.
+
+Cloudflare includes the query string when matching Worker routes. The main-site
+Worker redirects a bare dashboard path with a query to the slash form so it
+enters the slash-subtree route without capturing nearby path prefixes.
 
 The Cloudflare build copies the static `_headers` file to the Workers Assets
 root, validates base-path assets, indexability, security headers, and route

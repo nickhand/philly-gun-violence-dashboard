@@ -96,10 +96,12 @@ www.nickhand.dev/philly-gun-violence-map
 www.nickhand.dev/philly-gun-violence-map/*
 ```
 
-Those are Worker **routes**, not a custom domain: they run in front of the
-main-site Worker custom domain while leaving every other main-site path alone.
-Using an exact route plus a slash-subtree route avoids accidentally capturing
-nearby paths such as `/philly-gun-violence-mapper`.
+These are Worker **routes**, not a custom domain: they run in front of the
+main-site Worker custom domain while leaving other main-site paths alone.
+Cloudflare matches the full URL, including its query string. The main-site
+Worker redirects a bare dashboard path with a query to the slash form, which
+enters the slash-subtree route without capturing nearby paths such as
+`/philly-gun-violence-mapper`.
 
 After the canary gate passes:
 

@@ -54,10 +54,10 @@
     "d3-transition": "^3.0.1",
     "maplibre-gl": "^2.4.0",
     "nuxt": "^4.5.2",
-    "pinia": "^2.1.7",
+    "pinia": "3.0.4",
     "posthog-js": "^1.318.1",
-    "vue": "^3.4.27",
-    "vue-router": "^4.3.2",
+    "vue": "3.5.41",
+    "vue-router": "5.2.0",
     "vuetify": "^3.7.10"
   },
   "devDependencies": {
