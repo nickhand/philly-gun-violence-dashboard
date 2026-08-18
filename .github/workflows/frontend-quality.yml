@@ -52,10 +52,12 @@ jobs:
     name: Browser family tests (${{ matrix.browser }})
     needs: unit
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble
+      options: --user 1001 --ipc=host
     timeout-minutes: 30
-    # One job per browser family avoids repeated browser and apt installs.
-    # Playwright does not recommend caching browsers because Linux system
-    # dependencies are not cacheable and cache restores take similar time.
+    # The version-matched Playwright image includes all browser and system
+    # dependencies. One job per family keeps the suites independently gated.
     strategy:
       fail-fast: false
       matrix:
@@ -84,16 +86,16 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm install --global npm@11.18.0
       - run: npm ci
-      - name: Install ${{ matrix.browser }} and system dependencies
-        id: install
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Verify Playwright image version
+        id: playwright
+        run: test "$(npx playwright --version)" = "Version 1.62.0"
       - name: Run legacy browser tests
         run: npx playwright test ${{ matrix.legacy_projects }}
       - name: Run Nuxt browser tests
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.playwright.outcome == 'success' }}
         run: npx playwright test --config=playwright.nuxt.config.ts ${{ matrix.nuxt_projects }}
       - name: Run Lighthouse performance checks
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && matrix.lighthouse }}
+        if: ${{ !cancelled() && steps.playwright.outcome == 'success' && matrix.lighthouse }}
         run: npm run test:lighthouse
       - uses: actions/upload-artifact@v5
         if: failure()
