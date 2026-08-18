@@ -27,10 +27,6 @@ import {
   type AggregateLegendModel,
 } from "~/utils/mapLegend";
 import {
-  createMapPrintDescription,
-  createMapPrintImage,
-} from "~/utils/mapPrint";
-import {
   DEFAULT_MAP_LAYERS,
   formatMapLayersParam,
   getBoundaryMapLayer,
@@ -439,6 +435,9 @@ async function printMap(): Promise<void> {
   printError.value = false;
   clearPrintMap();
   try {
+    const { createMapPrintDescription, createMapPrintImage } = await import(
+      "~/utils/mapPrint",
+    );
     const mapImage = map.instance.getCanvas().toDataURL("image/png");
     if (!mapImage.startsWith("data:image/png") || mapImage.length < 32) {
       throw new Error("The map canvas did not produce a printable image.");
