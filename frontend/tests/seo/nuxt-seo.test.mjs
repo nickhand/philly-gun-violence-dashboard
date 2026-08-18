@@ -14,10 +14,13 @@ const frontendDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../.
 const basePath = "/philly-gun-violence-map/";
 const canonicalBase = "https://www.nickhand.dev/philly-gun-violence-map";
 const downloadsBasePath = "/philly-shooting-records";
+const slowDownloadsBasePath = "/slow-philly-shooting-records";
+const slowManifestDelayMs = 2_000;
 const publicDownloadReleaseId = "a".repeat(64);
 const publicDownloadReleasePrefix = `releases/${publicDownloadReleaseId}`;
 let downloadsBase;
 let allRecordsDownloadUrl;
+const manifestRequestUserAgents = [];
 const geographicReferenceDownloads = [
   ["ZIP code boundaries", "zip_code", "philadelphia-zip-codes.geojson", 451_447],
   ["Neighborhood boundaries", "neighborhood", "philadelphia-neighborhoods.geojson", 562_605],
@@ -223,7 +226,7 @@ async function fetchDocument(path) {
   return { response, html, dom, document: dom.window.document };
 }
 
-async function startIsolatedNuxt(downloadsBaseUrl) {
+async function startIsolatedNuxt(downloadsBaseUrl, readyRoute = "data") {
   const port = await findOpenPort();
   const origin = `http://127.0.0.1:${port}`;
   let output = "";
@@ -249,7 +252,7 @@ async function startIsolatedNuxt(downloadsBaseUrl) {
   });
 
   await waitForNuxt(
-    `${origin}${basePath}data`,
+    `${origin}${basePath}${readyRoute}`,
     processInstance,
     () => output,
   );
@@ -437,8 +440,17 @@ before(async () => {
 
   downloadsServer = createServer((request, response) => {
     if (request.url === `${downloadsBasePath}/manifest.json`) {
+      manifestRequestUserAgents.push(request.headers["user-agent"]);
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(JSON.stringify(publicDownloadManifest));
+      return;
+    }
+    if (request.url === `${slowDownloadsBasePath}/manifest.json`) {
+      manifestRequestUserAgents.push(request.headers["user-agent"]);
+      setTimeout(() => {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify(publicDownloadManifest));
+      }, slowManifestDelayMs);
       return;
     }
     if (request.url === "/legacy-manifest/manifest.json") {
@@ -1782,6 +1794,7 @@ test("robots policy is plain text and points to the canonical sitemap", async ()
 });
 
 test("the public download manifest proxy returns the CDN contract without exposing its origin", async () => {
+  manifestRequestUserAgents.length = 0;
   const response = await fetch(
     `${nuxtOrigin}${basePath}api/public-download-manifest`,
   );
@@ -1793,6 +1806,101 @@ test("the public download manifest proxy returns the CDN contract without exposi
     "public, max-age=300, stale-while-revalidate=3600",
   );
   assert.deepEqual(await response.json(), publicDownloadManifest);
+  assert.deepEqual(manifestRequestUserAgents, [
+    "Philadelphia-Gun-Violence-Dashboard/1.0",
+  ]);
+});
+
+test("a slow public download manifest still drives v2 Data page SSR", async () => {
+  const slowDownloadsBase = `${downloadsOrigin}${slowDownloadsBasePath}`;
+  const { origin, processInstance } = await startIsolatedNuxt(
+    slowDownloadsBase,
+    "about",
+  );
+  let dom;
+
+  try {
+    const manifestResponse = await fetch(
+      `${origin}${basePath}api/public-download-manifest`,
+    );
+    assert.equal(manifestResponse.status, 200);
+    assert.equal(
+      manifestResponse.headers.get("cache-control"),
+      "public, max-age=300, stale-while-revalidate=3600",
+    );
+    assert.deepEqual(await manifestResponse.json(), publicDownloadManifest);
+
+    const dataResponse = await fetch(`${origin}${basePath}data`);
+    const html = await dataResponse.text();
+    dom = new JSDOM(html, { url: `${origin}${basePath}data` });
+    const { document } = dom.window;
+    const links = [
+      ...document.querySelectorAll("main a.civic-file-download-link"),
+    ];
+    const expectedUrls = [
+      `${slowDownloadsBase}/${publicDownloadReleasePrefix}/philadelphia-shooting-victims.csv`,
+      ...geographicReferenceDownloads.map(
+        ([, , filename]) =>
+          `${slowDownloadsBase}/${publicDownloadReleasePrefix}/geography/${filename}`,
+      ),
+    ];
+    const expectedMetadata = [
+      "[CSV, 3.1 MB]",
+      ...geographicReferenceDownloads.map(
+        ([, , , byteSize]) => `[GEOJSON, ${fixtureSizeLabel(byteSize)}]`,
+      ),
+    ];
+
+    assert.equal(dataResponse.status, 200);
+    assert.deepEqual(
+      links.map((link) => link.getAttribute("href")),
+      expectedUrls,
+      "SSR should use the immutable v2 release paths after a slow manifest response",
+    );
+    assert.deepEqual(
+      links.map((link) =>
+        normalizedText(
+          link.querySelector(".civic-file-download-link__metadata"),
+        ),
+      ),
+      expectedMetadata,
+      "SSR should use byte sizes from the v2 manifest",
+    );
+    assert.equal(
+      document.querySelector(
+        `main a[href="${slowDownloadsBase}/philadelphia-shooting-victims.csv"]`,
+      ),
+      null,
+      "SSR must not fall back to the legacy mutable CSV path",
+    );
+
+    const structuredData = [
+      ...document.querySelectorAll('script[type="application/ld+json"]'),
+    ]
+      .map((script) => JSON.parse(script.textContent ?? "{}"))
+      .find((value) => Array.isArray(value["@graph"]));
+    const dataset = structuredData?.["@graph"].find(
+      (entry) => entry["@id"] === `${canonicalBase}/data#dataset`,
+    );
+    const geographicDataset = structuredData?.["@graph"].find(
+      (entry) =>
+        entry["@id"] === `${canonicalBase}/data#geographic-reference-data`,
+    );
+    assert.equal(dataset?.distribution?.contentUrl, expectedUrls[0]);
+    assert.equal(dataset?.distribution?.contentSize, "3064024 bytes");
+    assert.deepEqual(
+      geographicDataset?.distribution?.map((item) => item.contentSize),
+      geographicReferenceDownloads.map(
+        ([, , , byteSize]) => `${byteSize} bytes`,
+      ),
+    );
+  } finally {
+    dom?.window.close();
+    if (processInstance.exitCode === null) {
+      processInstance.kill("SIGTERM");
+      await once(processInstance, "exit");
+    }
+  }
 });
 
 test("the Data page keeps v1 public download links working during the v2 cutover", async () => {

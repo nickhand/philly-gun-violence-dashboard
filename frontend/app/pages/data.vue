@@ -83,7 +83,7 @@ const [metaRequest, manifestRequest] = await Promise.all([
   useFetch<unknown>(publicDownloadManifestEndpoint, {
     immediate: downloadsConfigured,
     key: "public-download-manifest",
-    timeout: 2_500,
+    timeout: 6_000,
   }),
 ]);
 const { data: meta, error: metaError } = metaRequest;
