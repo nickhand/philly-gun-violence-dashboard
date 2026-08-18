@@ -96,9 +96,13 @@ identity policy before running the workflow:
 
 ```json
 {
+  "Sid": "PublishPublicDownloadV2",
   "Effect": "Allow",
   "Action": "s3:PutObject",
-  "Resource": "arn:aws:s3:::philly-gun-violence-dashboard/public/downloads/*"
+  "Resource": [
+    "arn:aws:s3:::philly-gun-violence-dashboard/public/downloads/manifest.json",
+    "arn:aws:s3:::philly-gun-violence-dashboard/public/downloads/releases/*"
+  ]
 }
 ```
 
