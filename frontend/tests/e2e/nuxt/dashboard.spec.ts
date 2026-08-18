@@ -542,7 +542,7 @@ test("prints active choropleth and street hot-spot legends on one page", async (
   await expectActiveLegendPrint(page, "street-hot-spots", hotspotLegend);
 });
 
-test("shows chart definitions without changing desktop chart geometry", async ({
+test("shows chart definitions without changing desktop chart geometry @maplibre", async ({
   page,
 }) => {
   await openDashboard(page);
@@ -608,7 +608,7 @@ test("shows chart definitions without changing desktop chart geometry", async ({
   await expect(tooltip).not.toBeVisible();
 });
 
-test("hydrates the Nuxt explorer and shares filters with its map, histogram, charts, and download", async ({
+test("hydrates the Nuxt explorer and shares filters with its map, histogram, charts, and download @maplibre", async ({
   page,
 }) => {
   const { apiResponses, sidebar } = await openDashboard(page);

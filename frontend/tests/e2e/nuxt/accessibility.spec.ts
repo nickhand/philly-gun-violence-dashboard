@@ -10,7 +10,7 @@ async function expectNoAxeViolations(page: Page) {
   expect(results.violations).toEqual([]);
 }
 
-test("the hydrated Nuxt explorer and open native controls pass WCAG checks @a11y", async ({
+test("the hydrated Nuxt explorer and open native controls pass WCAG checks @a11y @maplibre", async ({
   page,
 }) => {
   await mockNuxtExternalServices(page);

@@ -12,7 +12,10 @@ const crossBrowserCore = [
   "**/civic-components.spec.ts",
   "**/dashboard.spec.ts",
 ];
-const chromiumOnlyPrint = /\b(?:pdf|print|prints)\b/i;
+// Headless Firefox on GitHub's Ubuntu runner cannot create the WebGL context
+// MapLibre requires, even with webgl.force-enabled. Chromium and WebKit retain
+// the real-map coverage; Firefox still runs the non-map core smoke/a11y flows.
+const firefoxNonPortable = /\b(?:pdf|print|prints)\b|@maplibre/i;
 const webkitNonPortable = /\b(?:pdf|print|prints)\b|forced-color/i;
 
 export default defineConfig({
@@ -73,15 +76,8 @@ export default defineConfig({
     {
       name: "nuxt-firefox-core",
       testMatch: crossBrowserCore,
-      grepInvert: chromiumOnlyPrint,
-      use: {
-        ...devices["Desktop Firefox"],
-        launchOptions: {
-          firefoxUserPrefs: {
-            "webgl.force-enabled": true,
-          },
-        },
-      },
+      grepInvert: firefoxNonPortable,
+      use: { ...devices["Desktop Firefox"] },
     },
     {
       name: "nuxt-webkit-core",
