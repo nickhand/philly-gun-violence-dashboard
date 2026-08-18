@@ -1384,15 +1384,16 @@ describe("DashboardPointMap", () => {
     vi.spyOn(instance.getCanvas(), "toDataURL").mockReturnValue("data:,");
 
     await wrapper.get(".civic-dashboard-map-print-button").trigger("click");
-    await nextTick();
+    await vi.waitFor(() =>
+      expect(wrapper.get('[role="status"]').text()).toBe(
+        "The map could not be prepared for printing.",
+      ),
+    );
 
     expect(print).not.toHaveBeenCalled();
     expect(
       document.body.querySelector(".civic-dashboard-map-print-sheet"),
     ).toBeNull();
-    expect(wrapper.get('[role="status"]').text()).toBe(
-      "The map could not be prepared for printing.",
-    );
 
     wrapper.unmount();
     print.mockRestore();
