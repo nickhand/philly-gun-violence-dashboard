@@ -780,11 +780,12 @@ useHead(() => ({
 
 @media (max-width: 30em) {
   .civic-annual-measure {
-    display: block;
+    grid-template-columns: 3rem minmax(1.5rem, 1fr);
+    gap: 0.3rem;
   }
 
   .civic-annual-bar-plot {
-    display: none;
+    min-width: 0;
   }
 }
 

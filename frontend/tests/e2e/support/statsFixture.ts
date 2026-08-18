@@ -1,0 +1,36 @@
+export const fullAnnualHistory = [
+  { year: 2015, victims: 1_271, homicides: 280 },
+  { year: 2016, victims: 1_319, homicides: 277 },
+  { year: 2017, victims: 1_250, homicides: 315 },
+  { year: 2018, victims: 1_438, homicides: 353 },
+  { year: 2019, victims: 1_464, homicides: 356 },
+  { year: 2020, victims: 2_245, homicides: 499 },
+  { year: 2021, victims: 2_332, homicides: 562 },
+  { year: 2022, victims: 2_255, homicides: 516 },
+  { year: 2023, victims: 1_660, homicides: 410 },
+  { year: 2024, victims: 1_082, homicides: 269 },
+  { year: 2025, victims: 940, homicides: 222 },
+  { year: 2026, victims: 432, homicides: 111 },
+] as const;
+
+export const fullStatsSnapshot = {
+  shootings_data_through: "2026-08-13",
+  homicides_data_through: "2026-08-15",
+  current_year: 2026,
+  previous_year: 2025,
+  minimum_year: 2015,
+  total_victims_all_years: fullAnnualHistory.reduce(
+    (total, year) => total + year.victims,
+    0,
+  ),
+  current_total: 432,
+  current_fatal: 94,
+  current_nonfatal: 338,
+  shootings_previous_ytd: 650,
+  shooting_percent_change: -34,
+  homicides_ytd: 111,
+  homicides_previous_ytd: 141,
+  homicide_percent_change: -21,
+  peak: { year: 2021, victims: 2_332, homicides: 562 },
+  years: fullAnnualHistory,
+};

@@ -11,6 +11,7 @@ const crossBrowserCore = [
   "**/accessibility.spec.ts",
   "**/civic-components.spec.ts",
   "**/dashboard.spec.ts",
+  "**/stats-mobile.spec.ts",
 ];
 // Headless Firefox on GitHub's Ubuntu runner cannot create the WebGL context
 // MapLibre requires, even with webgl.force-enabled. Chromium and WebKit retain
