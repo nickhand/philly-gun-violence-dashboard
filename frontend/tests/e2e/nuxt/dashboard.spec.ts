@@ -178,8 +178,8 @@ test("keeps phone-width map controls compact and readable @maplibre", async ({
   const mapAction = page.getByRole("button", { name: "Print map" });
   const mapActionBox = await mapAction.boundingBox();
   expect(mapActionBox).not.toBeNull();
-  expect(mapActionBox?.width).toBeCloseTo(44, 0);
-  expect(mapActionBox?.height).toBeCloseTo(44, 0);
+  expect(mapActionBox?.width).toBeCloseTo(29, 0);
+  expect(mapActionBox?.height).toBeCloseTo(29, 0);
   await expect(mapAction.locator("span")).toHaveCSS("width", "1px");
   await expect(mapAction.locator("span")).toHaveCSS("height", "1px");
 });
@@ -249,6 +249,7 @@ test("prepares one attributed print map without opening the system dialog", asyn
 
     const sheetStyle = getComputedStyle(element);
     const sheetRect = element.getBoundingClientRect();
+    const imageStyle = getComputedStyle(image);
     const imageRect = image.getBoundingClientRect();
     const containedElements = [
       element.querySelector<HTMLElement>("header"),
@@ -285,12 +286,17 @@ test("prepares one attributed print map without opening the system dialog", asyn
         };
       }),
       imageBottom: imageRect.bottom,
-      imageContentRatio: image.naturalWidth / image.naturalHeight,
       imageHeight: imageRect.height,
       imageLeft: imageRect.left,
       imageNaturalHeight: image.naturalHeight,
       imageNaturalWidth: image.naturalWidth,
-      imageRenderedRatio: imageRect.width / imageRect.height,
+      imageStyle: {
+        alignSelf: imageStyle.alignSelf,
+        justifySelf: imageStyle.justifySelf,
+        minHeight: imageStyle.minHeight,
+        minWidth: imageStyle.minWidth,
+        objectFit: imageStyle.objectFit,
+      },
       imageWidth: imageRect.width,
       renderedOutsideSheet,
       rootClientWidth: document.documentElement.clientWidth,
@@ -346,12 +352,13 @@ test("prepares one attributed print map without opening the system dialog", asyn
   expect(printContract?.imageWidth).toBeLessThanOrEqual(
     (printContract?.sheetContentWidth ?? 0) + 1,
   );
+  expect(printContract?.imageWidth).toBeCloseTo(
+    printContract?.sheetContentWidth ?? Number.POSITIVE_INFINITY,
+    0,
+  );
   expect(printContract?.imageLeft).toBeCloseTo(
-    (printContract?.sheetContentLeft ?? Number.POSITIVE_INFINITY) +
-      ((printContract?.sheetContentWidth ?? 0) -
-        (printContract?.imageWidth ?? 0)) /
-        2,
-    1,
+    printContract?.sheetContentLeft ?? Number.POSITIVE_INFINITY,
+    0,
   );
   expect(printContract?.imageNaturalWidth).toBeGreaterThan(0);
   expect(printContract?.imageNaturalHeight).toBeGreaterThan(0);
@@ -359,10 +366,13 @@ test("prepares one attributed print map without opening the system dialog", asyn
   expect(printContract?.imageBottom).toBeLessThanOrEqual(
     printContract?.sheetBottom ?? 0,
   );
-  expect(printContract?.imageRenderedRatio).toBeCloseTo(
-    printContract?.imageContentRatio ?? Number.POSITIVE_INFINITY,
-    2,
-  );
+  expect(printContract?.imageStyle).toEqual({
+    alignSelf: "stretch",
+    justifySelf: "stretch",
+    minHeight: "0px",
+    minWidth: "0px",
+    objectFit: "contain",
+  });
 
   const letterPdf = await page.pdf({
     displayHeaderFooter: true,
@@ -601,7 +611,7 @@ test("shows chart definitions without changing desktop chart geometry @maplibre"
   const card = page.locator(".civic-dashboard-category-chart--outcome");
   const nextCard = page.locator(".civic-dashboard-category-chart--court");
   const trigger = card.getByRole("button", { name: "About Outcome" });
-  const tooltip = card.getByRole("tooltip");
+  const tooltip = card.locator(".civic-info-tooltip__panel");
   await page.evaluate(() => document.fonts.ready);
 
   const measure = async () => {
@@ -621,6 +631,7 @@ test("shows chart definitions without changing desktop chart geometry @maplibre"
 
   await trigger.hover();
   await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveAttribute("role", "tooltip");
   const whileOpen = await measure();
   const triggerBox = await trigger.boundingBox();
   const tooltipBox = await tooltip.boundingBox();
@@ -652,6 +663,8 @@ test("shows chart definitions without changing desktop chart geometry @maplibre"
 
   await trigger.click();
   await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveAttribute("role", "dialog");
+  await expect(tooltip).toHaveAttribute("aria-label", "Outcome information");
   await page.getByRole("heading", {
     level: 1,
     name: "Mapping Philadelphia's Gun Violence",

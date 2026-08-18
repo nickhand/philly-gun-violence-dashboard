@@ -349,7 +349,7 @@ test("keeps chart definitions accessible without shifting or overflowing cards",
     ".civic-dashboard-category-chart--outcome",
   );
   const trigger = outcomeCard.getByRole("button", { name: "About Outcome" });
-  const tooltip = outcomeCard.getByRole("tooltip");
+  const tooltip = outcomeCard.locator(".civic-info-tooltip__panel");
   await expect(trigger).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
 
@@ -384,7 +384,11 @@ test("keeps chart definitions accessible without shifting or overflowing cards",
   await expect(tooltip).toContainText("Fatal indicates");
   const tooltipId = await tooltip.getAttribute("id");
   expect(tooltipId).toBeTruthy();
+  await expect(trigger).toHaveAttribute("aria-controls", tooltipId!);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
   await expect(trigger).toHaveAttribute("aria-describedby", tooltipId!);
+  await expect(tooltip).toHaveAttribute("role", "tooltip");
 
   const focusedLayout = await measureLayout();
   expect(focusedLayout.cardHeight).toBeCloseTo(initialLayout.cardHeight ?? -1, 1);
@@ -416,8 +420,29 @@ test("keeps chart definitions accessible without shifting or overflowing cards",
   await page.keyboard.press("Escape");
   await expect(tooltip).not.toBeVisible();
   await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
 
   await charts.focus();
+  await trigger.tap();
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveAttribute("role", "dialog");
+  await expect(tooltip).toHaveAttribute("aria-label", "Outcome information");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(trigger).not.toHaveAttribute("aria-describedby");
+  await trigger.tap();
+  await expect(tooltip).not.toBeVisible();
+
+  await trigger.tap();
+  const close = outcomeCard.getByRole("button", {
+    name: "Close Outcome information",
+  });
+  const closeBox = await close.boundingBox();
+  expect(closeBox?.width).toBeGreaterThanOrEqual(44);
+  expect(closeBox?.height).toBeGreaterThanOrEqual(44);
+  await close.tap();
+  await expect(tooltip).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+
   await trigger.tap();
   await expect(tooltip).toBeVisible();
   await page.touchscreen.tap(5, 5);
@@ -598,27 +623,31 @@ test("stacks the hydrated map and sidebar without mobile overflow", async ({
       ?.getBoundingClientRect();
     return {
       height: button.height,
-      homeCenter: home ? home.top + home.height / 2 : null,
+      homeHeight: home?.height,
+      homeWidth: home?.width,
+      horizontalCenterDifference: home
+        ? Math.abs(
+            button.left + button.width / 2 - (home.left + home.width / 2),
+          )
+        : null,
       iconHeight: icon?.height,
       labelHeight: label?.height,
       labelWidth: label?.width,
-      printCenter: button.top + button.height / 2,
+      verticalGap: home ? button.top - home.bottom : null,
       width: button.width,
     };
   });
   expect(printMapContract).toMatchObject({
-    height: 44,
+    height: 29,
+    homeHeight: 29,
+    homeWidth: 29,
     iconHeight: 20,
     labelHeight: 1,
     labelWidth: 1,
-    width: 44,
+    width: 29,
   });
-  expect(printMapContract.homeCenter).not.toBeNull();
-  expect(
-    Math.abs(
-      printMapContract.printCenter - (printMapContract.homeCenter ?? 0),
-    ),
-  ).toBeLessThanOrEqual(1);
+  expect(printMapContract.horizontalCenterDifference).toBeLessThanOrEqual(1);
+  expect(printMapContract.verticalGap).toBeCloseTo(10, 0);
 
   expect(downloadBox.width).toBeCloseTo(resetBox.width, 1);
   expect(resetBox.width).toBeCloseTo(actionContentWidth, 1);

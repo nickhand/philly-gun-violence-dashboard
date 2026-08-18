@@ -231,6 +231,87 @@ test("reference pages keep one reading axis and contain table overflow at 375px"
   }
 });
 
+test("the mobile citation block stays indented and copies its complete text", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          (
+            window as Window & { __copiedDashboardCitation?: string }
+          ).__copiedDashboardCitation = text;
+        },
+      },
+    });
+  });
+  await mockNuxtExternalServices(page);
+  await page.goto("./data");
+
+  const section = page.locator('[aria-labelledby="cite-dashboard"]');
+  const citation = section.locator("blockquote");
+  const copyButton = section.getByRole("button", { name: "Copy citation" });
+  await expect(citation).toBeVisible();
+  await expect(citation).toHaveAttribute(
+    "cite",
+    "https://www.nickhand.dev/philly-gun-violence-map/data",
+  );
+  await expect(citation).toContainText(
+    /Shooting-victim records through July 28, 2026.*Accessed [A-Z][a-z]+ \d{1,2}, \d{4}/,
+  );
+  await expect(citation).not.toContainText(/\bExample:/i);
+  await expect(copyButton).toBeVisible();
+
+  const geometry = await section.evaluate((element) => {
+    const blockquote = element.querySelector("blockquote")!;
+    const button = element.querySelector("button")!;
+    const sectionBounds = element.getBoundingClientRect();
+    const quoteBounds = blockquote.getBoundingClientRect();
+    const buttonBounds = button.getBoundingClientRect();
+    return {
+      buttonLeft: buttonBounds.left,
+      buttonRight: buttonBounds.right,
+      quoteLeft: quoteBounds.left,
+      quoteRight: quoteBounds.right,
+      sectionLeft: sectionBounds.left,
+      sectionRight: sectionBounds.right,
+      pageClientWidth: document.documentElement.clientWidth,
+      pageScrollWidth: document.documentElement.scrollWidth,
+    };
+  });
+  expect(geometry.quoteLeft).toBeGreaterThan(geometry.sectionLeft);
+  expect(geometry.buttonLeft).toBeGreaterThan(geometry.quoteLeft);
+  expect(geometry.quoteRight).toBeLessThanOrEqual(geometry.sectionRight + 1);
+  expect(geometry.buttonRight).toBeLessThanOrEqual(geometry.sectionRight + 1);
+  expect(geometry.pageScrollWidth).toBe(geometry.pageClientWidth);
+
+  const visibleCitation = (await citation.textContent())
+    ?.replace(/\s+/g, " ")
+    .trim();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(
+          (
+            document.querySelector("#__nuxt") as (HTMLElement & {
+              __vue_app__?: unknown;
+            }) | null
+          )?.__vue_app__,
+        ),
+      ),
+    )
+    .toBe(true);
+  await copyButton.click();
+  await expect(section.getByRole("status")).toHaveText("Citation copied.");
+  const copiedCitation = await page.evaluate(
+    () =>
+      (window as Window & { __copiedDashboardCitation?: string })
+        .__copiedDashboardCitation,
+  );
+  expect(copiedCitation).toBe(visibleCitation);
+});
+
 for (const viewport of [
   { height: 900, width: 1280 },
   { height: 812, width: 375 },

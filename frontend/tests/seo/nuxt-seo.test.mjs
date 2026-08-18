@@ -1624,10 +1624,25 @@ test("content routes render complete, unique crawler responses", async () => {
       );
       assert.match(
         normalizedText(citation),
-        /Example: Philadelphia Gun Violence Dashboard.*Data and downloads.*Shooting-victim records through January 15, 2023.*Philadelphia Police Department via OpenDataPhilly.*Accessed [A-Z][a-z]+ \d{1,2}, \d{4}/i,
+        /Philadelphia Gun Violence Dashboard.*Data and downloads.*Shooting-victim records through January 15, 2023.*Philadelphia Police Department via OpenDataPhilly.*Accessed [A-Z][a-z]+ \d{1,2}, \d{4}/i,
+      );
+      const citationBlock = citation?.querySelector("blockquote");
+      assert.ok(citationBlock, "Expected the citation in a semantic blockquote");
+      assert.equal(
+        citationBlock?.getAttribute("cite"),
+        `${canonicalBase}/data`,
+      );
+      assert.doesNotMatch(normalizedText(citationBlock), /\bExample:/i);
+      const copyCitationButton = citation?.querySelector(
+        'button[type="button"]',
+      );
+      assert.equal(normalizedText(copyCitationButton), "Copy citation");
+      assert.equal(
+        copyCitationButton?.nextElementSibling?.getAttribute("role"),
+        "status",
       );
       assert.equal(
-        citation?.querySelector("a")?.getAttribute("href"),
+        citationBlock?.querySelector("a")?.getAttribute("href"),
         `${canonicalBase}/data`,
       );
       assert.doesNotMatch(
@@ -1636,7 +1651,7 @@ test("content routes render complete, unique crawler responses", async () => {
       );
       assert.doesNotMatch(
         mainText,
-        /\bfreshness\b|\bcopy\b|current dashboard copy/i,
+        /\bfreshness\b|current dashboard copy/i,
       );
 
       const structuredData = [...document.querySelectorAll('script[type="application/ld+json"]')]

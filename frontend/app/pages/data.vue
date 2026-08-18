@@ -243,6 +243,22 @@ const citationAccessDate = useState(
 const citationAccessDateLabel = computed(() =>
   formatDataDate(citationAccessDate.value),
 );
+const citationRecordsThrough = computed(() =>
+  meta.value?.shootings?.data_through
+    ? `Shooting-victim records through ${formatDataDate(meta.value.shootings.data_through)}.`
+    : "",
+);
+const citationText = computed(() =>
+  [
+    "Philadelphia Gun Violence Dashboard. “Data and downloads.”",
+    citationRecordsThrough.value,
+    "Data from the Philadelphia Police Department via OpenDataPhilly.",
+    `Accessed ${citationAccessDateLabel.value}.`,
+    `${canonicalUrl}.`,
+  ]
+    .filter(Boolean)
+    .join(" "),
+);
 
 useSeoMeta({
   title: "Data and downloads | Philadelphia Gun Violence Dashboard",
@@ -737,19 +753,25 @@ useHead(() => ({
             URL. Name the Philadelphia Police Department as the original
             publisher when appropriate.
           </p>
-          <p>
-            <strong>Example:</strong>
-            Philadelphia Gun Violence Dashboard. “Data and downloads.”
-            <template
-              v-if="meta?.shootings?.data_through"
-            >
-              Shooting-victim records through
-              {{ formatDataDate(meta.shootings.data_through) }}.
-            </template>
-            Data from the Philadelphia Police Department via OpenDataPhilly.
-            Accessed {{ citationAccessDateLabel }}.
-            <a :href="canonicalUrl">{{ canonicalUrl }}</a>.
-          </p>
+          <blockquote class="civic-citation-block" :cite="canonicalUrl">
+            <p>
+              Philadelphia Gun Violence Dashboard. “Data and downloads.”
+              <template v-if="citationRecordsThrough">
+                {{ citationRecordsThrough }}
+              </template>
+              Data from the Philadelphia Police Department via OpenDataPhilly.
+              Accessed {{ citationAccessDateLabel }}.
+              <a :href="canonicalUrl">{{ canonicalUrl }}</a>.
+            </p>
+          </blockquote>
+          <div class="civic-citation-copy">
+            <CivicCopyButton
+              :text="citationText"
+              label="Copy citation"
+              success-message="Citation copied."
+              error-message="Could not copy. Select and copy the citation manually."
+            />
+          </div>
         </section>
 
         <section class="civic-rule-section" aria-labelledby="terms-methods">
@@ -783,6 +805,21 @@ useHead(() => ({
 <style scoped>
 .civic-reference-download-table.civic-table--two-column th:first-child {
   width: 55%;
+}
+
+.civic-citation-block {
+  margin: 1.5rem 0 0.85rem 1rem;
+  padding: 0.2rem 0 0.2rem 1rem;
+  border-left: 0.25rem solid var(--civic-color-rule);
+  color: var(--civic-color-ink-muted);
+}
+
+.civic-citation-block p {
+  margin: 0;
+}
+
+.civic-citation-copy {
+  margin-left: 2.25rem;
 }
 
 @media (max-width: 35.99em) {

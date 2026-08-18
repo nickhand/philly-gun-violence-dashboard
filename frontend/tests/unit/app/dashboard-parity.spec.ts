@@ -610,7 +610,7 @@ describe("synchronized category charts", () => {
       expect.stringContaining("Age Group"),
     ]);
     const definitionControls = wrapper.findAll(
-      "[data-chart-definition] button",
+      "[data-chart-definition] .civic-info-tooltip__trigger",
     );
     expect(definitionControls).toHaveLength(5);
     expect(definitionControls.map((item) => item.text())).toEqual(
@@ -622,15 +622,24 @@ describe("synchronized category charts", () => {
         expect.stringContaining("About Age Group"),
       ]),
     );
-    const definitions = wrapper.findAll('[role="tooltip"]');
+    const definitions = wrapper.findAll(".civic-info-tooltip__panel");
     expect(definitions).toHaveLength(5);
     expect(
       definitionControls.every(
         (item, index) =>
-          item.attributes("aria-describedby") ===
+          item.attributes("aria-controls") ===
             definitions[index]?.attributes("id") &&
-          item.attributes("aria-controls") === undefined &&
-          item.attributes("aria-expanded") === undefined,
+          item.attributes("aria-expanded") === "false" &&
+          item.attributes("aria-haspopup") === "dialog" &&
+          item.attributes("aria-describedby") ===
+            definitions[index]?.attributes("id"),
+      ),
+    ).toBe(true);
+    expect(
+      definitions.every(
+        (definition) =>
+          definition.attributes("role") === "tooltip" &&
+          definition.attributes("aria-label") === undefined,
       ),
     ).toBe(true);
     expect(
@@ -688,8 +697,8 @@ describe("synchronized category charts", () => {
     const definition = wrapper.get(
       '.civic-dashboard-category-chart--outcome [data-chart-definition]',
     );
-    const trigger = definition.get("button");
-    const tooltip = definition.get('[role="tooltip"]');
+    const trigger = definition.get(".civic-info-tooltip__trigger");
+    const tooltip = definition.get(".civic-info-tooltip__panel");
     const isVisible = () =>
       (tooltip.element as HTMLElement).style.display !== "none";
 
@@ -698,13 +707,19 @@ describe("synchronized category charts", () => {
 
     await definition.trigger("pointerenter");
     expect(isVisible()).toBe(true);
+    expect(tooltip.attributes("role")).toBe("tooltip");
     expect(definition.classes()).toContain("civic-info-tooltip--open");
     await definition.trigger("pointerleave");
     expect(isVisible()).toBe(false);
 
     await trigger.trigger("click");
     expect(isVisible()).toBe(true);
-    await trigger.trigger("blur");
+    expect(tooltip.attributes("role")).toBe("dialog");
+    expect(tooltip.attributes("aria-label")).toBe("Outcome information");
+    expect(
+      definition.find('button[aria-label="Close Outcome information"]').exists(),
+    ).toBe(true);
+    await trigger.trigger("focusout");
     expect(isVisible()).toBe(false);
 
     (trigger.element as HTMLButtonElement).focus();

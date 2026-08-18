@@ -26,6 +26,7 @@ export default defineConfig({
       reportsDirectory: "./coverage",
       include: [
         "layers/civic-ui/app/components/CivicCheckboxField.vue",
+        "layers/civic-ui/app/components/CivicCopyButton.vue",
         "layers/civic-ui/app/components/CivicDisclosurePanel.vue",
         "layers/civic-ui/app/components/CivicInfoTooltip.vue",
         "layers/civic-ui/app/components/CivicRangeField.vue",

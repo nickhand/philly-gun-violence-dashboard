@@ -25,6 +25,8 @@ USWDS.
 Shared components currently include:
 
 - `CivicCheckboxField` for a native checkbox and its visible label.
+- `CivicCopyButton` for copying supplied text with accessible success or
+  manual-copy feedback and a selection-based fallback.
 - `CivicDisclosurePanel` for native disclosure structure and spacing.
 - `CivicFileDownloadLink` for a native file link with a download icon and
   visible format and optional size metadata.

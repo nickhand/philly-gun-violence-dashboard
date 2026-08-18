@@ -1947,20 +1947,22 @@ onBeforeUnmount(() => {
 
 @media (max-width: 35.99em) {
   .civic-dashboard-map-print-control {
-    top: 70px;
-    right: 49px;
+    top: 117px;
+    right: 10px;
   }
 
   .civic-dashboard-map-print-button {
-    width: 44px;
-    min-height: 44px;
+    box-sizing: border-box;
+    width: 29px;
+    height: 29px;
+    min-height: 29px;
     padding: 0;
     justify-content: center;
   }
 
   .civic-dashboard-map-print-button svg {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 20px;
+    height: 20px;
   }
 
   .civic-dashboard-map-print-button span {
