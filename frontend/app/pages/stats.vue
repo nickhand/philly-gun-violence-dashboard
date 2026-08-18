@@ -256,6 +256,8 @@ useHead(() => ({
               <button
                 class="usa-button usa-button--outline civic-print-button"
                 type="button"
+                aria-label="Print counts by year"
+                title="Print counts by year"
                 @click="printCountsByYear"
               >
                 <svg
@@ -267,7 +269,7 @@ useHead(() => ({
                     d="M18 8H6V3h12v5Zm0 9v4H6v-4h12Zm1-7c1.66 0 3 1.34 3 3v4h-2v-2H4v2H2v-4c0-1.66 1.34-3 3-3h14Zm-2-5H7v3h10V5Zm-1 14v-2H8v2h8Z"
                   />
                 </svg>
-                <span>Print counts by year</span>
+                <span class="civic-print-button__label">Print counts by year</span>
               </button>
             </div>
             <p class="civic-annual-heading__description">
@@ -737,13 +739,25 @@ useHead(() => ({
   }
 
   .civic-annual-heading__title-row {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 0.75rem;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .civic-annual-heading__title-row h2 {
+    flex: 1;
   }
 
   .civic-print-button {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
     margin: 0;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .civic-print-button__label {
+    display: none;
   }
 
   .civic-annual-table thead th:first-child {
@@ -777,13 +791,22 @@ useHead(() => ({
 @media print {
   :global(html),
   :global(body),
+  :global(#__nuxt),
+  :global(.civic-app-shell),
   .civic-reference-page {
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
     min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: visible !important;
     color: #1b1b1b !important;
     background: #fff !important;
+  }
+
+  :global(.civic-app-shell > main) {
+    flex: none !important;
   }
 
   :global(.usa-skipnav),
@@ -806,12 +829,12 @@ useHead(() => ({
   }
 
   .civic-page-intro {
-    padding-bottom: 0.12in !important;
+    padding-bottom: 0.08in !important;
   }
 
   .civic-page-intro h1 {
     margin: 0 !important;
-    font-size: 22pt !important;
+    font-size: 18pt !important;
     line-height: 1.15 !important;
   }
 
@@ -836,25 +859,25 @@ useHead(() => ({
     margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;
-    break-inside: avoid-page;
-    page-break-inside: avoid;
+    break-inside: auto;
+    page-break-inside: auto;
   }
 
   .civic-stats-section h2 {
-    font-size: 15pt !important;
+    font-size: 13pt !important;
     line-height: 1.2 !important;
   }
 
   .civic-annual-heading__description {
-    margin-top: 0.05in;
-    font-size: 10pt;
-    line-height: 1.4;
+    margin-top: 0.035in;
+    font-size: 8.5pt;
+    line-height: 1.25;
   }
 
   .civic-annual-series {
-    margin-top: 0.1in;
-    break-inside: avoid-page;
-    page-break-inside: avoid;
+    margin-top: 0.06in;
+    break-inside: auto;
+    page-break-inside: auto;
   }
 
   .civic-annual-table tr,
@@ -869,20 +892,61 @@ useHead(() => ({
 
   .civic-annual-table th,
   .civic-annual-table td {
+    padding: 0.035in 0.04in;
+    font-size: 8pt !important;
+    line-height: 1.15 !important;
+  }
+
+  .civic-annual-table thead th {
+    padding-bottom: 0.045in;
+    font-size: 8pt !important;
+  }
+
+  .civic-annual-table thead th:first-child {
+    width: 0.75in;
+  }
+
+  .civic-annual-table thead th:last-child {
+    width: 1.25in;
+  }
+
+  .civic-annual-row--current th,
+  .civic-annual-row--current td {
     padding-top: 0.055in;
-    padding-bottom: 0.055in;
+  }
+
+  .civic-annual-measure {
+    display: grid;
+    grid-template-columns: 0.55in minmax(0.5in, 1fr);
+    gap: 0.08in;
+  }
+
+  .civic-annual-value {
+    font-size: 8pt !important;
+  }
+
+  .civic-annual-bar-plot {
+    display: block;
+    height: 0.055in;
+  }
+
+  .civic-annual-ytd,
+  .civic-annual-current-date {
+    font-size: 6.5pt !important;
+    line-height: 1.15 !important;
   }
 
   .civic-annual-sources {
-    margin-top: 0.06in;
-    gap: 0.2rem 0.5in;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 0.04in;
+    gap: 0.02in 0.3in;
     break-before: avoid-page;
     page-break-before: avoid;
   }
 
   .civic-annual-source {
-    font-size: 9pt !important;
-    line-height: 1.35 !important;
+    font-size: 7.5pt !important;
+    line-height: 1.2 !important;
   }
 
   .civic-annual-bar {

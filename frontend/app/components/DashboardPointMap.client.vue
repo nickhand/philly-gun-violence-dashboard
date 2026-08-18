@@ -112,6 +112,26 @@ const BASEMAP_ATTRIBUTION =
   "Sources: Esri, HERE, Garmin, FAO, NOAA, USGS, © OpenStreetMap contributors, and the GIS User Community.";
 const DATA_ATTRIBUTION =
   "Shooting-victim records: Philadelphia Police Department via OpenDataPhilly.";
+const MAP_PRINT_CLASS = "civic-dashboard-map-print-active";
+const MOBILE_MAP_BREAKPOINT = 768;
+
+function collapseMobileAttribution(container: HTMLElement | null): void {
+  if (window.innerWidth >= MOBILE_MAP_BREAKPOINT) return;
+
+  const attribution = container?.querySelector<HTMLElement>(
+    ".maplibregl-ctrl-attrib.maplibregl-compact",
+  );
+  attribution?.classList.remove(
+    "maplibregl-compact-show",
+    "mapboxgl-compact-show",
+  );
+  attribution?.removeAttribute("open");
+}
+
+function setMapPrintMode(active: boolean): void {
+  document.documentElement.classList.toggle(MAP_PRINT_CLASS, active);
+  document.body.classList.toggle(MAP_PRINT_CLASS, active);
+}
 
 class HomeControl {
   private button: HTMLButtonElement | null = null;
@@ -412,7 +432,7 @@ async function printMap(): Promise<void> {
 
   printPending.value = true;
   printError.value = false;
-  printMapImage.value = "";
+  clearPrintMap();
   try {
     const image = map.instance.getCanvas().toDataURL("image/png");
     if (!image.startsWith("data:image/png") || image.length < 32) {
@@ -423,8 +443,10 @@ async function printMap(): Promise<void> {
     if (typeof printImage.value?.decode === "function") {
       await printImage.value.decode().catch(() => undefined);
     }
+    setMapPrintMode(true);
     window.print();
   } catch {
+    clearPrintMap();
     printError.value = true;
   } finally {
     printPending.value = false;
@@ -432,6 +454,7 @@ async function printMap(): Promise<void> {
 }
 
 function clearPrintMap(): void {
+  setMapPrintMode(false);
   printMapImage.value = "";
 }
 
@@ -1157,10 +1180,12 @@ async function initializeMap(currentLoadId: number): Promise<void> {
     );
     instance.addControl(new HomeControl(), "top-right");
     instance.addControl(new maplibregl.ScaleControl(), "bottom-left");
+    const compactAttribution = window.innerWidth < MOBILE_MAP_BREAKPOINT;
     instance.addControl(
-      new maplibregl.AttributionControl({ compact: window.innerWidth < 768 }),
+      new maplibregl.AttributionControl({ compact: compactAttribution }),
       "bottom-right",
     );
+    collapseMobileAttribution(mapContainer.value);
 
     candidate.timer = setTimeout(() => {
       if (
@@ -1177,6 +1202,9 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       if (activeMap !== candidate || currentLoadId !== loadId) return;
 
       try {
+        // MapLibre expands a newly compacted attribution control. Collapse it
+        // after style attribution has loaded so it starts as an info button.
+        collapseMobileAttribution(mapContainer.value);
         enhanceBasemapLabels(instance);
         instance.addSource("shooting-records", {
           type: "geojson",
@@ -1503,6 +1531,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("afterprint", clearPrintMap);
+  clearPrintMap();
   loadId += 1;
   destroyMap();
 });
@@ -1918,8 +1947,33 @@ onBeforeUnmount(() => {
 
 @media (max-width: 35.99em) {
   .civic-dashboard-map-print-control {
-    top: 106px;
-    right: 10px;
+    top: 70px;
+    right: 49px;
+  }
+
+  .civic-dashboard-map-print-button {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .civic-dashboard-map-print-button svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .civic-dashboard-map-print-button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    margin: -1px;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
   }
 }
 
@@ -1948,6 +2002,28 @@ onBeforeUnmount(() => {
 
 :deep(.maplibregl-ctrl-attrib a) {
   color: #b8ddf5;
+}
+
+@media screen and (max-width: 47.99em) {
+  :deep(.maplibregl-ctrl-attrib.maplibregl-compact) {
+    box-sizing: content-box;
+    max-width: calc(100% - 20px);
+    min-height: 24px;
+    padding: 0 24px 0 0;
+    border-radius: 12px;
+    color: #172126;
+    background: #ffffff;
+    line-height: 1.35;
+  }
+
+  :deep(.maplibregl-ctrl-attrib.maplibregl-compact-show) {
+    padding: 4px 32px 4px 8px;
+    border-radius: 4px;
+  }
+
+  :deep(.maplibregl-ctrl-attrib.maplibregl-compact a) {
+    color: #005ea8;
+  }
 }
 
 :deep(.maplibregl-ctrl-scale) {

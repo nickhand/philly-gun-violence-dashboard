@@ -1294,6 +1294,14 @@ describe("DashboardPointMap", () => {
     await vi.waitFor(() => expect(print).toHaveBeenCalledTimes(1));
 
     expect(maplibre.Map).toHaveBeenCalledTimes(1);
+    expect(
+      document.documentElement.classList.contains(
+        "civic-dashboard-map-print-active",
+      ),
+    ).toBe(true);
+    expect(
+      document.body.classList.contains("civic-dashboard-map-print-active"),
+    ).toBe(true);
     const sheet = document.body.querySelector<HTMLElement>(
       ".civic-dashboard-map-print-sheet",
     );
@@ -1315,6 +1323,14 @@ describe("DashboardPointMap", () => {
 
     window.dispatchEvent(new Event("afterprint"));
     await nextTick();
+    expect(
+      document.documentElement.classList.contains(
+        "civic-dashboard-map-print-active",
+      ),
+    ).toBe(false);
+    expect(
+      document.body.classList.contains("civic-dashboard-map-print-active"),
+    ).toBe(false);
     expect(
       document.body.querySelector(".civic-dashboard-map-print-sheet"),
     ).toBeNull();

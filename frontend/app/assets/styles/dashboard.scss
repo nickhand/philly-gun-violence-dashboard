@@ -1298,8 +1298,8 @@
 }
 
 @media print {
-  html:has(.civic-dashboard-map-print-sheet),
-  body:has(.civic-dashboard-map-print-sheet) {
+  html.civic-dashboard-map-print-active,
+  body.civic-dashboard-map-print-active {
     width: auto !important;
     height: auto !important;
     min-height: 0 !important;
@@ -1310,8 +1310,14 @@
     background: #ffffff !important;
   }
 
-  body:has(.civic-dashboard-map-print-sheet)
+  body.civic-dashboard-map-print-active
     > :not(.civic-dashboard-map-print-sheet) {
+    display: none !important;
+  }
+
+  // A page-level print stylesheet can remain loaded after client navigation.
+  // Keep the Nuxt app hidden even if that stylesheet targets its ID directly.
+  body.civic-dashboard-map-print-active > #__nuxt {
     display: none !important;
   }
 
@@ -1320,13 +1326,14 @@
     box-sizing: border-box;
     width: 100%;
     max-width: 100%;
-    height: auto;
+    height: 9.5in;
+    max-height: 9.5in;
     min-height: 0;
     padding: 0;
-    grid-template-rows: auto auto auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
     align-content: start;
-    gap: 0.1in;
-    overflow: visible;
+    gap: 0.06in;
+    overflow: hidden;
     break-after: avoid-page;
     break-before: avoid-page;
     break-inside: avoid-page;
@@ -1365,11 +1372,12 @@
   .civic-dashboard-map-print-sheet > img {
     display: block;
     box-sizing: border-box;
-    width: 100%;
+    width: auto;
     max-width: 100%;
     height: auto;
-    max-height: 6.75in;
+    max-height: 100%;
     border: 1px solid #565c65;
+    place-self: center;
     object-fit: contain;
     object-position: center;
   }
@@ -1424,8 +1432,11 @@
   }
 
   .civic-dashboard-map-print-sheet footer {
+    display: flex;
+    gap: 0.04in 0.25in;
+    flex-wrap: wrap;
     margin: 0;
-    padding-top: 0.08in;
+    padding-top: 0.05in;
     border-top: 1px solid #a9aeb1;
     color: #3d4551;
     font-size: 7.5pt;
@@ -1433,7 +1444,7 @@
   }
 
   .civic-dashboard-map-print-sheet footer p {
-    margin: 0.1rem 0;
+    margin: 0;
   }
 }
 .civic-legacy-client-fallback {

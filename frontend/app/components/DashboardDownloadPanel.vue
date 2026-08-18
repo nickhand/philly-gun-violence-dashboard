@@ -738,6 +738,26 @@ onBeforeUnmount(cancelPreparation);
   }
 }
 
+@media (max-width: 30rem) {
+  .civic-dashboard-download__actions {
+    gap: 0.75rem;
+    padding-inline: 1rem;
+  }
+
+  .civic-dashboard-download__cancel {
+    flex: 0 0 auto;
+    padding-inline: 0.75rem;
+  }
+
+  .civic-dashboard-download__submit {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 0.75rem;
+    margin-left: 0;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 26rem) {
   .civic-dashboard-download__header {
     padding-inline: 1.25rem;
@@ -756,6 +776,18 @@ onBeforeUnmount(cancelPreparation);
   .civic-dashboard-download__option svg {
     width: 1rem;
     height: 1rem;
+  }
+}
+
+@media (max-width: 22rem) {
+  .civic-dashboard-download__actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .civic-dashboard-download__cancel,
+  .civic-dashboard-download__submit {
+    width: 100%;
   }
 }
 </style>

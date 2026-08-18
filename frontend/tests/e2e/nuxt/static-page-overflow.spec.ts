@@ -546,6 +546,11 @@ test("stats prints its annual counts on one portrait page", async ({ page }) => 
   const printButton = page.getByRole("button", {
     name: "Print counts by year",
   });
+  await expect(printButton).toHaveAttribute("title", "Print counts by year");
+  await expect(printButton.locator(".civic-print-button__label")).toHaveCSS(
+    "display",
+    "none",
+  );
   await printButton.click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-stats-print-invoked",
@@ -577,7 +582,6 @@ test("stats prints its annual counts on one portrait page", async ({ page }) => 
   await expect(annualSources.nth(1)).toBeVisible();
   await expect(printButton).toBeHidden();
 
-  await page.setViewportSize({ height: 960, width: 720 });
   await page.evaluate(async () => {
     await document.fonts.ready;
   });
@@ -608,8 +612,18 @@ test("stats prints its annual counts on one portrait page", async ({ page }) => 
     );
     const seriesBounds = annualSeries?.getBoundingClientRect();
     const tableBounds = table?.getBoundingClientRect();
+    const appShell = document.querySelector<HTMLElement>(".civic-app-shell");
+    const appShellStyle = appShell ? getComputedStyle(appShell) : null;
+    const main = appShell?.querySelector<HTMLElement>(":scope > main") ?? null;
+    const mainStyle = main ? getComputedStyle(main) : null;
 
     return {
+      appShell: appShellStyle
+        ? {
+            display: appShellStyle.display,
+            minHeight: appShellStyle.minHeight,
+          }
+        : null,
       annualSeries: annualSeries
         ? {
             clientWidth: annualSeries.clientWidth,
@@ -617,6 +631,7 @@ test("stats prints its annual counts on one portrait page", async ({ page }) => 
           }
         : null,
       printableHeight: 10 * 96,
+      main: mainStyle ? { flexGrow: mainStyle.flexGrow } : null,
       region: region
         ? {
             clientWidth: region.clientWidth,
@@ -638,8 +653,10 @@ test("stats prints its annual counts on one portrait page", async ({ page }) => 
     };
   });
 
-  expect(printGeometry.root.clientWidth).toBe(720);
-  expect(printGeometry.root.scrollWidth).toBeLessThanOrEqual(721);
+  expect(printGeometry.root.clientWidth).toBe(375);
+  expect(printGeometry.root.scrollWidth).toBeLessThanOrEqual(376);
+  expect(printGeometry.appShell).toEqual({ display: "block", minHeight: "0px" });
+  expect(printGeometry.main?.flexGrow).toBe("0");
   expect(printGeometry.annualSeries).not.toBeNull();
   expect(printGeometry.annualSeries?.scrollWidth).toBeLessThanOrEqual(
     (printGeometry.annualSeries?.clientWidth ?? 0) + 1,
@@ -833,28 +850,38 @@ test("annual title action and current-year dates stay aligned with their columns
 
   await page.setViewportSize({ height: 812, width: 375 });
   const mobileTitle = await page.evaluate(() => {
-    const title = document
-      .querySelector<HTMLElement>(
-        ".civic-annual-heading__title-row #counts-by-year",
-      )
-      ?.getBoundingClientRect();
-    const button = document
-      .querySelector<HTMLElement>(
-        ".civic-annual-heading__title-row .civic-print-button",
-      )
-      ?.getBoundingClientRect();
+    const titleElement = document.querySelector<HTMLElement>(
+      ".civic-annual-heading__title-row #counts-by-year",
+    );
+    const buttonElement = document.querySelector<HTMLElement>(
+      ".civic-annual-heading__title-row .civic-print-button",
+    );
+    const labelElement = buttonElement?.querySelector<HTMLElement>(
+      ".civic-print-button__label",
+    );
+    const title = titleElement?.getBoundingClientRect();
+    const button = buttonElement?.getBoundingClientRect();
     return title && button
       ? {
           buttonLeft: button.left,
-          buttonTop: button.top,
-          titleBottom: title.bottom,
-          titleLeft: title.left,
+          buttonWidth: button.width,
+          labelDisplay: labelElement
+            ? getComputedStyle(labelElement).display
+            : null,
+          titleRight: title.right,
+          verticalCenterDifference: Math.abs(
+            title.top + title.height / 2 - (button.top + button.height / 2),
+          ),
         }
       : null;
   });
   expect(mobileTitle).not.toBeNull();
-  expect(mobileTitle?.buttonTop ?? 0).toBeGreaterThanOrEqual(
-    mobileTitle?.titleBottom ?? 0,
+  expect(mobileTitle?.buttonLeft ?? 0).toBeGreaterThan(
+    mobileTitle?.titleRight ?? 0,
   );
-  expect(mobileTitle?.buttonLeft).toBeCloseTo(mobileTitle?.titleLeft ?? 0, 0);
+  expect(mobileTitle?.buttonWidth).toBeCloseTo(44, 0);
+  expect(mobileTitle?.labelDisplay).toBe("none");
+  expect(
+    mobileTitle?.verticalCenterDifference ?? Number.POSITIVE_INFINITY,
+  ).toBeLessThanOrEqual(1);
 });

@@ -151,6 +151,39 @@ async function expectActiveLegendPrint(
   await expect(sheet).not.toBeAttached();
 }
 
+test("keeps phone-width map controls compact and readable @maplibre", async ({
+  page,
+}) => {
+  await page.setViewportSize({ height: 844, width: 390 });
+  await openDashboard(page);
+
+  const attribution = page.locator(
+    ".maplibregl-ctrl-attrib.maplibregl-compact",
+  );
+  const attributionButton = attribution.locator(
+    ".maplibregl-ctrl-attrib-button",
+  );
+  const attributionText = attribution.locator(
+    ".maplibregl-ctrl-attrib-inner",
+  );
+  await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  await expect(attribution).not.toHaveAttribute("open", "");
+  await expect(attributionText).not.toBeVisible();
+
+  await attributionButton.click();
+  await expect(attributionText).toBeVisible();
+  await expect(attribution).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(attribution).toHaveCSS("color", "rgb(23, 33, 38)");
+
+  const mapAction = page.getByRole("button", { name: "Print map" });
+  const mapActionBox = await mapAction.boundingBox();
+  expect(mapActionBox).not.toBeNull();
+  expect(mapActionBox?.width).toBeCloseTo(44, 0);
+  expect(mapActionBox?.height).toBeCloseTo(44, 0);
+  await expect(mapAction.locator("span")).toHaveCSS("width", "1px");
+  await expect(mapAction.locator("span")).toHaveCSS("height", "1px");
+});
+
 test("prepares one attributed print map without opening the system dialog", async ({
   page,
 }) => {
@@ -162,10 +195,23 @@ test("prepares one attributed print map without opening the system dialog", asyn
   await openDashboard(page, { startFromStats: true });
 
   const printButton = page.getByRole("button", { name: "Print map" });
+  // Capture the portrait map canvas a phone would send to Safari's print
+  // preview. The printable sheet must preserve its ratio and remain one page.
+  await page.setViewportSize({ height: 844, width: 390 });
+  await expect(page.locator(".maplibregl-canvas")).toHaveCSS(
+    "width",
+    /3\d\dpx/,
+  );
   await printButton.click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-map-print-invoked",
     "true",
+  );
+  await expect(page.locator("html")).toHaveClass(
+    /civic-dashboard-map-print-active/,
+  );
+  await expect(page.locator("body")).toHaveClass(
+    /civic-dashboard-map-print-active/,
   );
 
   const sheet = page.locator(".civic-dashboard-map-print-sheet");
@@ -186,6 +232,9 @@ test("prepares one attributed print map without opening the system dialog", asyn
   await expect(page.locator(".maplibregl-map")).toHaveCount(1);
   await page.setViewportSize({ height: 960, width: 720 });
   await page.emulateMedia({ media: "print" });
+  await expect(page.locator("body")).toHaveClass(
+    /civic-dashboard-map-print-active/,
+  );
   await page.evaluate(async () => {
     await document.fonts.ready;
   });
@@ -294,12 +343,14 @@ test("prepares one attributed print map without opening the system dialog", asyn
       (printContract?.sheetBottom ?? 0) + 1,
     );
   }
-  expect(printContract?.imageLeft).toBeCloseTo(
-    printContract?.sheetContentLeft ?? Number.POSITIVE_INFINITY,
-    1,
+  expect(printContract?.imageWidth).toBeLessThanOrEqual(
+    (printContract?.sheetContentWidth ?? 0) + 1,
   );
-  expect(printContract?.imageWidth).toBeCloseTo(
-    printContract?.sheetContentWidth ?? Number.POSITIVE_INFINITY,
+  expect(printContract?.imageLeft).toBeCloseTo(
+    (printContract?.sheetContentLeft ?? Number.POSITIVE_INFINITY) +
+      ((printContract?.sheetContentWidth ?? 0) -
+        (printContract?.imageWidth ?? 0)) /
+        2,
     1,
   );
   expect(printContract?.imageNaturalWidth).toBeGreaterThan(0);

@@ -547,6 +547,79 @@ test("stacks the hydrated map and sidebar without mobile overflow", async ({
   expect(addressBox.x - mapBox.x).toBeCloseTo(5, 0);
   expect(addressBox.y - mapBox.y).toBeCloseTo(5, 0);
 
+  const attribution = page.locator(
+    ".maplibregl-ctrl-attrib.maplibregl-compact",
+  );
+  const attributionButton = attribution.locator(
+    ".maplibregl-ctrl-attrib-button",
+  );
+  const attributionText = attribution.locator(
+    ".maplibregl-ctrl-attrib-inner",
+  );
+  await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  await expect(attribution).not.toHaveAttribute("open", "");
+  await expect(attributionButton).toBeVisible();
+  await expect(attributionText).not.toBeVisible();
+  const collapsedAttributionBox = await attribution.boundingBox();
+  expect(collapsedAttributionBox).not.toBeNull();
+  expect(collapsedAttributionBox?.width).toBeLessThanOrEqual(26);
+  expect(collapsedAttributionBox?.height).toBeLessThanOrEqual(26);
+
+  await attributionButton.click();
+  await expect(attribution).toHaveClass(/maplibregl-compact-show/);
+  await expect(attributionText).toBeVisible();
+  await expect(attributionText).toContainText("OpenStreetMap");
+  const expandedAttributionStyle = await attribution.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      color: style.color,
+      mapWidth: element.closest(".maplibregl-map")?.clientWidth ?? 0,
+      width: element.getBoundingClientRect().width,
+    };
+  });
+  expect(expandedAttributionStyle).toMatchObject({
+    backgroundColor: "rgb(255, 255, 255)",
+    color: "rgb(23, 33, 38)",
+  });
+  expect(expandedAttributionStyle.width).toBeLessThanOrEqual(
+    expandedAttributionStyle.mapWidth - 20,
+  );
+  await attributionButton.click();
+  await expect(attributionText).not.toBeVisible();
+
+  const printMapButton = page.getByRole("button", { name: "Print map" });
+  const printMapContract = await printMapButton.evaluate((element) => {
+    const button = element.getBoundingClientRect();
+    const icon = element.querySelector("svg")?.getBoundingClientRect();
+    const label = element.querySelector("span")?.getBoundingClientRect();
+    const home = document
+      .querySelector(".maplibregl-ctrl-home")
+      ?.getBoundingClientRect();
+    return {
+      height: button.height,
+      homeCenter: home ? home.top + home.height / 2 : null,
+      iconHeight: icon?.height,
+      labelHeight: label?.height,
+      labelWidth: label?.width,
+      printCenter: button.top + button.height / 2,
+      width: button.width,
+    };
+  });
+  expect(printMapContract).toMatchObject({
+    height: 44,
+    iconHeight: 20,
+    labelHeight: 1,
+    labelWidth: 1,
+    width: 44,
+  });
+  expect(printMapContract.homeCenter).not.toBeNull();
+  expect(
+    Math.abs(
+      printMapContract.printCenter - (printMapContract.homeCenter ?? 0),
+    ),
+  ).toBeLessThanOrEqual(1);
+
   expect(downloadBox.width).toBeCloseTo(resetBox.width, 1);
   expect(resetBox.width).toBeCloseTo(actionContentWidth, 1);
   expect(downloadBox.width).toBeCloseTo(actionContentWidth, 1);
@@ -580,6 +653,22 @@ test("stacks the hydrated map and sidebar without mobile overflow", async ({
     expect(firstOption?.height).toBeCloseTo(secondOption?.height ?? -1, 1);
     expect(firstOption?.width).toBeCloseTo(secondOption?.width ?? -1, 1);
   }
+
+  const submit = downloadDialog.locator(
+    ".civic-dashboard-download__submit",
+  );
+  const geoJsonSubmitBox = await submit.boundingBox();
+  expect(geoJsonSubmitBox).not.toBeNull();
+  expect(
+    await submit.evaluate((element) => getComputedStyle(element).whiteSpace),
+  ).toBe("nowrap");
+  await downloadDialog.locator('label[for="dashboard-download-csv"]').click();
+  await expect(submit).toHaveText("Download CSV");
+  const csvSubmitBox = await submit.boundingBox();
+  expect(csvSubmitBox).not.toBeNull();
+  expect(csvSubmitBox?.width).toBeCloseTo(geoJsonSubmitBox?.width ?? 0, 1);
+  expect(csvSubmitBox?.height).toBeCloseTo(geoJsonSubmitBox?.height ?? 0, 1);
+
   await downloadDialog.getByRole("button", { name: "Cancel" }).click();
   await expect(downloadDialog).not.toBeVisible();
 
