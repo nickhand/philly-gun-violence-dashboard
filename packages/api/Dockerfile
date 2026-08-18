@@ -1,5 +1,5 @@
 FROM python:3.13-slim-trixie
-COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.0 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -18,10 +18,13 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 # Use a shared virtual environment for both projects.
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
-# Install supercronic for running cron jobs in production.
+# Install a verified Supercronic release for production cron jobs. Do not use
+# the mutable releases/latest URL in a reproducible release image.
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-ARG SUPERCRONIC_URL=https://github.com/aptible/supercronic/releases/latest/download/supercronic-linux-amd64
+ARG SUPERCRONIC_URL=https://github.com/aptible/supercronic/releases/download/v0.2.49/supercronic-linux-amd64
+ARG SUPERCRONIC_SHA1SUM=e63c11a9726b775a6a11801e81af4f3fb926aa68
 RUN curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic \
+    && echo "$SUPERCRONIC_SHA1SUM  /usr/local/bin/supercronic" | sha1sum -c - \
     && chmod +x /usr/local/bin/supercronic
 
 # Copy lockfiles and minimal sources first to maximize cache reuse.

@@ -49,6 +49,80 @@ Each domain follows this pattern:
 - Use `smoke` commands to check live sources, AWS config, or portal availability
   without writing outputs.
 
+### Public downloads
+
+The shootings job publishes the cleaned record-level CSV and its matching map
+reference files as one release. The public set includes ZIP codes,
+neighborhoods, police and City Council districts, Pennsylvania House and Senate
+districts, elementary school catchments, and dashboard-derived street blocks.
+It excludes city limits and raw street centerlines because the shooting download
+has no field that joins to those files.
+
+`public/downloads/manifest.json` is the only stable public object name. Manifest
+schema version 2 points to all nine files under a content-addressed path:
+
+```text
+public/downloads/releases/<release-id>/philadelphia-shooting-victims.csv
+public/downloads/releases/<release-id>/geography/<reference-file>.geojson
+```
+
+The ETL serializes and validates every file first, uploads the complete immutable
+release, and replaces `manifest.json` last. S3 replaces that one small object
+atomically. A reader therefore sees either the complete previous release or the
+complete new release, even if a job fails or two jobs overlap. Consumers must
+fetch the stable manifest and use each `downloads[].path`; they must not build a
+data URL from a filename. During the schema-version-1 migration, the frontend
+accepts both the old stable paths and the new manifest-driven version-2 paths.
+
+Each manifest entry includes a stable dataset id and label, file name, kind,
+media type, byte size, SHA-256 checksum, and row count. Geography entries also
+include the internal dataset name and the exact shooting-record `join_field`.
+This is the canonical inventory for the Data page. The publication step rejects
+blank or duplicate reference join keys, missing or invalid geometries, and any
+nonblank shooting join value absent from its companion reference file.
+
+Immutable release objects use a one-year browser/CDN cache policy. Keep old
+release prefixes for at least as long as a cached manifest can be served; a
+bucket lifecycle rule may remove substantially older releases. Serve only
+`public/downloads/*` through CloudFront or a storage read policy. Do not expose
+the private `processed/` or `reference/` prefixes.
+
+#### GitHub Actions IAM
+
+The shootings workflow assumes
+`arn:aws:iam::985454606291:role/gha-ujs-scraper`, not the local
+`nick-philly-gv-dashboard` IAM user. Add this statement to the role's existing
+identity policy before running the workflow:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "s3:PutObject",
+  "Resource": "arn:aws:s3:::philly-gun-violence-dashboard/public/downloads/*"
+}
+```
+
+The role still needs its existing read/write permissions for the configured
+processed and reference prefixes. Its GitHub OIDC trust policy must allow
+`sts:AssumeRoleWithWebIdentity` from
+`arn:aws:iam::985454606291:oidc-provider/token.actions.githubusercontent.com`,
+require the audience `sts.amazonaws.com`, and restrict the subject to this
+repository. For production runs from the default branch, use:
+
+```json
+{
+  "StringEquals": {
+    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+    "token.actions.githubusercontent.com:sub":
+      "repo:nickhand/philly-gun-violence-dashboard:ref:refs/heads/main"
+  }
+}
+```
+
+The workflow already requests `id-token: write` and names this role explicitly.
+Use `aws sts get-caller-identity` in the workflow log to confirm the assumed role
+before diagnosing S3 access. IAM changes are made outside this repository.
+
 ## Courts Scraper
 
 The courts scraper is this repository's implementation of the generic

@@ -54,27 +54,27 @@ format package="all":
 		exit 1; \
 	fi
 
-# Run mypy type checks
+# Run ty type checks
 [group: "lint"]
 typecheck package="all":
-	@if [ "{{package}}" = "all" ]; then \
+	@set -eu; if [ "{{package}}" = "all" ]; then \
 		for package in {{python_packages}}; do \
-			echo "Type-checking $$package..."; \
-			case "$$package" in \
-				api) cd packages/api && uv run --group dev mypy --config-file ../../mypy.ini app && cd ../.. ;; \
-				dashboard-utils) cd packages/dashboard-utils && uv run --group dev mypy --config-file ../../mypy.ini src && cd ../.. ;; \
-				etl) cd packages/etl && uv run --group dev mypy --config-file ../../mypy.ini src && cd ../.. ;; \
-				aws-batch-scraper) cd packages/aws-batch-scraper && uv run --group dev mypy --config-file ../../mypy.ini src && cd ../.. ;; \
+			echo "Type-checking $package..."; \
+			case "$package" in \
+				api) cd packages/api && uv run --group dev ty check --config-file ../../ty.toml --error-on-warning app && cd ../.. ;; \
+				dashboard-utils) cd packages/dashboard-utils && uv run --group dev ty check --config-file ../../ty.toml --error-on-warning src && cd ../.. ;; \
+				etl) cd packages/etl && uv run --group dev ty check --config-file ../../ty.toml --error-on-warning src && cd ../.. ;; \
+				aws-batch-scraper) cd packages/aws-batch-scraper && uv run --group dev ty check --config-file ../../ty.toml --error-on-warning src && cd ../.. ;; \
 			esac; \
 		done; \
 	elif [ "{{package}}" = "api" ]; then \
-		cd packages/api && uv run --group dev mypy --config-file ../../mypy.ini app; \
+		cd packages/api && uv run --group dev ty check --config-file ../../ty.toml --error-on-warning app; \
 	elif [ "{{package}}" = "dashboard-utils" ]; then \
-		cd packages/dashboard-utils && uv run --group dev mypy --config-file ../../mypy.ini src; \
+		cd packages/dashboard-utils && uv run --group dev ty check --config-file ../../ty.toml --error-on-warning src; \
 	elif [ "{{package}}" = "etl" ]; then \
-		cd packages/etl && uv run --group dev mypy --config-file ../../mypy.ini src; \
+		cd packages/etl && uv run --group dev ty check --config-file ../../ty.toml --error-on-warning src; \
 	elif [ "{{package}}" = "aws-batch-scraper" ]; then \
-		cd packages/aws-batch-scraper && uv run --group dev mypy --config-file ../../mypy.ini src; \
+		cd packages/aws-batch-scraper && uv run --group dev ty check --config-file ../../ty.toml --error-on-warning src; \
 	else \
 		echo "Unknown package: {{package}}" >&2; \
 		exit 1; \

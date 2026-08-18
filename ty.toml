@@ -1,0 +1,13 @@
+[src]
+# Match the previous checker scope: production code is checked, tests and build
+# artifacts are validated by their own tools.
+exclude = ["**/tests/**", "**/test_*.py", "**/build/**"]
+
+[rules]
+# Strict project settings. Warnings are promoted to failures by the repository
+# and CI commands.
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+blanket-ignore-comment = "error"
+unused-ignore-comment = "warn"
+unused-type-ignore-comment = "warn"

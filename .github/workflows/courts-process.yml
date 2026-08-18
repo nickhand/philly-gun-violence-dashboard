@@ -22,6 +22,8 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
       - uses: taiki-e/install-action@just
       - name: Process results
         run: just etl-courts-process
@@ -31,7 +33,7 @@ jobs:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           S3_BUCKET: ${{ vars.S3_BUCKET }}
       - name: Restart Fly API
-        uses: superfly/flyctl-actions/setup-flyctl@master
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
       - run: just fly-restart
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

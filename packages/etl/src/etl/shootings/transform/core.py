@@ -257,7 +257,8 @@ def clean_shootings(
 
     # Handle NaN/None geometries by filling with empty Points
     df = df.assign(
-        geometry=lambda df: df.geometry.fillna(Point()),  # type: ignore
+        # GeoSeries.fillna accepts Shapely geometries; pandas-stubs models only scalars.
+        geometry=lambda df: df.geometry.fillna(Point()),  # ty: ignore[invalid-argument-type]
     )
 
     # Join with the street blocks

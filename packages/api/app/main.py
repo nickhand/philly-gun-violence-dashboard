@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from loguru import logger
 
+from app.config import settings
 from app.data_loader import (
     init_dataset_keys,
     load_boundary_data,
@@ -78,9 +79,46 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+DEFAULT_CORS_ORIGINS = (
+    "https://phillygunviolence.netlify.app",
+    "https://www.nickhand.dev",
+    "https://nickhand.dev",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+)
+
+
+def _cors_origins() -> list[str]:
+    """Return the canonical and explicitly configured browser origins."""
+    configured = (
+        origin.strip() for origin in settings.api_cors_origins.split(",") if origin.strip()
+    )
+    return list(dict.fromkeys((*DEFAULT_CORS_ORIGINS, *configured)))
+
+
 app = FastAPI(
-    title="Gun Violence Dashboard API",
+    title="Philadelphia Gun Violence Dashboard API",
+    summary="Read-only application service for the Philadelphia Gun Violence Dashboard.",
+    description=(
+        "This service supplies processed public records and geographic references to the "
+        "independent dashboard. It is application infrastructure, not a supported public "
+        "download interface. Shooting-data rows are derived "
+        "from Philadelphia Police Department (PPD) shooting-victim records; one row "
+        "represents one victim, so an incident can produce more than one row. PPD "
+        "homicide totals are a separate citywide measure, include homicides not caused "
+        "by gunfire, and should not be added to shooting-victim counts. PPD "
+        "shooting-victim and homicide source records are preliminary and may be revised "
+        "by their publisher."
+    ),
     version="0.1.0",
+    contact={
+        "name": "Dashboard maintainer",
+        "url": "https://www.nickhand.dev/philly-gun-violence-map/about#corrections",
+    },
+    openapi_external_docs={
+        "description": "Data access, fields, sources, and terms",
+        "url": "https://www.nickhand.dev/philly-gun-violence-map/data",
+    },
     lifespan=lifespan,
 )
 
@@ -89,23 +127,11 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://phillygunviolence.netlify.app",
-        "https://www.nickhand.dev",
-        "https://nickhand.dev",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-        "null",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins(),
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["Accept", "Content-Type", "If-None-Match"],
+    expose_headers=["Cache-Control", "ETag"],
 )
 
 app.include_router(shootings_router)

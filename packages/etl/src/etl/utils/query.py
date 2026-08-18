@@ -1,6 +1,6 @@
-import urllib
 import warnings
 from typing import Any, Literal
+from urllib.parse import quote, urlencode
 
 import geopandas as gpd
 import httpx
@@ -60,7 +60,7 @@ def query_carto(
     if method == "GET":
         r = httpx.get(
             CARTO,
-            params=urllib.parse.urlencode(params, quote_via=urllib.parse.quote),
+            params=urlencode(params, quote_via=quote),
             headers={"Content-Type": "application/json;charset=UTF-8"},
             timeout=60.0,
         )
@@ -109,7 +109,7 @@ def query_arcgis(
     """
     # Get the max record count
     metadata = httpx.get(url, params=dict(f="pjson")).json()
-    max_record_count = metadata["maxRecordCount"]
+    max_record_count = int(metadata["maxRecordCount"])
 
     # default behavior matches all features
     if where is None:
@@ -132,19 +132,19 @@ def query_arcgis(
         timeout=60.0,
     )
     response.raise_for_status()
-    total_size = response.json()["count"]
+    total_size = int(response.json()["count"])
 
     # Check the limit
     if limit is not None:
         total_size = min(limit, total_size)
 
     # Params for this request
-    resultOffset = 0
-    params = dict(
+    result_offset = 0
+    params: dict[str, Any] = dict(
         f="json",
         outSR="4326",
         outFields=fields_combined,
-        resultOffset=resultOffset,
+        resultOffset=result_offset,
         where=where,
         **kwargs,
     )
@@ -156,11 +156,13 @@ def query_arcgis(
             stacklevel=2,
         )
 
-    out = []
-    while params["resultOffset"] < total_size:
-        remaining = total_size - params["resultOffset"]
+    out: list[gpd.GeoDataFrame] = []
+    while result_offset < total_size:
+        remaining = total_size - result_offset
         if remaining < max_record_count:
             params["resultRecordCount"] = remaining
+
+        params["resultOffset"] = result_offset
 
         # Get raw features
         response = httpx.get(queryURL, params=params)
@@ -172,6 +174,6 @@ def query_arcgis(
         gdf = gpd.GeoDataFrame.from_features(geojson, crs="EPSG:4326")
         out.append(gdf)
 
-        params["resultOffset"] += len(out[-1])
+        result_offset += len(out[-1])
 
     return gpd.GeoDataFrame(pd.concat(out, axis=0).reset_index(drop=True))

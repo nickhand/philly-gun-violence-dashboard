@@ -5,12 +5,14 @@ This module provides endpoints for accessing shootings data:
 - `/shootings/rows/{version}/{year}.ndjson` - Year-specific NDJSON for Arquero (immutable)
 """
 
+import hashlib
 import json
 from collections.abc import Iterator
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from app.data_loader import make_refresh_dependency
 
@@ -22,7 +24,52 @@ IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 META_CACHE_CONTROL = "max-age=0, must-revalidate"
 
 
-@router.get("/shootings/meta", response_model=None)
+class ShootingYearManifest(BaseModel):
+    """Row count and versioned download URL for one calendar year."""
+
+    rows: int = Field(description="Number of shooting-victim rows for the year.")
+    rows_url: str = Field(description="Versioned NDJSON path for the year.")
+
+
+class ShootingsManifest(BaseModel):
+    """Current shooting-data version and its year-specific downloads."""
+
+    version: str = Field(description="Content-derived version of the current dataset.")
+    generated_at: str = Field(description="UTC time when this API manifest was generated.")
+    rows: int = Field(description="Total number of shooting-victim rows.")
+    years: list[int] = Field(description="Calendar years available for download.")
+    years_meta: dict[int, ShootingYearManifest] = Field(
+        description="Row count and NDJSON path for each available year."
+    )
+
+
+NDJSON_RESPONSE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "description": (
+            "Newline-delimited JSON with one processed shooting-victim record per line."
+        ),
+        "content": {
+            "application/x-ndjson": {
+                "schema": {
+                    "type": "string",
+                    "description": (
+                        "An NDJSON stream. Each line is one JSON object representing one "
+                        "shooting victim, including normalized date fields, coordinates "
+                        "when available, published or normalized demographic fields, and "
+                        "geographic joins."
+                    ),
+                }
+            }
+        },
+    }
+}
+
+
+@router.get(
+    "/shootings/meta",
+    response_model=ShootingsManifest,
+    responses={304: {"description": "The current manifest version has not changed."}},
+)
 def get_shootings_meta(
     request: Request,
     response: Response,
@@ -52,20 +99,29 @@ def get_shootings_meta(
         304 Not Modified if ETag matches, otherwise the metadata dict.
     """
     meta = request.app.state.shootings_meta
-    version = meta["version"]
+    etag = hashlib.sha256(
+        json.dumps(meta, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    headers = {
+        "ETag": f'"{etag}"',
+        "Cache-Control": META_CACHE_CONTROL,
+    }
 
     # Check for conditional request
-    if if_none_match and if_none_match.strip('"') == version:
-        return Response(status_code=304)
+    if if_none_match and if_none_match.strip('"') == etag:
+        return Response(status_code=304, headers=headers)
 
     # Set cache headers
-    response.headers["ETag"] = f'"{version}"'
-    response.headers["Cache-Control"] = META_CACHE_CONTROL
+    response.headers.update(headers)
 
     return cast(dict[str, Any], meta)
 
 
-@router.get("/shootings/rows/{version}/{year}.ndjson")
+@router.get(
+    "/shootings/rows/{version}/{year}.ndjson",
+    response_class=StreamingResponse,
+    responses=NDJSON_RESPONSE,
+)
 def get_shootings_rows_by_year(
     request: Request,
     version: str,
@@ -126,5 +182,8 @@ def get_shootings_rows_by_year(
     return StreamingResponse(
         generate_ndjson(),
         media_type="application/x-ndjson; charset=utf-8",
-        headers={"Cache-Control": IMMUTABLE_CACHE_CONTROL},
+        headers={
+            "Cache-Control": IMMUTABLE_CACHE_CONTROL,
+            "X-Robots-Tag": "noindex",
+        },
     )

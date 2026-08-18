@@ -158,7 +158,7 @@ class UJSPortalScraper:
     _playwright: Playwright | None = field(init=False, default=None)
     _browser: Browser | None = field(init=False, default=None)
     _page: Page | None = field(init=False, default=None)
-    _net_observer: NetworkObserver | None = field(init=False, default=None)
+    _net_observer: NetworkObserver = field(init=False)
 
     def __post_init__(self) -> None:
         if self.search_by not in SEARCH_BY_OPTIONS:
@@ -339,7 +339,7 @@ class UJSPortalScraper:
 
             result = classify_case_search(
                 page,
-                self._net_observer,  # type: ignore[arg-type]
+                self._net_observer,
                 results_wait_timeout_ms=self.timeout_ms,
             )
 

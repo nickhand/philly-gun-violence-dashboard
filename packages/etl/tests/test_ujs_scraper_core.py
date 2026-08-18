@@ -26,7 +26,9 @@ class FakePage:
         return "<html></html>"
 
 
-def test_visible_results_parse_failure_is_retryable_ui_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_visible_results_parse_failure_is_retryable_ui_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A results page that cannot be parsed should not become SUCCESS with no rows."""
     scraper = UJSPortalScraper(errors="ignore")
     scraper._net_observer = NetworkObserver()

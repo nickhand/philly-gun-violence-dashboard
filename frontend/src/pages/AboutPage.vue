@@ -521,7 +521,7 @@ useHead({
   font-size: 10.5px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.7);
   margin-bottom: 6px;
 }
 
@@ -576,7 +576,8 @@ useHead({
 /* Text links */
 .text-link {
   color: #7ab5e5;
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
   transition: color 0.2s;
 }
 
@@ -666,7 +667,7 @@ useHead({
   font-size: 10.5px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.7);
   margin-bottom: 8px;
 }
 
@@ -737,7 +738,7 @@ useHead({
   font-size: 10.5px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .contact-link {

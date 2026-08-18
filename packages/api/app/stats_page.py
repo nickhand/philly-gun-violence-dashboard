@@ -2,16 +2,18 @@
 
 import hashlib
 import json
-from dataclasses import dataclass
-from datetime import date
+from calendar import monthrange
+from dataclasses import asdict, dataclass
+from datetime import date, datetime
 from html import escape
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 
+from dashboard_utils.constants import DATE_FORMAT
+
 CANONICAL_BASE = "https://www.nickhand.dev/philly-gun-violence-map"
-API_BASE = "https://philly-gun-violence-dashboard-api.fly.dev"
 _TEMPLATE = Path(__file__).with_name("templates").joinpath("stats.html").read_text()
 
 
@@ -37,6 +39,8 @@ class StatsSnapshot:
     current_total: int
     current_fatal: int
     current_nonfatal: int
+    shootings_previous_ytd: int | None
+    shooting_percent_change: int | None
     homicides_ytd: int | float | None
     homicides_previous_ytd: int | float | None
     homicide_percent_change: int | None
@@ -46,9 +50,10 @@ class StatsSnapshot:
 
 @dataclass(frozen=True)
 class StatsPageCache:
-    """Rendered SEO responses cached against the loaded dataset versions."""
+    """Statistics snapshot and rendered responses cached by dataset version."""
 
     source_key: tuple[str, ...]
+    snapshot: StatsSnapshot
     html: str
     sitemap: str
     etag: str
@@ -88,6 +93,69 @@ def _freshness_date(metadata: object, fallback: str) -> str:
             else:
                 return candidate
     return fallback
+
+
+def _row_date(row: dict[str, Any]) -> date | None:
+    """Return a normalized shooting row's local incident date."""
+    value = row.get("date")
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.strptime(value, DATE_FORMAT).date()
+    except ValueError:
+        return None
+
+
+def _same_calendar_cutoff(current: date, year: int) -> date:
+    """Map a cutoff to another year, clamping leap day to February 28."""
+    return date(year, current.month, min(current.day, monthrange(year, current.month)[1]))
+
+
+def _shooting_comparison(
+    rows_by_year: dict[int, list[dict[str, Any]]],
+    *,
+    current_year: int,
+    previous_year: int,
+    shootings_data_through: str,
+) -> tuple[int | None, int | None]:
+    """Return the previous same-period count and signed percent change.
+
+    The comparison fails closed when its date boundary cannot be trusted. Current
+    rows are expected to be year-to-date already, while the previous-year rows
+    include the completed calendar year and are filtered through the equivalent
+    month and day.
+    """
+    previous_rows = rows_by_year.get(previous_year)
+    if previous_rows is None:
+        return None, None
+
+    try:
+        current_cutoff = date.fromisoformat(shootings_data_through)
+    except ValueError:
+        return None, None
+    if current_cutoff.year != current_year:
+        return None, None
+
+    current_dates = [_row_date(row) for row in rows_by_year[current_year]]
+    previous_dates = [_row_date(row) for row in previous_rows]
+    if any(value is None for value in (*current_dates, *previous_dates)):
+        return None, None
+
+    typed_current_dates = [value for value in current_dates if value is not None]
+    typed_previous_dates = [value for value in previous_dates if value is not None]
+    if any(value.year != current_year or value > current_cutoff for value in typed_current_dates):
+        return None, None
+    if any(value.year != previous_year for value in typed_previous_dates):
+        return None, None
+
+    previous_cutoff = _same_calendar_cutoff(current_cutoff, previous_year)
+    previous_count = sum(value <= previous_cutoff for value in typed_previous_dates)
+    if previous_count == 0:
+        return 0, None
+
+    current_count = len(typed_current_dates)
+    percent_change = round(((current_count - previous_count) / previous_count) * 100)
+    return previous_count, percent_change
 
 
 def _yearly_homicide_value(
@@ -154,13 +222,20 @@ def build_stats_snapshot(app: FastAPI) -> StatsSnapshot:
         )
 
     fallback_date = _derive_data_through(rows_by_year)
+    shootings_freshness = getattr(app.state, "shootings_freshness", None)
     shootings_date = _freshness_date(
-        getattr(app.state, "shootings_freshness", None),
+        shootings_freshness,
         fallback_date,
     )
     homicides_date = _freshness_date(
         getattr(app.state, "homicides_freshness", None),
         shootings_date,
+    )
+    shootings_previous_ytd, shooting_percent_change = _shooting_comparison(
+        rows_by_year,
+        current_year=current_year,
+        previous_year=previous_year,
+        shootings_data_through=_freshness_date(shootings_freshness, ""),
     )
 
     return StatsSnapshot(
@@ -173,6 +248,8 @@ def build_stats_snapshot(app: FastAPI) -> StatsSnapshot:
         current_total=len(current_rows),
         current_fatal=current_fatal,
         current_nonfatal=len(current_rows) - current_fatal,
+        shootings_previous_ytd=shootings_previous_ytd,
+        shooting_percent_change=shooting_percent_change,
         homicides_ytd=current_homicides,
         homicides_previous_ytd=previous_homicides,
         homicide_percent_change=percent_change,
@@ -282,14 +359,15 @@ def _faq(snapshot: StatsSnapshot) -> list[dict[str, str]]:
         {
             "q": "How can I download Philadelphia shooting data?",
             "a": (
-                f"Download CSV or GeoJSON from the interactive dashboard at {CANONICAL_BASE}/, "
-                f"use the public JSON API at {API_BASE}/docs, or get the source data from "
-                "OpenDataPhilly."
+                f"Use the dashboard data page at {CANONICAL_BASE}/data to download all records "
+                "or open the interactive dashboard for a filtered CSV or GeoJSON file. The "
+                "original source records are available from OpenDataPhilly."
             ),
             "a_html": (
-                f'Download CSV or GeoJSON from the <a href="{CANONICAL_BASE}/">interactive '
-                f'dashboard</a>, use the <a href="{API_BASE}/docs">public JSON API</a>, or get '
-                'the source data from <a href="https://opendataphilly.org/datasets/'
+                f'Use the <a href="{CANONICAL_BASE}/data">dashboard data page</a> to download '
+                f'all records, or open the <a href="{CANONICAL_BASE}/">interactive dashboard</a> '
+                "for a filtered CSV or GeoJSON file. The original source records are available "
+                'from <a href="https://opendataphilly.org/datasets/'
                 'shooting-victims/" rel="noopener">OpenDataPhilly</a>.'
             ),
         },
@@ -346,11 +424,6 @@ def render_stats_page(snapshot: StatsSnapshot) -> str:
                 "dateModified": snapshot.shootings_data_through,
                 "temporalCoverage": f"{snapshot.minimum_year}/{snapshot.current_year}",
                 "isAccessibleForFree": True,
-                "distribution": {
-                    "@type": "DataDownload",
-                    "encodingFormat": "application/json",
-                    "contentUrl": f"{API_BASE}/shootings/meta",
-                },
             },
         ],
     }
@@ -406,7 +479,6 @@ def render_stats_page(snapshot: StatsSnapshot) -> str:
         "{{DESCRIPTION}}": escape(description, quote=True),
         "{{CANONICAL_URL}}": f"{CANONICAL_BASE}/stats",
         "{{CANONICAL_BASE}}": CANONICAL_BASE,
-        "{{API_BASE}}": API_BASE,
         "{{FAQ_JSON_LD}}": _json_for_html(faq_json_ld),
         "{{DATASET_JSON_LD}}": _json_for_html(dataset_json_ld),
         "{{FRESHNESS_LABEL}}": (
@@ -484,8 +556,15 @@ def render_and_cache_stats_page(app: FastAPI) -> StatsPageCache:
     snapshot = build_stats_snapshot(app)
     html = render_stats_page(snapshot)
     sitemap = render_sitemap(snapshot)
-    etag = hashlib.sha256(f"{html}\n{sitemap}".encode()).hexdigest()[:16]
-    cached = StatsPageCache(source_key=source_key, html=html, sitemap=sitemap, etag=etag)
+    snapshot_json = json.dumps(asdict(snapshot), sort_keys=True, separators=(",", ":"))
+    etag = hashlib.sha256(f"{snapshot_json}\n{html}\n{sitemap}".encode()).hexdigest()[:16]
+    cached = StatsPageCache(
+        source_key=source_key,
+        snapshot=snapshot,
+        html=html,
+        sitemap=sitemap,
+        etag=etag,
+    )
     app.state.stats_page_cache = cached
     return cached
 

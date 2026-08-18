@@ -1,0 +1,24 @@
+@forward "uswds-theme";
+
+// Compile the USWDS foundation and only the component families used by the
+// first migration slice. New packages should be added when a real component
+// needs them, not pre-emptively.
+@forward "uswds-global";
+@forward "usa-layout-grid";
+@forward "usa-skipnav";
+@forward "usa-button-group";
+@forward "usa-form";
+@forward "usa-fieldset";
+@forward "usa-hint";
+@forward "usa-intro";
+@forward "usa-label";
+@forward "usa-legend";
+@forward "usa-list";
+@forward "usa-prose";
+@forward "usa-range";
+@forward "usa-select";
+@forward "usa-summary-box";
+@forward "usa-table";
+@forward "usa-process-list";
+
+@forward "uswds-theme-custom-styles";

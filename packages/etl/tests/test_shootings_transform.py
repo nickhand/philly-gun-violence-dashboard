@@ -89,7 +89,7 @@ def test_clean_shootings_uses_normalized_flags_before_race_mapping(monkeypatch) 
     )
     monkeypatch.setattr(core, "_validate_against_schema", lambda df: df)
 
-    result = core.clean_shootings(object(), raw, ignore_checks=True)  # type: ignore[arg-type]
+    result = core.clean_shootings(object(), raw, ignore_checks=True)  # ty: ignore[invalid-argument-type]
 
     assert result["fatal"].tolist() == [False, True]
     assert result["inside"].tolist() == [False, True]

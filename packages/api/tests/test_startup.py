@@ -31,6 +31,56 @@ class TestImports:
         import app.stats_page  # noqa: F401
 
 
+class TestOpenAPI:
+    """Verify the machine-readable API description matches the public contract."""
+
+    def test_project_metadata_and_external_docs(self):
+        from app.main import app
+
+        schema = app.openapi()
+        info = schema["info"]
+
+        assert info["title"] == "Philadelphia Gun Violence Dashboard API"
+        assert info["summary"].startswith("Read-only application service")
+        assert "not a supported public download interface" in info["description"]
+        assert "one row represents one victim" in info["description"]
+        assert "homicide totals are a separate citywide measure" in info["description"]
+        assert "preliminary" in info["description"]
+        assert "license" not in info
+        assert info["contact"]["url"].endswith("/about#corrections")
+        assert schema["externalDocs"] == {
+            "description": "Data access, fields, sources, and terms",
+            "url": "https://www.nickhand.dev/philly-gun-violence-map/data",
+        }
+
+    def test_configured_canary_origin_is_exact_and_null_origin_is_rejected(self, monkeypatch):
+        from app import main
+
+        monkeypatch.setattr(
+            main.settings,
+            "api_cors_origins",
+            "https://dashboard-canary.example.com",
+        )
+        assert "https://dashboard-canary.example.com" in main._cors_origins()
+        assert "null" not in main._cors_origins()
+
+    def test_shooting_download_contracts(self):
+        from app.main import app
+
+        schema = app.openapi()
+        manifest = schema["paths"]["/shootings/meta"]["get"]
+        rows = schema["paths"]["/shootings/rows/{version}/{year}.ndjson"]["get"]
+
+        assert manifest["responses"]["200"]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ShootingsManifest"
+        }
+        assert "years_meta" in schema["components"]["schemas"]["ShootingsManifest"]["properties"]
+        assert set(rows["responses"]["200"]["content"]) == {"application/x-ndjson"}
+        ndjson_schema = rows["responses"]["200"]["content"]["application/x-ndjson"]["schema"]
+        assert ndjson_schema["type"] == "string"
+        assert "one shooting victim" in ndjson_schema["description"]
+
+
 class TestHealth:
     def test_health_ok(self, client):
         resp = client.get("/health")
@@ -42,6 +92,8 @@ class TestShootings:
     def test_meta_200(self, client):
         resp = client.get("/shootings/meta")
         assert resp.status_code == 200
+        assert resp.headers["cache-control"] == "max-age=0, must-revalidate"
+        assert resp.headers["etag"]
 
     def test_meta_has_version_and_years(self, client):
         body = client.get("/shootings/meta").json()
@@ -54,6 +106,28 @@ class TestShootings:
         version = meta["version"]
         resp = client.get(f"/shootings/rows/{version}/2023.ndjson")
         assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/x-ndjson")
+        assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert resp.headers["x-robots-tag"] == "noindex"
+
+    def test_meta_304_preserves_cache_validators(self, client):
+        first = client.get("/shootings/meta")
+        second = client.get(
+            "/shootings/meta",
+            headers={"If-None-Match": first.headers["etag"]},
+        )
+
+        assert second.status_code == 304
+        assert second.headers["etag"] == first.headers["etag"]
+        assert second.headers["cache-control"] == "max-age=0, must-revalidate"
+
+    def test_meta_etag_changes_when_generated_at_changes(self, client):
+        first = client.get("/shootings/meta")
+        client.app.state.shootings_meta["generated_at"] = "2026-08-17T23:00:00+00:00"
+        second = client.get("/shootings/meta")
+
+        assert second.headers["etag"] != first.headers["etag"]
+        assert second.json()["version"] == first.json()["version"]
 
     def test_rows_wrong_version_404(self, client):
         resp = client.get("/shootings/rows/wrongversion/2023.ndjson")
@@ -141,6 +215,54 @@ class TestStatsPage:
         etag = first.headers["etag"]
 
         second = client.get("/stats", headers={"If-None-Match": etag})
+
+        assert first.headers["cache-control"] == "public, max-age=0, must-revalidate"
+        assert second.status_code == 304
+        assert second.content == b""
+
+    def test_stats_json_matches_the_rendered_html(self, client):
+        html_resp = client.get("/stats")
+        html = html_resp.text
+        resp = client.get(
+            "/stats.json",
+            headers={"Origin": "http://localhost:3000"},
+        )
+        stats = resp.json()
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/json")
+        assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+        assert resp.headers["x-robots-tag"] == "noindex"
+        assert html_resp.headers["x-robots-tag"] == "index, follow"
+        assert stats == {
+            "shootings_data_through": "2023-01-15",
+            "homicides_data_through": "2023-01-16",
+            "current_year": 2023,
+            "previous_year": 2022,
+            "minimum_year": 2023,
+            "total_victims_all_years": 1,
+            "current_total": 1,
+            "current_fatal": 0,
+            "current_nonfatal": 1,
+            "shootings_previous_ytd": None,
+            "shooting_percent_change": None,
+            "homicides_ytd": 450,
+            "homicides_previous_ytd": None,
+            "homicide_percent_change": None,
+            "peak": {"year": 2023, "victims": 1, "homicides": 450},
+            "years": [{"year": 2023, "victims": 1, "homicides": 450}],
+        }
+        assert f'<div class="figure">{stats["current_total"]}</div>' in html
+        assert f'<span class="c-fatal">{stats["current_fatal"]} fatal</span>' in html
+        assert f'<span class="c-nonfatal">{stats["current_nonfatal"]} nonfatal</span>' in html
+        assert f'<td class="num">{stats["years"][0]["victims"]}</td>' in html
+
+    def test_stats_json_revalidates_with_etag(self, client):
+        first = client.get("/stats.json")
+        second = client.get(
+            "/stats.json",
+            headers={"If-None-Match": first.headers["etag"]},
+        )
 
         assert first.headers["cache-control"] == "public, max-age=0, must-revalidate"
         assert second.status_code == 304

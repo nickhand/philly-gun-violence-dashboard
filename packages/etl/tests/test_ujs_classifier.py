@@ -8,12 +8,12 @@ from unittest.mock import MagicMock, patch
 
 from etl.courts.scraper.classifier import (
     BLOCKED_MARKERS,
-    Classification,
-    ClassificationResult,
     NO_RESULTS_TEXT_MARKERS,
     PORTAL_URL,
     REDIRECT_URL_PATTERNS,
     SESSION_LOST_MARKERS,
+    Classification,
+    ClassificationResult,
     _check_text_markers,
     _check_url_patterns,
     classify_case_search,
@@ -63,9 +63,8 @@ class MockPage:
     ) -> MagicMock | None:
         """Mock wait_for_selector."""
         # Check if the selector exists in content
-        if selector == "#caseSearchResultGrid":
-            if "caseSearchResultGrid" in self._content:
-                return MagicMock()
+        if selector == "#caseSearchResultGrid" and "caseSearchResultGrid" in self._content:
+            return MagicMock()
         raise Exception("Timeout waiting for selector")
 
     def query_selector_all(self, selector: str) -> list[MagicMock]:

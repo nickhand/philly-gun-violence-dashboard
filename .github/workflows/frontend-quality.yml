@@ -33,9 +33,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run type-check
+      - run: npm run type-check:nuxt
       - run: npm run test:coverage
       - run: npm run build
       - run: npm run check:bundle
+      - run: npm run build:nuxt
+      - run: npm run test:nuxt:seo
+      - run: npm run build:nuxt:cloudflare
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -79,6 +83,44 @@ jobs:
           path: |
             frontend/playwright-report
             frontend/test-results
+          if-no-files-found: ignore
+
+  nuxt-browser:
+    name: Nuxt browser tests (${{ matrix.project }})
+    needs: unit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: nuxt-chromium
+            browser: chromium
+          - project: nuxt-mobile-chrome
+            browser: chromium
+          - project: nuxt-firefox-core
+            browser: firefox
+          - project: nuxt-webkit-core
+            browser: webkit
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npx playwright test --config=playwright.nuxt.config.ts --project=${{ matrix.project }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-nuxt-${{ matrix.project }}
+          path: |
+            frontend/playwright-report/nuxt
+            frontend/test-results/nuxt
           if-no-files-found: ignore
 
   lighthouse:

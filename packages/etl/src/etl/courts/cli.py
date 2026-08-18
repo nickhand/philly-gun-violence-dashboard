@@ -22,17 +22,6 @@ app = create_cli(
 
 
 @app.command()
-def snapshot() -> None:
-    """Materialize all results/*.json into a Parquet snapshot on S3."""
-    from aws_batch_scraper.aggregate import snapshot_to_parquet
-
-    config = CourtsWorkerConfig()
-    s3 = make_boto3_session(config=config).client("s3")
-    dest = snapshot_to_parquet(s3, config)
-    logger.info(f"Snapshot written to {dest}")
-
-
-@app.command()
 def process() -> None:
     """Aggregate scraper results and write processed courts flags.
 

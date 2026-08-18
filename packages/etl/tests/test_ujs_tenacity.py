@@ -4,8 +4,8 @@ Ensures that ZERO_RESULTS does not trigger retries, while retryable
 classifications do retry up to the max attempts.
 """
 
-from etl.courts.scraper.core import RetryableScrapeError
 from etl.courts.scraper.classifier import Classification, ClassificationResult
+from etl.courts.scraper.core import RetryableScrapeError
 
 
 class TestRetryableScrapeError:

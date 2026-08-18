@@ -1,5 +1,5 @@
 FROM python:3.13-slim-trixie
-COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.0 /uv /uvx /bin/
 
 # Install the project into `/app`
 WORKDIR /app

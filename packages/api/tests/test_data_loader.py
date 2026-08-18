@@ -55,7 +55,13 @@ class TestFlattenFeatureToRow:
         assert row["weekday"] == 0
 
     def test_weekday_monday_one(self):
-        feature = {**SAMPLE_FEATURE, "properties": {**SAMPLE_FEATURE["properties"], "date": "2023-01-16 08:00:00"}}
+        feature = {
+            **SAMPLE_FEATURE,
+            "properties": {
+                **SAMPLE_FEATURE["properties"],
+                "date": "2023-01-16 08:00:00",
+            },
+        }
         row = _flatten_feature_to_row(feature, 0)
         assert row["weekday"] == 1
 
@@ -72,7 +78,11 @@ class TestFlattenFeatureToRow:
         assert row["year"] is None
 
     def test_missing_geometry_yields_none_coords(self):
-        feature = {"type": "Feature", "geometry": None, "properties": {"date": "2023-01-15 00:00:00"}}
+        feature = {
+            "type": "Feature",
+            "geometry": None,
+            "properties": {"date": "2023-01-15 00:00:00"},
+        }
         row = _flatten_feature_to_row(feature, 0)
         assert row["lon"] is None
         assert row["lat"] is None
@@ -99,17 +109,13 @@ class TestComputeVersionHash:
 
 class TestExtractYear:
     def test_valid_date(self):
-        from app.data_loader import _extract_year
         assert _extract_year("2023-01-15 14:30:00") == 2023
 
     def test_none_returns_none(self):
-        from app.data_loader import _extract_year
         assert _extract_year(None) is None
 
     def test_empty_string_returns_none(self):
-        from app.data_loader import _extract_year
         assert _extract_year("") is None
 
     def test_invalid_format_returns_none(self):
-        from app.data_loader import _extract_year
         assert _extract_year("not-a-date") is None

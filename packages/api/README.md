@@ -24,6 +24,7 @@ FastAPI service for the Philadelphia Gun Violence Dashboard. Provides versioned,
 
 ### Crawler-visible statistics
 - `GET /stats` — Current server-rendered statistics, year table, and FAQ HTML
+- `GET /stats.json` — The same statistics snapshot as typed JSON for SSR clients
 - `GET /sitemap.xml` — Sitemap with modification dates from the loaded datasets
 
 ### Health
@@ -37,10 +38,10 @@ The API uses a versioned, content-addressed caching strategy:
 2. **Year-specific endpoints** include the version in the URL path, making them immutable
 3. Frontend caches versioned URLs for 1 year (`Cache-Control: public, max-age=31536000, immutable`)
 
-The statistics HTML and sitemap are rendered once after startup from the same
-in-memory data used by the JSON endpoints. They are invalidated when either the
-shooting or homicide cache refreshes, use ETags for revalidation, and preserve
-the distinct freshness date for each dataset.
+The statistics JSON, HTML, and sitemap share one snapshot rendered after
+startup. They are invalidated when either the shooting or homicide cache
+refreshes, use ETags for revalidation, and preserve the distinct freshness date
+for each dataset.
 
 ## Environment
 

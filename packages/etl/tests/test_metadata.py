@@ -25,7 +25,7 @@ def test_write_meta_preserves_base_fields_and_adds_extra(monkeypatch) -> None:
     write_meta(
         subfolder="shootings",
         data_through=pd.Timestamp("2026-05-24 12:00:00"),
-        s3=s3,  # type: ignore[arg-type]
+        s3=s3,  # ty: ignore[invalid-argument-type]
         pipeline="shootings",
         row_count=123,
         max_event_date=pd.Timestamp("2026-05-24 08:00:00"),
@@ -34,7 +34,7 @@ def test_write_meta_preserves_base_fields_and_adds_extra(monkeypatch) -> None:
     assert s3.puts[0]["Bucket"] == "bucket"
     assert s3.puts[0]["Key"] == "processed/shootings/meta.json"
 
-    body = json.loads(s3.puts[0]["Body"])  # type: ignore[arg-type]
+    body = json.loads(s3.puts[0]["Body"])  # ty: ignore[invalid-argument-type]
     assert body["status"] == "success"
     assert body["data_through"] == "2026-05-24"
     assert body["schema_version"] == 1

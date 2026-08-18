@@ -12,6 +12,7 @@ build/
 .github/*
 !.github/workflows/
 .github/workflows/*
+!.github/workflows/api-quality.yml
 !.github/workflows/frontend-quality.yml
 !.github/workflows/etl-quality.yml
 !.python-version
@@ -29,6 +30,7 @@ frontend/lighthouse-report/
 frontend/playwright-report/
 frontend/test-results/
 frontend-vue2/
+design_handoff_*/
 
 .DS_Store
 node_modules

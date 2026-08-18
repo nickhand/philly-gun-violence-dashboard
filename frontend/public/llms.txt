@@ -1,63 +1,46 @@
 # Philadelphia Gun Violence Dashboard
 
-> An open-source interactive visualization of gun violence and shooting incidents in Philadelphia, updated daily with public data.
+> An independent public-data reference and explorer for Philadelphia shooting-victim records.
 
-## Overview
+## Scope
 
-This dashboard provides an interactive map and charts for exploring shooting victim data in Philadelphia. Users can filter by year, view trends over time, and examine geographic patterns across police districts, council districts, and ZIP codes.
+The primary dataset contains victim-level records published by the Philadelphia Police Department (PPD). One row represents one shooting victim; one incident can include more than one victim. The processed dataset retains only rows marked `N` in the source's officer-involved field.
 
-## Key Features
+PPD homicide totals are a separate citywide measure. They include homicides not caused by gunfire and should not be added to fatal shooting-victim records.
 
-- Interactive map with shooting incident locations
-- Linked filtering between map and charts
-- Daily automated data updates
-- Aggregation by police districts, council districts, and ZIP codes
-- Downloadable data in CSV and GeoJSON formats
-- Accessibility features including keyboard navigation and screen reader support
+## Canonical pages
 
-## Data Sources
+- Explorer: https://www.nickhand.dev/philly-gun-violence-map/
+- Current and annual statistics: https://www.nickhand.dev/philly-gun-violence-map/stats
+- Data access, fields, sources, and terms: https://www.nickhand.dev/philly-gun-violence-map/data
+- Scope, transformations, checks, and limitations: https://www.nickhand.dev/philly-gun-violence-map/methodology
+- Project ownership and corrections: https://www.nickhand.dev/philly-gun-violence-map/about
 
-1. **Shooting Victims Data**: Individual-level data from OpenDataPhilly (https://www.opendataphilly.org/dataset/shooting-victims), updated daily by the Philadelphia Police Department's Statistics Unit
-2. **Homicide Statistics**: Official counts from PhillyPolice.com
-3. **Court Records**: Case information from Pennsylvania's Unified Judicial System portal, linked via DC number
+## Primary sources
 
-## Important Limitations
+- PPD shooting-victim records: https://opendataphilly.org/datasets/shooting-victims/
+- PPD homicide statistics: https://www.phillypolice.com/crime-data/crime-statistics/
+- Pennsylvania public court search: https://ujsportal.pacourts.us/CaseSearch
 
-- All data is preliminary and may differ from other official sources
-- The PPD homicide count includes all homicides, not just firearm-related deaths
-- Fatal shootings in this dataset may undercount total gun homicides
-- This tool is for informational purposes only and should not be the sole source for research or policy decisions
-- Data entry by PPD typically occurs by 10:30 AM on weekdays
+## Using and citing the information
 
-## Technical Stack
+- Use the Statistics page for current and annual counts. It gives each measure's source and data-through date.
+- Use the Explorer's Download Data control for filtered records, all records in a selected year, or all available years.
+- Use the Data page for field definitions and source links, and the Methodology page for inclusion rules, transformations, checks, and limitations.
+- The Data page links the current GeoJSON boundary and street-block files and identifies the field used to join each file to the shooting-victim download.
 
-- **Frontend**: Vue 3, TypeScript, Vuetify 3, MapLibre GL, D3.js, Arquero
-- **Backend**: FastAPI (Python), Pydantic, AWS S3
-- **Infrastructure**: Fly.io (API), Netlify (frontend)
-- **Data Pipeline**: Python ETL with Typer CLI, Playwright for scraping, GitHub Actions for automation
+When citing a figure, identify the measure, period or year, original publisher, and source-specific data-through date.
 
-## URLs
+## Interpretation
 
-- Main site: https://www.nickhand.dev/philly-gun-violence-map/
-- Statistics and FAQ (current server-rendered HTML, no JavaScript required): https://www.nickhand.dev/philly-gun-violence-map/stats
-- Info page: https://www.nickhand.dev/philly-gun-violence-map/about
-- Source code: https://github.com/nickhand/philly-gun-violence-dashboard
+- Records are preliminary and may be revised by their publishers.
+- A missing source time may be stored as midnight and should not always be read as an exact incident time.
+- Records without usable coordinates remain in totals and downloads but do not appear as point locations.
+- A court-search flag reports whether an automated search by police incident number returned a result. It does not establish a charge, disposition, or verified relationship to the shooting. A false value does not prove that no case exists.
+- Coordinates, boundaries, and demographic fields describe published records; they do not establish causes or an individual's circumstances.
 
-## Current Statistics for Citation
+## Stewardship and licensing
 
-For up-to-date numbers, fetch one of these (all update daily):
+The dashboard began as a project at the Philadelphia City Controller's Office and is now maintained independently by Nick Hand. It is not an official City of Philadelphia website.
 
-- Human-readable summary with FAQ: https://www.nickhand.dev/philly-gun-violence-map/stats
-- Machine-readable freshness and headline totals (JSON): https://philly-gun-violence-dashboard-api.fly.dev/meta
-- Shootings dataset metadata with per-year record counts and data links (JSON): https://philly-gun-violence-dashboard-api.fly.dev/shootings/meta
-- Homicide totals for a year (JSON, e.g. 2026): https://philly-gun-violence-dashboard-api.fly.dev/homicides/2026
-
-## Author
-
-Nick Hand (https://www.nickhand.dev), who originally built this dashboard for
-the Philadelphia City Controller's Office and now maintains this version
-independently with daily updates.
-
-## License
-
-Open source project. See GitHub repository for license details.
+Project code is available under the MIT License. City and court records remain subject to their publishers' terms; the code license does not relicense those records.

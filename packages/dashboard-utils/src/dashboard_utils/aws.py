@@ -1,7 +1,8 @@
 import io
 import json
+from collections.abc import Callable, Hashable
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal, TypedDict, Unpack
 
 import boto3
 import geopandas as gpd
@@ -10,6 +11,25 @@ from botocore.exceptions import ClientError
 from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.config import get_aws_settings
+
+
+class CsvWriteOptions(TypedDict, total=False):
+    """CSV serialization options supported by :func:`write_csv_df`."""
+
+    sep: str
+    na_rep: str
+    float_format: str | Callable[[object], str] | None
+    columns: list[Hashable] | None
+    header: bool | list[str]
+    index_label: Literal[False] | str | list[Hashable] | None
+    quoting: Literal[0, 1, 2, 3, 4, 5]
+    quotechar: str
+    lineterminator: str | None
+    chunksize: int | None
+    date_format: str | None
+    doublequote: bool
+    escapechar: str | None
+    decimal: str
 
 
 @lru_cache(maxsize=1)
@@ -131,11 +151,13 @@ def write_csv_df(
     bucket: str,
     key: str,
     df: pd.DataFrame,
-    **write_csv_kwargs: Any,
+    *,
+    index: bool = False,
+    **write_csv_kwargs: Unpack[CsvWriteOptions],
 ) -> None:
     """Write a DataFrame to S3 as CSV."""
     buf = io.StringIO()
-    df.to_csv(buf, **{"index": False, **write_csv_kwargs})
+    df.to_csv(buf, index=index, **write_csv_kwargs)
     write_text(s3, bucket, key, buf.getvalue(), content_type="text/csv")
 
 

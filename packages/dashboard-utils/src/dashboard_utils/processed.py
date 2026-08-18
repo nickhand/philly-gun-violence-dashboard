@@ -1,12 +1,13 @@
 """Helpers for reading and writing processed datasets in S3."""
 
-from typing import Any
+from typing import Any, Unpack
 
 import geopandas as gpd
 import pandas as pd
 from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.aws import (
+    CsvWriteOptions,
     make_s3_client,
     read_csv_df,
     read_geojson_gdf,
@@ -74,11 +75,19 @@ def write_processed_csv(
     df: pd.DataFrame,
     *,
     s3: S3Client | None = None,
-    **write_csv_kwargs: Any,
+    index: bool = False,
+    **write_csv_kwargs: Unpack[CsvWriteOptions],
 ) -> None:
     """Write a processed CSV dataset to S3."""
     key = get_processed_key(name)
-    write_csv_df(_client(s3), get_s3_settings().s3_bucket, key, df, **write_csv_kwargs)
+    write_csv_df(
+        _client(s3),
+        get_s3_settings().s3_bucket,
+        key,
+        df,
+        index=index,
+        **write_csv_kwargs,
+    )
 
 
 def write_processed_json(name: str, data: Any, *, s3: S3Client | None = None) -> None:

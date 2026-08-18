@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 from fastapi.responses import HTMLResponse
 
 from app.data_loader import make_refresh_dependency
-from app.stats_page import get_stats_page_cache
+from app.stats_page import StatsSnapshot, get_stats_page_cache
 
 router = APIRouter(
     tags=["statistics"],
@@ -40,6 +40,23 @@ def get_stats_page(
     if _not_modified(if_none_match, cached.etag):
         return Response(status_code=304, headers=headers)
     return HTMLResponse(cached.html, headers=headers)
+
+
+@router.get("/stats.json", response_model=StatsSnapshot)
+def get_stats_json(
+    request: Request,
+    response: Response,
+    if_none_match: str | None = Header(None),
+) -> StatsSnapshot | Response:
+    """Return the statistics snapshot used to render the HTML statistics page."""
+    cached = get_stats_page_cache(request.app)
+    etag = f"{cached.etag}-json"
+    headers = _headers(etag)
+    headers["X-Robots-Tag"] = "noindex"
+    if _not_modified(if_none_match, etag):
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return cached.snapshot
 
 
 @router.get("/sitemap.xml", response_model=None)

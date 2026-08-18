@@ -26,8 +26,10 @@ frontend*
 **/*.pyo
 **/*.pyd
 **/.pytest_cache/
-**/.mypy_cache/
 **/.ruff_cache/
+# Old local checker caches can remain after the mypy-to-ty migration and are
+# large enough to bloat Docker build contexts and copied application layers.
+**/.mypy_cache/
 
 # UV / packaging caches
 **/.uv/

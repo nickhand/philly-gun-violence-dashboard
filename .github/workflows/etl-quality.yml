@@ -5,12 +5,20 @@ on:
     paths:
       - "packages/etl/**"
       - "packages/dashboard-utils/**"
+      - "packages/aws-batch-scraper/**"
+      - "justfile"
+      - "ty.toml"
+      - "just/python.just"
       - ".github/workflows/etl-quality.yml"
   push:
     branches: [main]
     paths:
       - "packages/etl/**"
       - "packages/dashboard-utils/**"
+      - "packages/aws-batch-scraper/**"
+      - "justfile"
+      - "ty.toml"
+      - "just/python.just"
       - ".github/workflows/etl-quality.yml"
 
 concurrency:
@@ -30,7 +38,31 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
-      - run: uv run --group dev ruff check src/etl/shootings tests/test_shootings_transform.py
-      - run: uv run --group dev ruff format --check src/etl/shootings tests/test_shootings_transform.py
-      - run: uv run --group dev mypy --config-file ../../mypy.ini src/etl/shootings
-      - run: uv run --group dev pytest tests
+        with:
+          version: "0.12.0"
+      - name: ETL Ruff lint
+        run: uv run --group dev ruff check src
+      - name: ETL Ruff format
+        run: uv run --group dev ruff format --check src
+      - name: ETL ty
+        run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
+      - name: ETL tests
+        run: uv run --group dev pytest tests
+      - name: Dashboard utilities Ruff lint
+        working-directory: packages/dashboard-utils
+        run: uv run --group dev ruff check src
+      - name: Dashboard utilities Ruff format
+        working-directory: packages/dashboard-utils
+        run: uv run --group dev ruff format --check src
+      - name: Dashboard utilities ty
+        working-directory: packages/dashboard-utils
+        run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
+      - name: AWS Batch scraper Ruff lint
+        working-directory: packages/aws-batch-scraper
+        run: uv run --group dev ruff check src
+      - name: AWS Batch scraper Ruff format
+        working-directory: packages/aws-batch-scraper
+        run: uv run --group dev ruff format --check src
+      - name: AWS Batch scraper ty
+        working-directory: packages/aws-batch-scraper
+        run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src

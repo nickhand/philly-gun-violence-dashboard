@@ -48,6 +48,8 @@ def test_snapshot_matches_loaded_api_data() -> None:
     assert snapshot.current_total == 2
     assert snapshot.current_fatal == 1
     assert snapshot.current_nonfatal == 1
+    assert snapshot.shootings_previous_ytd == 3
+    assert snapshot.shooting_percent_change == -33
     assert snapshot.homicides_ytd == 80
     assert snapshot.homicides_previous_ytd == 100
     assert snapshot.homicide_percent_change == -20
@@ -62,6 +64,10 @@ def test_rendered_page_preserves_distinct_dataset_dates() -> None:
     assert "As of April 2, 2023, there have been 2 shooting victims" in html
     assert "As of April 3, 2023, Philadelphia has recorded 80 homicides" in html
     assert '"dateModified": "2023-04-02"' in html
+    assert "dashboard data page" in html
+    assert "public JSON API" not in html
+    assert "/docs" not in html
+    assert '"contentUrl"' not in html
     assert "{{" not in html
 
 
@@ -73,6 +79,90 @@ def test_single_year_uses_current_year_as_peak() -> None:
 
     assert snapshot.peak.year == 2023
     assert snapshot.peak.victims == 2
+    assert snapshot.shootings_previous_ytd is None
+    assert snapshot.shooting_percent_change is None
+
+
+def test_shooting_comparison_uses_inclusive_same_calendar_cutoff() -> None:
+    app = _app_with_data()
+    app.state.shootings_rows_by_year[2022] = [
+        {"date": "2022-04-02 23:59:59", "fatal": 0},
+        {"date": "2022-04-03 00:00:00", "fatal": 0},
+    ]
+
+    snapshot = build_stats_snapshot(app)
+
+    assert snapshot.shootings_previous_ytd == 1
+    assert snapshot.shooting_percent_change == 100
+
+
+def test_shooting_comparison_clamps_leap_day_to_february_28() -> None:
+    app = _app_with_data()
+    app.state.shootings_rows_by_year = {
+        2023: [
+            {"date": "2023-02-28 23:59:59", "fatal": 0},
+            {"date": "2023-03-01 00:00:00", "fatal": 0},
+        ],
+        2024: [{"date": "2024-02-29 12:00:00", "fatal": 0}],
+    }
+    app.state.shootings_freshness = {"data_through": "2024-02-29"}
+
+    snapshot = build_stats_snapshot(app)
+
+    assert snapshot.shootings_previous_ytd == 1
+    assert snapshot.shooting_percent_change == 0
+
+
+@pytest.mark.parametrize("year", [2022, 2023])
+def test_shooting_comparison_fails_closed_on_invalid_row_dates(year: int) -> None:
+    app = _app_with_data()
+    app.state.shootings_rows_by_year[year][0]["date"] = "not-a-date"
+
+    snapshot = build_stats_snapshot(app)
+
+    assert snapshot.shootings_previous_ytd is None
+    assert snapshot.shooting_percent_change is None
+
+
+def test_shooting_comparison_fails_closed_on_cutoff_year_mismatch() -> None:
+    app = _app_with_data()
+    app.state.shootings_freshness = {"data_through": "2022-04-02"}
+
+    snapshot = build_stats_snapshot(app)
+
+    assert snapshot.shootings_previous_ytd is None
+    assert snapshot.shooting_percent_change is None
+
+
+@pytest.mark.parametrize("freshness", [None, {"data_through": "not-a-date"}])
+def test_shooting_comparison_requires_authoritative_cutoff(freshness: object) -> None:
+    app = _app_with_data()
+    app.state.shootings_freshness = freshness
+
+    snapshot = build_stats_snapshot(app)
+
+    assert snapshot.shootings_previous_ytd is None
+    assert snapshot.shooting_percent_change is None
+
+
+def test_shooting_comparison_fails_closed_when_current_row_exceeds_cutoff() -> None:
+    app = _app_with_data()
+    app.state.shootings_rows_by_year[2023].append({"date": "2023-04-03 00:00:00", "fatal": 0})
+
+    snapshot = build_stats_snapshot(app)
+
+    assert snapshot.shootings_previous_ytd is None
+    assert snapshot.shooting_percent_change is None
+
+
+def test_shooting_comparison_omits_percent_when_previous_count_is_zero() -> None:
+    app = _app_with_data()
+    app.state.shootings_rows_by_year[2022] = []
+
+    snapshot = build_stats_snapshot(app)
+
+    assert snapshot.shootings_previous_ytd == 0
+    assert snapshot.shooting_percent_change is None
 
 
 def test_zero_previous_homicides_omits_percentage() -> None:

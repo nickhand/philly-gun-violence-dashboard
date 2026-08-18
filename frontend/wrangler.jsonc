@@ -1,0 +1,47 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "philly-gun-violence-dashboard",
+  "main": ".output/server/index.mjs",
+  "compatibility_date": "2026-08-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".output/public"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "philly-gun-violence-dashboard-staging",
+      "workers_dev": true,
+      "vars": {
+        "NUXT_PUBLIC_API_BASE_URL": "https://philly-gun-violence-dashboard-api.fly.dev",
+        "NUXT_PUBLIC_DOWNLOADS_BASE_URL": "https://d2cemhjkwenjmb.cloudfront.net",
+        "NUXT_PUBLIC_INDEXABLE": "false"
+      }
+    },
+    "production": {
+      "name": "philly-gun-violence-dashboard-production",
+      "workers_dev": false,
+      "routes": [
+        {
+          "pattern": "www.nickhand.dev/philly-gun-violence-map",
+          "zone_name": "nickhand.dev"
+        },
+        {
+          "pattern": "www.nickhand.dev/philly-gun-violence-map/*",
+          "zone_name": "nickhand.dev"
+        }
+      ],
+      "vars": {
+        "NUXT_PUBLIC_API_BASE_URL": "https://philly-gun-violence-dashboard-api.fly.dev",
+        "NUXT_PUBLIC_CANONICAL_BASE_URL": "https://www.nickhand.dev/philly-gun-violence-map",
+        "NUXT_PUBLIC_DOWNLOADS_BASE_URL": "https://d2cemhjkwenjmb.cloudfront.net",
+        "NUXT_PUBLIC_INDEXABLE": "true",
+        "NUXT_PUBLIC_SITE_URL": "https://www.nickhand.dev"
+      }
+    }
+  }
+}

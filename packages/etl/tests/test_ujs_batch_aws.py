@@ -3,8 +3,6 @@
 import json
 
 import pytest
-from typer.testing import CliRunner
-
 from aws_batch_scraper.aws import make_boto3_session
 from aws_batch_scraper.cli import create_cli
 from aws_batch_scraper.orchestrate import (
@@ -15,6 +13,8 @@ from aws_batch_scraper.orchestrate import (
 )
 from aws_batch_scraper.queue import seed_queue
 from aws_batch_scraper.types import ScrapeResult, ScrapeStatus, WorkItem
+from typer.testing import CliRunner
+
 from etl.courts.config import CourtsSubmitterConfig
 
 
@@ -122,9 +122,7 @@ class FakeBody:
 class FakeS3:
     def __init__(self) -> None:
         self.objects = {
-            "ujs-scraper/runs/run-1/tasks.json": json.dumps(
-                {"task_arns": ["arn:task/1"]}
-            ).encode(),
+            "ujs-scraper/runs/run-1/tasks.json": json.dumps({"task_arns": ["arn:task/1"]}).encode(),
             "ujs-scraper/runs/run-1/manifest.json": json.dumps(
                 {"run_id": "run-1", "timestamp": "2026-05-24T00:00:00+00:00"}
             ).encode(),
@@ -220,11 +218,7 @@ def test_submit_persists_partial_launch_task_arns(
     result = CliRunner().invoke(app, ["submit", "--workers", "2"])
 
     assert result.exit_code != 0
-    tasks_puts = [
-        put
-        for put in fake_s3.puts
-        if put["Key"] == "ujs-scraper/runs/run-1/tasks.json"
-    ]
+    tasks_puts = [put for put in fake_s3.puts if put["Key"] == "ujs-scraper/runs/run-1/tasks.json"]
     assert tasks_puts
     assert json.loads(tasks_puts[0]["Body"]) == {"task_arns": ["arn:task/1"]}
 

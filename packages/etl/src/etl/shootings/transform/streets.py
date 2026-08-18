@@ -67,7 +67,7 @@ def join_with_street_blocks(
             _pick_best_match,
             block_column=block_column,
             include_groups=False,
-        )  # type: ignore
+        )  # ty: ignore[no-matching-overload]  # pandas-stubs omits include_groups.
         .reset_index(level=0)
     )
 

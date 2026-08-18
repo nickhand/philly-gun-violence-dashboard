@@ -19,7 +19,7 @@ size = "shared-cpu-1x"
 memory = "512mb"
 
 [[http_service.checks]]
-grace_period = "10s"
+grace_period = "30s"
 interval = "15s"
 method = "GET"
 path = "/health"

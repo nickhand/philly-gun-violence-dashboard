@@ -43,8 +43,13 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
     - Reads the dataset from S3 when refresh=False
     - Recomputes and uploads to S3 when refresh=True
     """
-    # Extract dataset name from the function name: assumes "get_<name>"
-    name = func.__name__.split("get_")[-1]
+    # Extract the dataset name from a function named "get_<name>".
+    function_name = getattr(func, "__name__", None)
+    if not isinstance(function_name, str):
+        raise TypeError("Geodataset loaders must be functions with a name.")
+    if not function_name.startswith("get_"):
+        raise ValueError("Geodataset loader names must start with 'get_'.")
+    name = function_name.removeprefix("get_")
 
     # Build cache path lazily to avoid touching filesystem at import time
     filepath = f"{name}.geojson"

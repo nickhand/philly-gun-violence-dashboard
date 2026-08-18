@@ -15,7 +15,7 @@ def test_simple_scraper_example_imports_and_scrapes() -> None:
         from simple_scraper.inputs import load_items
         from simple_scraper.scraper import SimpleScraper
 
-        items = load_items(config=None)  # type: ignore[arg-type]
+        items = load_items(config=None)  # ty: ignore[invalid-argument-type]
         result = SimpleScraper()(WorkItem(item_id="alpha"))
     finally:
         sys.path.remove(str(example_path))

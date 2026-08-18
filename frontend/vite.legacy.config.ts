@@ -4,7 +4,7 @@ import vueDevTools from "vite-plugin-vue-devtools";
 import vuetify from "vite-plugin-vuetify";
 import { fileURLToPath, URL } from "node:url";
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(() => ({
   base: process.env.VITE_PUBLIC_BASE ?? "/philly-gun-violence-map/",
   plugins: [
     vue(),

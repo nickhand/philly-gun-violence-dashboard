@@ -10,6 +10,7 @@ from typing import Annotated, TypedDict
 
 import typer
 from loguru import logger
+from mypy_boto3_s3.client import S3Client
 
 from aws_batch_scraper.config import SubmitterConfig, WorkerConfig
 from aws_batch_scraper.types import Scraper, WorkItem
@@ -185,7 +186,7 @@ def create_cli(
     def _resolve_run_id(
         run_id: str | None,
         latest: bool,
-        s3: object,
+        s3: S3Client,
         config: WorkerConfig,
     ) -> str:
         if run_id is None and not latest:
@@ -195,9 +196,13 @@ def create_cli(
         if latest:
             from aws_batch_scraper.stats import get_latest_run_id
 
-            run_id = get_latest_run_id(s3, config)  # type: ignore[arg-type]
-            logger.info(f"Latest run: {run_id}")
-        return run_id  # type: ignore[return-value]
+            latest_run_id = get_latest_run_id(s3, config)
+            logger.info(f"Latest run: {latest_run_id}")
+            return latest_run_id
+
+        # The first guard establishes this for the non-latest branch.
+        assert run_id is not None
+        return run_id
 
     @app.command()
     def submit(
