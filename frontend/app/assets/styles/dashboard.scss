@@ -1322,18 +1322,15 @@
   }
 
   body > .civic-dashboard-map-print-sheet {
-    display: grid !important;
+    display: block !important;
     box-sizing: border-box;
-    width: 100%;
-    max-width: 100%;
-    height: 9.5in;
-    max-height: 9.5in;
-    min-height: 0;
+    width: 7.25in;
+    max-width: none;
+    height: 9in;
+    max-height: none;
     padding: 0;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
-    align-content: start;
-    gap: 0.06in;
+    border: 0;
+    margin: 0;
     overflow: hidden;
     break-after: avoid-page;
     break-before: avoid-page;
@@ -1348,110 +1345,19 @@
     -webkit-print-color-adjust: exact;
   }
 
-  .civic-dashboard-map-print-sheet header > p:first-child {
-    margin: 0 0 0.08in;
-    font-size: 9pt;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-
-  .civic-dashboard-map-print-sheet h1 {
-    margin: 0;
-    color: #11181c;
-    font-size: 18pt;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .civic-dashboard-map-print-sheet header > p:last-child {
-    margin: 0.08in 0 0;
-    color: #3d4551;
-    font-size: 9pt;
-    line-height: 1.35;
-  }
-
   .civic-dashboard-map-print-sheet > img {
     display: block;
     box-sizing: border-box;
-    // iOS Safari does not reliably resolve a percentage max-height on an
-    // intrinsically tall image during paged grid layout. Give the replaced
-    // element the track's definite box and let object-fit scale its pixels.
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    height: 100%;
-    max-height: 100%;
-    min-height: 0;
-    border: 1px solid #565c65;
-    align-self: stretch;
-    justify-self: stretch;
-    object-fit: contain;
-    object-position: center;
-  }
-
-  .civic-dashboard-map-print-sheet__legend {
-    display: flex;
-    min-height: 0;
-    gap: 0.5rem 1.25rem;
-    flex-wrap: wrap;
-    align-items: center;
-    margin: 0;
-    color: #11181c;
-    font-size: 8.5pt;
-    line-height: 1.3;
-  }
-
-  .civic-dashboard-map-print-sheet__legend ul {
-    display: flex;
-    gap: 1rem;
-    margin: 0;
+    width: 7.25in;
+    max-width: none;
+    height: 9in;
+    max-height: none;
     padding: 0;
-    list-style: none;
-  }
-
-  .civic-dashboard-map-print-sheet__legend li {
-    display: flex;
-    gap: 0.3rem;
-    align-items: center;
-  }
-
-  .civic-dashboard-map-print-sheet__legend p {
+    border: 0;
     margin: 0;
-  }
-
-  .civic-dashboard-map-print-sheet__marker--fatal,
-  .civic-dashboard-map-print-sheet__marker--nonfatal {
-    display: inline-block;
-    width: 0.65rem;
-    height: 0.65rem;
-    border: 1px solid currentColor;
-    border-radius: 50%;
-  }
-
-  .civic-dashboard-map-print-sheet__marker--fatal {
-    color: #a23737;
-    background: #ff8a8a;
-  }
-
-  .civic-dashboard-map-print-sheet__marker--nonfatal {
-    color: #817a12;
-    background: #e5dc8e;
-  }
-
-  .civic-dashboard-map-print-sheet footer {
-    display: flex;
-    gap: 0.04in 0.25in;
-    flex-wrap: wrap;
-    margin: 0;
-    padding-top: 0.05in;
-    border-top: 1px solid #a9aeb1;
-    color: #3d4551;
-    font-size: 7.5pt;
-    line-height: 1.25;
-  }
-
-  .civic-dashboard-map-print-sheet footer p {
-    margin: 0;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+    object-fit: contain;
   }
 }
 .civic-legacy-client-fallback {

@@ -27,6 +27,10 @@ import {
   type AggregateLegendModel,
 } from "~/utils/mapLegend";
 import {
+  createMapPrintDescription,
+  createMapPrintImage,
+} from "~/utils/mapPrint";
+import {
   DEFAULT_MAP_LAYERS,
   formatMapLayersParam,
   getBoundaryMapLayer,
@@ -67,6 +71,7 @@ const route = useRoute();
 const router = useRouter();
 const mapContainer = ref<HTMLDivElement | null>(null);
 const printImage = ref<HTMLImageElement | null>(null);
+const printImageAlt = ref("");
 const printMapImage = ref("");
 const printPending = ref(false);
 const printError = ref(false);
@@ -434,14 +439,32 @@ async function printMap(): Promise<void> {
   printError.value = false;
   clearPrintMap();
   try {
-    const image = map.instance.getCanvas().toDataURL("image/png");
-    if (!image.startsWith("data:image/png") || image.length < 32) {
+    const mapImage = map.instance.getCanvas().toDataURL("image/png");
+    if (!mapImage.startsWith("data:image/png") || mapImage.length < 32) {
       throw new Error("The map canvas did not produce a printable image.");
     }
-    printMapImage.value = image;
+    const printOptions = {
+      aggregateLegends: aggregateLegends.value,
+      basemapAttribution: BASEMAP_ATTRIBUTION,
+      dataAttribution: DATA_ATTRIBUTION,
+      fatalCount: mappedFatalCount.value,
+      mapImage,
+      nonfatalCount: mappedNonfatalCount.value,
+      showHeatLegend: props.layers.includes("heat-map"),
+      showPointLegend: props.layers.includes("point-locations"),
+      status: statusText.value,
+      title: printTitle.value,
+    };
+    const composedImage = createMapPrintImage(printOptions);
+    const composedDescription = createMapPrintDescription(printOptions);
+    printMapImage.value = composedImage;
+    printImageAlt.value = composedDescription;
     await nextTick();
-    if (typeof printImage.value?.decode === "function") {
-      await printImage.value.decode().catch(() => undefined);
+    if (!printImage.value) {
+      throw new Error("The printable map image was not created.");
+    }
+    if (typeof printImage.value.decode === "function") {
+      await printImage.value.decode();
     }
     setMapPrintMode(true);
     window.print();
@@ -455,6 +478,7 @@ async function printMap(): Promise<void> {
 
 function clearPrintMap(): void {
   setMapPrintMode(false);
+  printImageAlt.value = "";
   printMapImage.value = "";
 }
 
@@ -1717,112 +1741,11 @@ onBeforeUnmount(() => {
         class="civic-dashboard-map-print-sheet"
         aria-label="Printable map"
       >
-        <header>
-          <p>Philadelphia Gun Violence Dashboard</p>
-          <h1>{{ printTitle }}</h1>
-          <p>{{ statusText }}</p>
-        </header>
         <img
           ref="printImage"
           :src="printMapImage"
-          :alt="mapLabel"
+          :alt="printImageAlt"
         />
-        <div class="civic-dashboard-map-print-sheet__legend">
-          <ul v-if="layers.includes('point-locations')">
-            <li>
-              <span class="civic-dashboard-map-print-sheet__marker--fatal"></span>
-              Fatal — {{ mappedFatalCount.toLocaleString() }}
-            </li>
-            <li>
-              <span class="civic-dashboard-map-print-sheet__marker--nonfatal"></span>
-              Nonfatal — {{ mappedNonfatalCount.toLocaleString() }}
-            </li>
-          </ul>
-          <p v-if="layers.includes('heat-map')">
-            Density: brighter areas indicate a greater concentration of mapped
-            records.
-          </p>
-          <div
-            v-for="legend in aggregateLegends"
-            :key="legend.id"
-            class="civic-dashboard-map-legend civic-dashboard-map-legend--print"
-            role="img"
-            :aria-label="legend.accessibleLabel"
-            :data-map-legend="legend.id"
-            :data-map-legend-scale="legend.scale"
-          >
-            <div class="civic-dashboard-map-legend__label">
-              Map legend
-              <span>{{ legend.title }}</span>
-            </div>
-            <div class="civic-dashboard-map-legend__scale" aria-hidden="true">
-              <div
-                v-if="legend.zeroColor"
-                class="civic-dashboard-map-legend__zero"
-                data-map-legend-zero
-              >
-                <span
-                  class="civic-dashboard-map-legend__zero-swatch"
-                  :style="{ backgroundColor: legend.zeroColor }"
-                ></span>
-                <span data-map-legend-min="empty">0</span>
-              </div>
-              <div class="civic-dashboard-map-legend__range">
-                <div
-                  class="civic-dashboard-map-legend__bar"
-                  :style="legend.barStyle"
-                  data-map-legend-bar
-                ></div>
-                <div
-                  class="civic-dashboard-map-legend__ticks"
-                >
-                  <span
-                    v-for="(tick, tickIndex) in legend.ticks"
-                    :key="tick.value"
-                    data-map-legend-tick
-                    :data-map-legend-min="
-                      tickIndex === 0 ? 'range' : undefined
-                    "
-                    :data-map-legend-mid="
-                      tickIndex > 0 && tickIndex < legend.ticks.length - 1
-                        ? ''
-                        : undefined
-                    "
-                    :data-map-legend-max="
-                      !legend.singleValue &&
-                      tickIndex === legend.ticks.length - 1
-                        ? ''
-                        : undefined
-                    "
-                    :data-value="tick.value"
-                    :class="{
-                      'civic-dashboard-map-legend__tick--first':
-                        !legend.singleValue && tickIndex === 0,
-                      'civic-dashboard-map-legend__tick--last':
-                        !legend.singleValue &&
-                        tickIndex === legend.ticks.length - 1,
-                    }"
-                    :style="{ left: `${tick.position * 100}%` }"
-                  >
-                    {{ tick.label }}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div class="civic-dashboard-map-legend__key" aria-hidden="true">
-              <span v-if="legend.zeroColor && legend.zeroLabel">
-                Gray: {{ legend.zeroLabel.toLowerCase() }}.{{ " " }}
-              </span>
-              <span v-if="legend.singleValue">1 shooting victim.{{ " " }}</span>
-              <span v-else>{{ legend.direction }}{{ " " }}</span>
-              <span>{{ legend.note }}</span>
-            </div>
-          </div>
-        </div>
-        <footer>
-          <p>{{ DATA_ATTRIBUTION }}</p>
-          <p>{{ BASEMAP_ATTRIBUTION }}</p>
-        </footer>
       </section>
     </Teleport>
 
@@ -2391,39 +2314,4 @@ onBeforeUnmount(() => {
   line-height: 1.3;
 }
 
-.civic-dashboard-map-legend--print {
-  position: static;
-  width: 220px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  color: #11181c;
-  background: transparent;
-  box-shadow: none;
-}
-
-.civic-dashboard-map-legend--print .civic-dashboard-map-legend__label {
-  color: #565c65;
-  font-size: 7.5pt;
-}
-
-.civic-dashboard-map-legend--print .civic-dashboard-map-legend__label span {
-  color: #11181c;
-}
-
-.civic-dashboard-map-legend--print .civic-dashboard-map-legend__zero,
-.civic-dashboard-map-legend--print .civic-dashboard-map-legend__ticks {
-  color: #11181c;
-  font-size: 7.5pt;
-}
-
-.civic-dashboard-map-legend--print .civic-dashboard-map-legend__key {
-  color: #3d4551;
-  font-size: 7pt;
-}
-
-.civic-dashboard-map-legend--print
-  .civic-dashboard-map-legend__zero-swatch {
-  border-color: #565c65;
-}
 </style>

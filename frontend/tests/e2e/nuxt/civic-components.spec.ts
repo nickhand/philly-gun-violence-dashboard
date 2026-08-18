@@ -3,51 +3,34 @@ import { expect, test } from "@playwright/test";
 import { mockNuxtExternalServices } from "../support/mockApi";
 
 // Keep this title free of "print": the WebKit project excludes PDF-only tests
-// by title, while this layout-only regression must run there.
-test("keeps a portrait map snapshot inside its one-page sheet", async ({
+// by title, while this atomic-page regression must run there.
+test("keeps one atomic portrait map image inside its bounded sheet", async ({
   page,
 }) => {
-  await page.setViewportSize({ height: 960, width: 720 });
+  await page.setViewportSize({ height: 844, width: 390 });
   await mockNuxtExternalServices(page);
   await page.goto("./about");
   await page.evaluate(async () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 390;
-    canvas.height = 844;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas 2D context is unavailable");
-    context.fillStyle = "#202a2f";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    const pageImage = [
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="1800" viewBox="0 0 1450 1800">',
+      '<rect width="1450" height="1800" fill="#fff"/>',
+      '<rect x="60" y="200" width="1330" height="1420" fill="#202a2f"/>',
+      "</svg>",
+    ].join("");
 
     const sheet = document.createElement("section");
     sheet.className = "civic-dashboard-map-print-sheet";
     sheet.setAttribute("aria-label", "Printable map fixture");
-    sheet.innerHTML = `
-      <header>
-        <p>Philadelphia Gun Violence Dashboard</p>
-        <h1>Philadelphia shooting-victim map — 2026</h1>
-        <p>Shooting-victim locations for 440 of 442 shooting-victim records in 2026.</p>
-      </header>
-      <img alt="Portrait map fixture" src="${canvas.toDataURL("image/png")}">
-      <div class="civic-dashboard-map-print-sheet__legend">
-        <ul>
-          <li><span class="civic-dashboard-map-print-sheet__marker--fatal"></span>Fatal — 94</li>
-          <li><span class="civic-dashboard-map-print-sheet__marker--nonfatal"></span>Nonfatal — 348</li>
-        </ul>
-      </div>
-      <footer>
-        <p>Shooting-victim records: Philadelphia Police Department via OpenDataPhilly.</p>
-        <p>Sources: Esri, HERE, Garmin, FAO, NOAA, USGS, © OpenStreetMap contributors, and the GIS User Community.</p>
-      </footer>
-    `;
+    const image = document.createElement("img");
+    image.alt = "Portrait map fixture";
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(pageImage)}`;
+    sheet.append(image);
     document.documentElement.classList.add(
       "civic-dashboard-map-print-active",
     );
     document.body.classList.add("civic-dashboard-map-print-active");
     document.body.append(sheet);
 
-    const image = sheet.querySelector("img");
-    if (!image) throw new Error("Map fixture image was not created");
     await image.decode();
     await document.fonts.ready;
   });
@@ -56,39 +39,34 @@ test("keeps a portrait map snapshot inside its one-page sheet", async ({
   const geometry = await page
     .locator(".civic-dashboard-map-print-sheet")
     .evaluate((sheet) => {
-      const bounds = (selector: string) => {
-        const element = sheet.querySelector<HTMLElement>(selector);
-        if (!element) return null;
-        const rect = element.getBoundingClientRect();
-        return {
-          bottom: rect.bottom,
-          height: rect.height,
-          left: rect.left,
-          right: rect.right,
-          top: rect.top,
-          width: rect.width,
-        };
-      };
       const rect = sheet.getBoundingClientRect();
       const image = sheet.querySelector<HTMLImageElement>("img");
+      if (!image) throw new Error("Map fixture image was not created");
+      const imageRect = image.getBoundingClientRect();
       const imageStyle = image ? getComputedStyle(image) : null;
       const sheetStyle = getComputedStyle(sheet);
       return {
         clientHeight: sheet.clientHeight,
-        footer: bounds("footer"),
-        header: bounds("header"),
-        image: bounds("img"),
+        clientWidth: sheet.clientWidth,
+        directChildren: Array.from(sheet.children, (child) => child.tagName),
+        image: {
+          bottom: imageRect.bottom,
+          height: imageRect.height,
+          left: imageRect.left,
+          naturalHeight: image.naturalHeight,
+          naturalWidth: image.naturalWidth,
+          right: imageRect.right,
+          top: imageRect.top,
+          width: imageRect.width,
+        },
         imageStyle: imageStyle
           ? {
-              alignSelf: imageStyle.alignSelf,
-              justifySelf: imageStyle.justifySelf,
-              minHeight: imageStyle.minHeight,
-              minWidth: imageStyle.minWidth,
+              display: imageStyle.display,
+              height: imageStyle.height,
               objectFit: imageStyle.objectFit,
+              width: imageStyle.width,
             }
           : null,
-        legend: bounds(".civic-dashboard-map-print-sheet__legend"),
-        rowGap: Number.parseFloat(sheetStyle.rowGap),
         rect: {
           bottom: rect.bottom,
           height: rect.height,
@@ -98,40 +76,39 @@ test("keeps a portrait map snapshot inside its one-page sheet", async ({
           width: rect.width,
         },
         scrollHeight: sheet.scrollHeight,
+        scrollWidth: sheet.scrollWidth,
+        sheetStyle: {
+          display: sheetStyle.display,
+          height: sheetStyle.height,
+          overflow: sheetStyle.overflow,
+          width: sheetStyle.width,
+        },
       };
     });
 
-  expect(geometry.header).not.toBeNull();
-  expect(geometry.image).not.toBeNull();
-  expect(geometry.imageStyle).toEqual({
-    alignSelf: "stretch",
-    justifySelf: "stretch",
-    minHeight: "0px",
-    minWidth: "0px",
-    objectFit: "contain",
+  expect(geometry.directChildren).toEqual(["IMG"]);
+  expect(geometry.image.naturalWidth).toBe(1450);
+  expect(geometry.image.naturalHeight).toBe(1800);
+  expect(geometry.sheetStyle).toEqual({
+    display: "block",
+    height: "864px",
+    overflow: "hidden",
+    width: "696px",
   });
-  expect(geometry.legend).not.toBeNull();
-  expect(geometry.footer).not.toBeNull();
+  expect(geometry.imageStyle).toEqual({
+    display: "block",
+    height: "864px",
+    objectFit: "contain",
+    width: "696px",
+  });
   expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.clientHeight + 1);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
   expect(geometry.image!.left).toBeCloseTo(geometry.rect.left, 0);
   expect(geometry.image!.right).toBeCloseTo(geometry.rect.right, 0);
-  expect(geometry.image!.top).toBeCloseTo(
-    geometry.header!.bottom + geometry.rowGap,
-    0,
-  );
-  expect(geometry.image!.bottom).toBeCloseTo(
-    geometry.legend!.top - geometry.rowGap,
-    0,
-  );
-  expect(geometry.legend!.bottom + geometry.rowGap).toBeCloseTo(
-    geometry.footer!.top,
-    0,
-  );
-  expect(geometry.footer!.bottom).toBeLessThanOrEqual(
-    geometry.rect.bottom + 1,
-  );
-  expect(geometry.rect.height).toBeLessThanOrEqual(9.5 * 96 + 1);
-  expect(geometry.rect.bottom).toBeLessThanOrEqual(960);
+  expect(geometry.image!.top).toBeCloseTo(geometry.rect.top, 0);
+  expect(geometry.image!.bottom).toBeCloseTo(geometry.rect.bottom, 0);
+  expect(geometry.rect.width).toBeCloseTo(7.25 * 96, 0);
+  expect(geometry.rect.height).toBeCloseTo(9 * 96, 0);
 });
 
 test("keeps current-page semantics on a trailing-slash route", async ({ page }) => {

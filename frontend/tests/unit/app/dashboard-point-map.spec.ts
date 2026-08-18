@@ -280,6 +280,16 @@ function legendContract(root: ParentNode, id: AggregateLegendId) {
   };
 }
 
+function composedPrintSvg(root: HTMLElement): SVGSVGElement {
+  expect(Array.from(root.children, (child) => child.tagName)).toEqual(["IMG"]);
+  const source = root.firstElementChild?.getAttribute("src");
+  expect(source).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+  const svgSource = decodeURIComponent(source!.slice(source!.indexOf(",") + 1));
+  const document = new DOMParser().parseFromString(svgSource, "image/svg+xml");
+  expect(document.querySelector("parsererror")).toBeNull();
+  return document.documentElement as unknown as SVGSVGElement;
+}
+
 function deferredResponse() {
   let resolve!: (response: Response) => void;
   let reject!: (reason?: unknown) => void;
@@ -1307,19 +1317,30 @@ describe("DashboardPointMap", () => {
     );
     expect(sheet).not.toBeNull();
     expect(sheet?.parentElement).toBe(document.body);
-    expect(sheet?.querySelector("h1")?.textContent).toBe(
+    const composedSvg = composedPrintSvg(sheet!);
+    const printImage = sheet!.firstElementChild as HTMLImageElement;
+    const printDescription = composedSvg.querySelector("desc")?.textContent;
+    expect(composedSvg.getAttribute("width")).toBe("1450");
+    expect(composedSvg.getAttribute("height")).toBe("1800");
+    expect(composedSvg.querySelector("title")?.textContent).toBe(
       "Philadelphia shooting-victim map — 2026",
     );
-    expect(sheet?.querySelector("img")?.getAttribute("src")).toMatch(
-      /^data:image\/png;base64,/,
+    expect(composedSvg.textContent).toContain("Fatal — 1");
+    expect(composedSvg.textContent).toContain("Nonfatal — 2");
+    expect(composedSvg.querySelectorAll("[data-map-legend]")).toHaveLength(0);
+    expect(printImage.alt).toBe(printDescription);
+    expect(printImage.alt).toContain(
+      "Showing point locations for 3 of 4 shooting-victim records in 2026.",
     );
-    expect(sheet?.textContent).toContain("Fatal — 1");
-    expect(sheet?.textContent).toContain("Nonfatal — 2");
-    expect(sheet?.querySelectorAll("[data-map-legend]")).toHaveLength(0);
-    expect(sheet?.textContent).toContain(
+    expect(printImage.alt).toContain("Fatal: 1. Nonfatal: 2.");
+    expect(composedSvg.textContent).toContain(
       "Shooting-victim records: Philadelphia Police Department via OpenDataPhilly.",
     );
-    expect(sheet?.textContent).toContain("© OpenStreetMap contributors");
+    expect(composedSvg.textContent).toContain("© OpenStreetMap contributors");
+    expect(printImage.alt).toContain(
+      "Shooting-victim records: Philadelphia Police Department via OpenDataPhilly.",
+    );
+    expect(printImage.alt).toContain("© OpenStreetMap contributors");
 
     window.dispatchEvent(new Event("afterprint"));
     await nextTick();
@@ -2072,8 +2093,34 @@ describe("DashboardPointMap", () => {
       ".civic-dashboard-map-print-sheet",
     );
     expect(printSheet).not.toBeNull();
-    expect(legendContract(printSheet!, "choropleth")).toEqual(liveLegend);
-    expect(legendContract(printSheet!, "street-hot-spots")).toBeNull();
+    const composedSvg = composedPrintSvg(printSheet!);
+    const printImage = printSheet!.firstElementChild as HTMLImageElement;
+    expect(composedSvg.textContent).toContain(liveLegend?.title);
+    expect(composedSvg.textContent).toContain(
+      "Darker red means more victims. Linear scale.",
+    );
+    expect(composedSvg.innerHTML).toContain("rgb(255, 245, 240)");
+    expect(composedSvg.innerHTML).toContain("rgb(103, 0, 13)");
+    expect(
+      Array.from(
+        composedSvg.querySelectorAll("text"),
+        (text) => text.textContent,
+      ),
+    ).toContain("0 — No matching victims");
+    expect(composedSvg.textContent).not.toContain(
+      "Shooting victims per street block",
+    );
+    expect(printImage.alt).toBe(
+      composedSvg.querySelector("desc")?.textContent,
+    );
+    expect(printImage.alt).toContain(
+      "Showing 4 of 5 shooting-victim records aggregated by Police Districts in 2026.",
+    );
+    expect(printImage.alt).toContain(liveLegend?.accessibleName);
+    expect(printImage.alt).toContain(
+      "Shooting-victim records: Philadelphia Police Department via OpenDataPhilly.",
+    );
+    expect(printImage.alt).toContain("© OpenStreetMap contributors");
     window.dispatchEvent(new Event("afterprint"));
     await nextTick();
     print.mockRestore();
@@ -2279,13 +2326,34 @@ describe("DashboardPointMap", () => {
       ".civic-dashboard-map-print-sheet",
     );
     expect(printSheet).not.toBeNull();
-    expect(printSheet?.textContent).toContain("Fatal — 4");
-    expect(printSheet?.textContent).toContain("Nonfatal — 1");
-    expect(printSheet?.textContent).toContain(
+    const composedSvg = composedPrintSvg(printSheet!);
+    const printImage = printSheet!.firstElementChild as HTMLImageElement;
+    expect(composedSvg.textContent).toContain("Fatal — 4");
+    expect(composedSvg.textContent).toContain("Nonfatal — 1");
+    expect(composedSvg.textContent).toContain(
       "Density: brighter areas indicate a greater concentration of mapped records.",
     );
-    expect(legendContract(printSheet!, "street-hot-spots")).toEqual(liveLegend);
-    expect(legendContract(printSheet!, "choropleth")).toBeNull();
+    expect(composedSvg.textContent).toContain(liveLegend?.title);
+    expect(composedSvg.textContent).toContain(
+      "Brighter yellow means more victims. Logarithmic scale.",
+    );
+    expect(composedSvg.innerHTML).toContain("#cc4778");
+    expect(composedSvg.innerHTML).toContain("#f0f921");
+    expect(composedSvg.textContent).not.toContain(
+      "Shooting victims by police district",
+    );
+    expect(printImage.alt).toBe(
+      composedSvg.querySelector("desc")?.textContent,
+    );
+    expect(printImage.alt).toContain(
+      "Showing point locations and density for 5 of 5 shooting-victim records in 2026.",
+    );
+    expect(printImage.alt).toContain("Fatal: 4. Nonfatal: 1.");
+    expect(printImage.alt).toContain(liveLegend?.accessibleName);
+    expect(printImage.alt).toContain(
+      "Shooting-victim records: Philadelphia Police Department via OpenDataPhilly.",
+    );
+    expect(printImage.alt).toContain("© OpenStreetMap contributors");
     window.dispatchEvent(new Event("afterprint"));
     await nextTick();
     print.mockRestore();

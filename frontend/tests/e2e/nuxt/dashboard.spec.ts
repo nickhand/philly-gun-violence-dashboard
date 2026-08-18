@@ -27,6 +27,26 @@ function pdfPrintContract(pdf: Buffer) {
   };
 }
 
+async function composedMapSource(sheet: Locator): Promise<string> {
+  const source = await sheet.locator(":scope > img").getAttribute("src");
+  expect(source).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+  return decodeURIComponent(source!.slice(source!.indexOf(",") + 1));
+}
+
+function colorAlternatives(color: string): string[] {
+  const alternatives = [color.toLowerCase()];
+  const channels = color.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (channels) {
+    alternatives.push(
+      `#${channels
+        .slice(1)
+        .map((channel) => Number(channel).toString(16).padStart(2, "0"))
+        .join("")}`,
+    );
+  }
+  return alternatives;
+}
+
 async function openDashboard(
   page: Page,
   { startFromStats = false }: { startFromStats?: boolean } = {},
@@ -88,9 +108,15 @@ async function expectActiveLegendPrint(
   const liveTicks = await liveLegend
     .locator("[data-map-legend-tick]")
     .allTextContents();
-  const liveZeroCount = await liveLegend.locator("[data-map-legend-zero]").count();
+  const liveZeroCount = await liveLegend
+    .locator("[data-map-legend-zero]")
+    .count();
+  const liveTitle = await liveLegend
+    .locator(".civic-dashboard-map-legend__label span")
+    .textContent();
   expect(liveAccessibleName).not.toBeNull();
   expect(liveBarStyle).not.toBeNull();
+  expect(liveTitle).not.toBeNull();
 
   await page.getByRole("button", { name: "Print map" }).click();
   await expect(page.locator("html")).toHaveAttribute(
@@ -98,48 +124,53 @@ async function expectActiveLegendPrint(
     "true",
   );
   const sheet = page.locator(".civic-dashboard-map-print-sheet");
-  const printLegend = sheet.locator(`[data-map-legend="${id}"]`);
-  await expect(printLegend).toHaveAttribute(
-    "aria-label",
-    liveAccessibleName!,
-  );
-  await expect(printLegend.locator("[data-map-legend-bar]")).toHaveAttribute(
-    "style",
-    liveBarStyle!,
-  );
-  await expect(printLegend.locator("[data-map-legend-tick]")).toHaveText(
-    liveTicks,
-  );
-  await expect(printLegend.locator("[data-map-legend-zero]")).toHaveCount(
-    liveZeroCount,
-  );
+  await expect(sheet.locator(":scope > *")).toHaveCount(1);
+  const imageAlt = await sheet.locator(":scope > img").getAttribute("alt");
+  const source = await composedMapSource(sheet);
+  expect(imageAlt).toContain(liveAccessibleName!);
+  expect(imageAlt).toContain(dataAttribution);
+  expect(imageAlt).toContain(basemapAttribution);
+  if (id === "street-hot-spots") {
+    expect(imageAlt).toContain(
+      "Showing point locations for 3 of 4 shooting-victim records in 2026.",
+    );
+    expect(imageAlt).toContain("Fatal: 1. Nonfatal: 2.");
+  }
+  expect(source).toContain(liveAccessibleName!);
+  expect(source).toContain(liveTitle!.trim());
+  for (const color of
+    liveBarStyle!.match(/#[\da-f]{3,8}|rgba?\([^)]+\)/gi) ?? []) {
+    expect(
+      colorAlternatives(color).some((candidate) =>
+        source.toLowerCase().includes(candidate),
+      ),
+      color,
+    ).toBe(true);
+  }
+  for (const tick of liveTicks) expect(source).toContain(tick);
+  if (liveZeroCount > 0) expect(source).toMatch(/no matching victims/i);
+  if (liveTicks.length === 1) {
+    expect(source).toContain("1 shooting victim.");
+  } else if (id === "choropleth") {
+    expect(source).toContain("Darker red means more victims.");
+  } else {
+    expect(source).toContain("Brighter yellow means more victims.");
+  }
 
   await page.setViewportSize({ height: 960, width: 720 });
   await page.emulateMedia({ media: "print" });
   await page.evaluate(async () => {
     await document.fonts.ready;
   });
-  await expect(printLegend).toBeVisible();
-  const containment = await printLegend.evaluate((element) => {
-    const legend = element.getBoundingClientRect();
-    const sheet = element
-      .closest(".civic-dashboard-map-print-sheet")
-      ?.getBoundingClientRect();
-    return sheet
-      ? {
-          bottom: legend.bottom <= sheet.bottom + 1,
-          left: legend.left >= sheet.left - 1,
-          right: legend.right <= sheet.right + 1,
-          top: legend.top >= sheet.top - 1,
-        }
-      : null;
-  });
-  expect(containment).toEqual({
-    bottom: true,
-    left: true,
-    right: true,
-    top: true,
-  });
+  await expect(sheet.locator(":scope > img")).toBeVisible();
+  await expect(sheet.locator(":scope > img")).toHaveJSProperty(
+    "naturalWidth",
+    1450,
+  );
+  await expect(sheet.locator(":scope > img")).toHaveJSProperty(
+    "naturalHeight",
+    1800,
+  );
 
   const pdf = await page.pdf({
     displayHeaderFooter: true,
@@ -184,7 +215,8 @@ test("keeps phone-width map controls compact and readable @maplibre", async ({
   await expect(mapAction.locator("span")).toHaveCSS("height", "1px");
 });
 
-test("prepares one attributed print map without opening the system dialog", async ({
+test("prepares one attributed atomic map sheet without opening the system dialog @maplibre", async ({
+  browserName,
   page,
 }) => {
   await page.addInitScript(() => {
@@ -216,21 +248,28 @@ test("prepares one attributed print map without opening the system dialog", asyn
 
   const sheet = page.locator(".civic-dashboard-map-print-sheet");
   await expect(sheet).toBeAttached();
-  const title = sheet.locator("h1");
-  const legend = sheet.locator(".civic-dashboard-map-print-sheet__legend");
-  const attribution = sheet.locator("footer p");
-  await expect(title).toHaveText(
+  await expect(sheet.locator(":scope > *")).toHaveCount(1);
+  await expect(sheet.locator(":scope > img")).toHaveCount(1);
+  await expect(
+    sheet.locator("header, footer, [data-map-legend]"),
+  ).toHaveCount(0);
+  const composedSource = await composedMapSource(sheet);
+  expect(composedSource).toContain(
     "Philadelphia shooting-victim map — 2026",
   );
-  await expect(legend).toContainText("Fatal — 1");
-  await expect(legend).toContainText("Nonfatal — 2");
-  await expect(legend.locator("[data-map-legend]")).toHaveCount(0);
-  await expect(attribution).toHaveText([dataAttribution, basemapAttribution]);
-  expect(await sheet.locator("img").getAttribute("src")).toMatch(
-    /^data:image\/png;base64,/,
+  expect(composedSource).toContain("Fatal — 1");
+  expect(composedSource).toContain("Nonfatal — 2");
+  expect(composedSource).toContain(dataAttribution);
+  expect(composedSource).toContain(basemapAttribution);
+  const imageAlt = await sheet.locator(":scope > img").getAttribute("alt");
+  expect(imageAlt).toContain(
+    "Showing point locations for 3 of 4 shooting-victim records in 2026.",
   );
+  expect(imageAlt).toContain("Fatal: 1. Nonfatal: 2.");
+  expect(imageAlt).toContain(dataAttribution);
+  expect(imageAlt).toContain(basemapAttribution);
   await expect(page.locator(".maplibregl-map")).toHaveCount(1);
-  await page.setViewportSize({ height: 960, width: 720 });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.emulateMedia({ media: "print" });
   await expect(page.locator("body")).toHaveClass(
     /civic-dashboard-map-print-active/,
@@ -239,26 +278,14 @@ test("prepares one attributed print map without opening the system dialog", asyn
     await document.fonts.ready;
   });
   await expect(sheet).toBeVisible();
-  await expect(title).toBeVisible();
-  await expect(legend).toBeVisible();
-  await expect(attribution.nth(0)).toBeVisible();
-  await expect(attribution.nth(1)).toBeVisible();
   const printContract = await sheet.evaluate((element) => {
-    const image = element.querySelector<HTMLImageElement>("img");
+    const image = element.querySelector<HTMLImageElement>(":scope > img");
     if (!image) return null;
 
-    const sheetStyle = getComputedStyle(element);
     const sheetRect = element.getBoundingClientRect();
     const imageStyle = getComputedStyle(image);
     const imageRect = image.getBoundingClientRect();
-    const containedElements = [
-      element.querySelector<HTMLElement>("header"),
-      image,
-      element.querySelector<HTMLElement>(
-        ".civic-dashboard-map-print-sheet__legend",
-      ),
-      element.querySelector<HTMLElement>("footer"),
-    ].filter((candidate): candidate is HTMLElement => candidate !== null);
+    const sheetStyle = getComputedStyle(element);
     const renderedOutsideSheet = Array.from(
       document.body.querySelectorAll<HTMLElement>("*"),
     )
@@ -276,103 +303,101 @@ test("prepares one attributed print map without opening the system dialog", asyn
       .map((candidate) => candidate.className || candidate.tagName);
 
     return {
-      containedElements: containedElements.map((candidate) => {
-        const bounds = candidate.getBoundingClientRect();
-        return {
-          bottom: bounds.bottom,
-          left: bounds.left,
-          right: bounds.right,
-          top: bounds.top,
-        };
-      }),
+      directChildren: Array.from(element.children, (child) => child.tagName),
       imageBottom: imageRect.bottom,
       imageHeight: imageRect.height,
       imageLeft: imageRect.left,
       imageNaturalHeight: image.naturalHeight,
       imageNaturalWidth: image.naturalWidth,
       imageStyle: {
-        alignSelf: imageStyle.alignSelf,
-        justifySelf: imageStyle.justifySelf,
-        minHeight: imageStyle.minHeight,
-        minWidth: imageStyle.minWidth,
+        display: imageStyle.display,
+        height: imageStyle.height,
         objectFit: imageStyle.objectFit,
+        width: imageStyle.width,
       },
+      imageRight: imageRect.right,
+      imageTop: imageRect.top,
       imageWidth: imageRect.width,
       renderedOutsideSheet,
       rootClientWidth: document.documentElement.clientWidth,
       rootScrollWidth: document.documentElement.scrollWidth,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
       sheetBottom: sheetRect.bottom,
       sheetClientHeight: element.clientHeight,
       sheetClientWidth: element.clientWidth,
-      sheetContentLeft:
-        sheetRect.left +
-        Number.parseFloat(sheetStyle.borderLeftWidth) +
-        Number.parseFloat(sheetStyle.paddingLeft),
-      sheetContentWidth:
-        sheetRect.width -
-        Number.parseFloat(sheetStyle.borderLeftWidth) -
-        Number.parseFloat(sheetStyle.borderRightWidth) -
-        Number.parseFloat(sheetStyle.paddingLeft) -
-        Number.parseFloat(sheetStyle.paddingRight),
       sheetHeight: sheetRect.height,
       sheetLeft: sheetRect.left,
       sheetRight: sheetRect.right,
       sheetScrollHeight: element.scrollHeight,
       sheetScrollWidth: element.scrollWidth,
+      sheetStyle: {
+        display: sheetStyle.display,
+        height: sheetStyle.height,
+        overflow: sheetStyle.overflow,
+        width: sheetStyle.width,
+      },
       sheetTop: sheetRect.top,
       sheetWidth: sheetRect.width,
     };
   });
   expect(printContract).not.toBeNull();
   expect(printContract?.renderedOutsideSheet).toEqual([]);
-  expect(printContract?.rootClientWidth).toBe(720);
-  expect(printContract?.rootScrollWidth).toBeLessThanOrEqual(721);
-  expect(printContract?.sheetLeft).toBeCloseTo(0, 0);
-  expect(printContract?.sheetTop).toBeCloseTo(0, 0);
-  expect(printContract?.sheetWidth).toBeLessThanOrEqual(720);
-  expect(printContract?.sheetHeight).toBeLessThanOrEqual(960);
-  expect(printContract?.sheetBottom).toBeLessThanOrEqual(960);
+  expect(printContract?.rootClientWidth).toBe(390);
+  expect(printContract?.rootScrollWidth).toBeGreaterThanOrEqual(7.25 * 96);
+  expect(printContract?.directChildren).toEqual(["IMG"]);
+  expect(
+    (printContract?.sheetLeft ?? 0) + (printContract?.scrollX ?? 0),
+  ).toBeCloseTo(0, 0);
+  expect(
+    (printContract?.sheetTop ?? 0) + (printContract?.scrollY ?? 0),
+  ).toBeCloseTo(0, 0);
+  expect(printContract?.sheetWidth).toBeCloseTo(7.25 * 96, 0);
+  expect(printContract?.sheetHeight).toBeCloseTo(9 * 96, 0);
+  expect(
+    (printContract?.sheetBottom ?? 0) + (printContract?.scrollY ?? 0),
+  ).toBeCloseTo(9 * 96, 0);
   expect(printContract?.sheetScrollWidth).toBeLessThanOrEqual(
     (printContract?.sheetClientWidth ?? 0) + 1,
   );
   expect(printContract?.sheetScrollHeight).toBeLessThanOrEqual(
     (printContract?.sheetClientHeight ?? 0) + 1,
   );
-  expect(printContract?.containedElements).toHaveLength(4);
-  for (const bounds of printContract?.containedElements ?? []) {
-    expect(bounds.left).toBeGreaterThanOrEqual(printContract?.sheetLeft ?? 0);
-    expect(bounds.right).toBeLessThanOrEqual(
-      (printContract?.sheetRight ?? 0) + 1,
-    );
-    expect(bounds.top).toBeGreaterThanOrEqual(printContract?.sheetTop ?? 0);
-    expect(bounds.bottom).toBeLessThanOrEqual(
-      (printContract?.sheetBottom ?? 0) + 1,
-    );
-  }
-  expect(printContract?.imageWidth).toBeLessThanOrEqual(
-    (printContract?.sheetContentWidth ?? 0) + 1,
-  );
-  expect(printContract?.imageWidth).toBeCloseTo(
-    printContract?.sheetContentWidth ?? Number.POSITIVE_INFINITY,
-    0,
-  );
+  expect(printContract?.imageNaturalWidth).toBe(1450);
+  expect(printContract?.imageNaturalHeight).toBe(1800);
   expect(printContract?.imageLeft).toBeCloseTo(
-    printContract?.sheetContentLeft ?? Number.POSITIVE_INFINITY,
+    printContract?.sheetLeft ?? 0,
     0,
   );
-  expect(printContract?.imageNaturalWidth).toBeGreaterThan(0);
-  expect(printContract?.imageNaturalHeight).toBeGreaterThan(0);
-  expect(printContract?.imageHeight).toBeGreaterThan(0);
-  expect(printContract?.imageBottom).toBeLessThanOrEqual(
-    printContract?.sheetBottom ?? 0,
+  expect(printContract?.imageRight).toBeCloseTo(
+    printContract?.sheetRight ?? 0,
+    0,
   );
+  expect(printContract?.imageTop).toBeCloseTo(printContract?.sheetTop ?? 0, 0);
+  expect(printContract?.imageBottom).toBeCloseTo(
+    printContract?.sheetBottom ?? 0,
+    0,
+  );
+  expect(printContract?.imageWidth).toBeCloseTo(7.25 * 96, 0);
+  expect(printContract?.imageHeight).toBeCloseTo(9 * 96, 0);
   expect(printContract?.imageStyle).toEqual({
-    alignSelf: "stretch",
-    justifySelf: "stretch",
-    minHeight: "0px",
-    minWidth: "0px",
+    display: "block",
+    height: "864px",
     objectFit: "contain",
+    width: "696px",
   });
+  expect(printContract?.sheetStyle).toEqual({
+    display: "block",
+    height: "864px",
+    overflow: "hidden",
+    width: "696px",
+  });
+
+  if (browserName !== "chromium") {
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await expect(sheet).not.toBeAttached();
+    return;
+  }
 
   const letterPdf = await page.pdf({
     displayHeaderFooter: true,

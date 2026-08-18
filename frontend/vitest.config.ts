@@ -44,6 +44,7 @@ export default defineConfig({
         "app/utils/geocoding.ts",
         "app/utils/mapLayers.ts",
         "app/utils/mapOverlays.ts",
+        "app/utils/mapPrint.ts",
         "app/utils/mapView.ts",
         "app/utils/shootingDownloads.ts",
         "app/utils/shootingFilters.ts",
