@@ -74,7 +74,14 @@ export default defineConfig({
       name: "nuxt-firefox-core",
       testMatch: crossBrowserCore,
       grepInvert: chromiumOnlyPrint,
-      use: { ...devices["Desktop Firefox"] },
+      use: {
+        ...devices["Desktop Firefox"],
+        launchOptions: {
+          firefoxUserPrefs: {
+            "webgl.force-enabled": true,
+          },
+        },
+      },
     },
     {
       name: "nuxt-webkit-core",

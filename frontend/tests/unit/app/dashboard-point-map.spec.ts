@@ -56,6 +56,7 @@ const maplibre = vi.hoisted(() => {
     let center = options.center as [number, number];
     let zoom = options.zoom as number;
     const canvas = document.createElement("canvas");
+    canvas.setAttribute("aria-label", "Map");
     const instance: Record<string, any> = {
       options,
       addControl: vi.fn(),
@@ -808,6 +809,39 @@ describe("DashboardPointMap", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("owns the MapLibre canvas description before style load and keeps it current", async () => {
+    const wrapper = mount(DashboardPointMap, {
+      props: {
+        apiBaseUrl: "https://api.example.test",
+        boundaryOpacity: 0.5,
+        fatalOnly: false,
+        initialView: DEFAULT_MAP_VIEW,
+        layers: DEFAULT_MAP_LAYERS,
+        records: recordResult(),
+        searchLocation: null,
+        year: 2026,
+      },
+    });
+
+    await vi.waitFor(() => expect(maplibre.Map).toHaveBeenCalledTimes(1));
+    const instance = maplibre.instances[0];
+    expect(instance.addSource).not.toHaveBeenCalled();
+    expect(instance.getCanvas().getAttribute("aria-label")).toBe(
+      "Map showing 3 shooting-victim locations in Philadelphia for 2026",
+    );
+    expect(instance.getCanvas().getAttribute("aria-describedby")).toBe(
+      "dashboard-point-map-description",
+    );
+
+    await wrapper.setProps({ records: recordResult([shootingRows[0]]) });
+    expect(instance.addSource).not.toHaveBeenCalled();
+    expect(instance.getCanvas().getAttribute("aria-label")).toBe(
+      "Map showing 1 shooting-victim location in Philadelphia for 2026",
+    );
+
+    wrapper.unmount();
   });
 
   it("announces loaded and unmapped records, configures the point map, and cleans up", async () => {

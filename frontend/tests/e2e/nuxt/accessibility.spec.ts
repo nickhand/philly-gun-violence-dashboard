@@ -19,6 +19,9 @@ test("the hydrated Nuxt explorer and open native controls pass WCAG checks @a11y
     "aria-busy",
     "false",
   );
+  await expect(page.locator(".civic-dashboard-point-map")).toHaveClass(
+    /civic-dashboard-point-map--ready/,
+  );
   await expect(page.locator(".maplibregl-canvas")).toHaveAttribute(
     "aria-label",
     /shooting-victim locations/,

@@ -329,6 +329,16 @@ const mapLabel = computed(() => {
   return `Map showing ${locations} in Philadelphia for ${yearLabel.value}`;
 });
 
+function syncMapCanvasAccessibility(instance = activeMap?.instance): void {
+  if (!instance) return;
+  const canvas = instance.getCanvas();
+  canvas.setAttribute("aria-label", mapLabel.value);
+  canvas.setAttribute(
+    "aria-describedby",
+    "dashboard-point-map-description",
+  );
+}
+
 const statusText = computed(() => {
   const config = boundaryConfig.value;
   if (config) {
@@ -1085,6 +1095,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       attributionControl: false,
       preserveDrawingBuffer: true,
     });
+    syncMapCanvasAccessibility(instance);
     const onMoveEnd = () => {
       const center = instance.getCenter();
       const map = formatMapViewParam({
@@ -1335,10 +1346,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
         candidate.timer = null;
         candidate.ready = true;
         instance.on("moveend", onMoveEnd);
-        instance.getCanvas().setAttribute("aria-label", mapLabel.value);
-        instance
-          .getCanvas()
-          .setAttribute("aria-describedby", "dashboard-point-map-description");
+        syncMapCanvasAccessibility(instance);
         syncSearchLocation();
         void installCityBoundary(candidate, currentLoadId);
         void syncBoundaryOverlay();
@@ -1405,7 +1413,6 @@ watch(
       | GeoJSONSource
       | undefined;
     source?.setData(records.points);
-    map.instance.getCanvas().setAttribute("aria-label", mapLabel.value);
     void syncBoundaryOverlay();
     scheduleStreetHotSpots();
   },
@@ -1423,9 +1430,6 @@ watch(
   () => formatMapLayersParam(props.layers),
   () => {
     syncPrimaryLayerVisibility();
-    if (activeMap?.ready) {
-      activeMap.instance.getCanvas().setAttribute("aria-label", mapLabel.value);
-    }
   },
 );
 
@@ -1464,10 +1468,8 @@ watch(
   },
 );
 
-watch(mapLabel, (label) => {
-  if (activeMap?.ready) {
-    activeMap.instance.getCanvas().setAttribute("aria-label", label);
-  }
+watch(mapLabel, () => {
+  syncMapCanvasAccessibility();
 });
 
 watch(

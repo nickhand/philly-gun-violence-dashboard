@@ -61,6 +61,9 @@ async function openDashboard(
 
   const explorer = page.locator(".civic-dashboard-browser-explorer");
   await expect(explorer).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".civic-dashboard-point-map")).toHaveClass(
+    /civic-dashboard-point-map--ready/,
+  );
   const sidebar = page.getByRole("complementary", {
     name: "Map filters and controls",
   });
@@ -644,11 +647,15 @@ test("hydrates the Nuxt explorer and shares filters with its map, histogram, cha
   );
   expect(emptyNoteBox?.height).toBeCloseTo(initialNoteBox?.height ?? -1, 1);
   expect(filteredHeaderHeight).toBeCloseTo(initialHeaderHeight, 1);
-  await filterPanels
+  const genderReset = filterPanels
     .nth(0)
     .locator("..")
-    .getByRole("button", { name: "Reset Gender filter" })
-    .click();
+    .getByRole("button", { name: "Reset Gender filter" });
+  await genderReset.click();
+  await expect(genderReset).toHaveCount(0);
+  await expect(
+    sidebar.getByText(/Showing locations for\s*3 shooting victims/),
+  ).toBeVisible();
   await filterPanels.nth(0).locator("summary").click();
 
   const agePanel = filterPanels.filter({
