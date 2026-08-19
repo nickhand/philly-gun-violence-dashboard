@@ -75,4 +75,4 @@ jobs:
             --env AWS_BUCKET_NAME=ci-smoke \
             --env AWS_REGION=us-east-1 \
             philly-gun-violence-api:ci \
-            python -c "import os; from app.main import app; paths = {path for route in app.routes if (path := getattr(route, 'path', None)) is not None}; assert {'/health', '/ready', '/stats.json'} <= paths; assert not os.access('/app/api', os.W_OK); assert not os.access('/app/.venv', os.W_OK)"
+            python -c "import os; from app.main import app; paths = set(app.openapi()['paths']); assert {'/health', '/ready', '/stats.json'} <= paths; assert not os.access('/app/api', os.W_OK); assert not os.access('/app/.venv', os.W_OK)"
