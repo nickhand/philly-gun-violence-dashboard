@@ -1,5 +1,5 @@
-FROM python:3.13-slim-trixie
-COPY --from=ghcr.io/astral-sh/uv:0.12.0 /uv /uvx /bin/
+FROM python:3.13-slim-trixie@sha256:ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a
+COPY --from=ghcr.io/astral-sh/uv:0.12.0@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 /uv /uvx /bin/
 
 # Install the project into `/app`
 WORKDIR /app
@@ -18,6 +18,9 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
 # Use a shared virtual environment for both projects.
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+
+# Install browser binaries into a fixed runtime-readable path.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Copy lockfiles and minimal sources first to maximize cache reuse.
 COPY packages/aws-batch-scraper/pyproject.toml packages/aws-batch-scraper/uv.lock packages/aws-batch-scraper/README.md /app/aws-batch-scraper/
@@ -48,9 +51,27 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Install Playwright browser binaries and system dependencies for portal scraping.
 RUN uv run --project /app/etl playwright install chromium --with-deps
 
+# Runtime state belongs on the task's writable temporary volume. Application
+# code, the virtual environment, and browser binaries remain image-owned and
+# can therefore run with a read-only root filesystem. Set these after the build
+# steps so uv's build cache and bytecode compilation retain their intended paths.
+ENV HOME=/tmp
+ENV XDG_CACHE_HOME=/tmp/.cache
+ENV XDG_CONFIG_HOME=/tmp/.config
+ENV TMPDIR=/tmp
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# The scraper does not need root privileges at runtime. Keep installed code and
+# browser executables owned by root; the app user only needs to read/execute them.
+RUN groupadd --system app \
+    && useradd --system --gid app --home-dir /tmp --no-create-home \
+        --shell /usr/sbin/nologin app
+
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []
 
 # Runs the SQS worker — long-polls the queue, scrapes incidents, writes results to S3
 WORKDIR /app/etl
-CMD ["uv", "run", "gv-dashboard-etl", "courts", "worker"]
+USER app
+CMD ["gv-dashboard-etl", "courts", "worker"]

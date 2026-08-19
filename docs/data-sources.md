@@ -19,14 +19,16 @@ metadata describing freshness, row counts, and source health.
 - Caveat: homicide totals include all homicide types, not only firearm-related
   incidents.
 
-## Court Case Matches
+## Court Search Results
 
 - Source: Pennsylvania Unified Judicial System public web portal.
 - Update cadence: weekly or manually triggered scraper runs.
 - Processing: incident identifiers are searched in the portal, per-incident scrape
-  results are written to S3, then aggregated into a processed court-status dataset.
-- Caveat: matches depend on portal availability, source data latency, and the
-  presence/quality of incident identifiers.
+  results are written to S3, then aggregated into a nullable search-result flag.
+- Caveat: a positive flag means only that the automated search returned a result;
+  it does not establish a relationship or report a case outcome. A negative flag
+  requires the portal's explicit no-results response and does not prove that no
+  case exists. Unavailable or inconclusive searches remain unknown.
 
 ## Boundaries And Streets
 

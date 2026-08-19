@@ -544,6 +544,10 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
   try {
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /^text\/html/);
+    assert.equal(
+      response.headers.get("strict-transport-security"),
+      "max-age=31536000",
+    );
     assert.equal(document.querySelectorAll("main").length, 1);
     assert.equal(document.querySelectorAll("h1").length, 1);
     assert.equal(
@@ -1568,7 +1572,7 @@ test("content routes render complete, unique crawler responses", async () => {
       );
       assert.match(
         normalizedText(considerations),
-        /court-search flag.*does not prove.*charged.*case ended.*tied to the shooting/i,
+        /court-search flag.*does not prove.*charged.*case ended.*relates to a victim/i,
       );
       assert.equal(
         normalizedText(geographicReferences?.querySelector("h3")),

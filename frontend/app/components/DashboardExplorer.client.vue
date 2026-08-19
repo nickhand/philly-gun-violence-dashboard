@@ -540,7 +540,7 @@ onBeforeUnmount(() => {
                     @change="updateBooleanFilter('hasCourtCase', $event)"
                   />
                   <label class="usa-checkbox__label" for="dashboard-court-filter">
-                    Has public court record
+                    Court search returned a result
                   </label>
                 </div>
               </div>

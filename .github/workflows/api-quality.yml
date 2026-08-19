@@ -6,44 +6,59 @@ on:
       - "packages/api/**"
       - "packages/dashboard-utils/**"
       - ".dockerignore"
-      - "justfile"
+      - "fly.toml"
+      - "fly.scheduler.toml"
+      - "Justfile"
       - "just/python.just"
       - "ty.toml"
+      - "uv.toml"
       - ".github/workflows/api-quality.yml"
+      - ".github/workflows/production-smoke.yml"
   push:
     branches: [main]
     paths:
       - "packages/api/**"
       - "packages/dashboard-utils/**"
       - ".dockerignore"
-      - "justfile"
+      - "fly.toml"
+      - "fly.scheduler.toml"
+      - "Justfile"
       - "just/python.just"
       - "ty.toml"
+      - "uv.toml"
       - ".github/workflows/api-quality.yml"
+      - ".github/workflows/production-smoke.yml"
 
 concurrency:
   group: api-quality-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: API tests, static checks, and image smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: packages/api
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.12.0"
+      - name: Audit production dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/api-requirements.txt"
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/api-requirements.txt" --disable-pip --progress-spinner off --strict
       - name: Ruff lint
-        run: uv run --group dev ruff check app scripts
+        run: uv run --group dev ruff check app scripts tests
       - name: Ruff format
-        run: uv run --group dev ruff format --check app scripts
+        run: uv run --group dev ruff format --check app scripts tests
       - name: ty
         run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github app
       - name: Tests
@@ -53,11 +68,11 @@ jobs:
         run: docker build --file packages/api/Dockerfile --tag philly-gun-violence-api:ci .
       - name: Smoke-test production image
         working-directory: .
-        run: >-
-          docker run --rm
-          --env ENV=prod
-          --env AWS_BUCKET_NAME=ci-smoke
-          --env AWS_REGION=us-east-1
-          philly-gun-violence-api:ci
-          python -c
-          "from app.main import app; paths = {route.path for route in app.routes}; assert {'/health', '/stats.json'} <= paths"
+        run: |
+          test "$(docker inspect --format '{{.Config.User}}' philly-gun-violence-api:ci)" = "app"
+          docker run --rm \
+            --env ENV=prod \
+            --env AWS_BUCKET_NAME=ci-smoke \
+            --env AWS_REGION=us-east-1 \
+            philly-gun-violence-api:ci \
+            python -c "import os; from app.main import app; paths = {route.path for route in app.routes}; assert {'/health', '/ready', '/stats.json'} <= paths; assert not os.access('/app/api', os.W_OK); assert not os.access('/app/.venv', os.W_OK)"

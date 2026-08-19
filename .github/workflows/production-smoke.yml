@@ -1,0 +1,113 @@
+name: Production smoke and freshness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Public application and data contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      API_BASE_URL: https://philly-gun-violence-dashboard-api.fly.dev
+      APP_BASE_URL: https://www.nickhand.dev/philly-gun-violence-map
+      DOWNLOADS_BASE_URL: https://d2cemhjkwenjmb.cloudfront.net
+      # Omission must fail closed after migration. Set the repository variable
+      # explicitly to false only during the documented reader-first window.
+      EXPECT_ATOMIC_RELEASE: ${{ vars.EXPECT_ATOMIC_RELEASE || 'true' }}
+    steps:
+      - name: Check API liveness, readiness, and statistics
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
+            "${API_BASE_URL}/health" | jq -e '.status == "ok"'
+          # The statistics route exercises the pointer-aware lazy refresh before
+          # readiness verifies that no upstream refresh attempt degraded.
+          curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
+            "${API_BASE_URL}/stats.json" | jq -e '.current_year and .current_total >= 0 and (.years | length > 0)'
+          ready="${RUNNER_TEMP}/ready.json"
+          curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
+            "${API_BASE_URL}/ready" --output "${ready}"
+          jq -e '.status == "ready" and (.refresh_failures | length == 0) and (.datasets.shootings.current == true) and (.datasets.homicides.current == true)' "${ready}"
+          if [[ "${EXPECT_ATOMIC_RELEASE}" == "true" ]]; then
+            jq -e '.datasets.shootings.source == "release" and .datasets.homicides.source == "release" and .datasets.boundaries.source == "release"' "${ready}"
+          fi
+      - name: Check public pages and indexing
+        run: |
+          set -euo pipefail
+          for path in / /stats /data /methodology /about; do
+            body="${RUNNER_TEMP}/page$(echo "${path}" | tr '/' '_').html"
+            headers="${body}.headers"
+            effective_url="$(curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
+              --location --max-redirs 3 --write-out '%{url_effective}' \
+              "${APP_BASE_URL}${path}" --output "${body}")"
+            # Fetch the final URL directly so an intermediate redirect cannot
+            # satisfy the deployed response-header contract.
+            curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
+              --dump-header "${headers}" "${effective_url}" --output /dev/null
+            grep -Eiq '<!doctype html|<html' "${body}"
+            grep -Eiq '<title>[^<]+' "${body}"
+            grep -Eiq '<main[ >]' "${body}"
+            if grep -Eiq "<meta[^>]+name=['\"]robots['\"][^>]+noindex" "${body}"; then
+              echo "Production page unexpectedly contains noindex: ${path}" >&2
+              exit 1
+            fi
+            if grep -Eiq '^x-robots-tag:.*noindex' "${headers}"; then
+              echo "Production response unexpectedly contains noindex: ${path}" >&2
+              exit 1
+            fi
+            grep -Eiq '^strict-transport-security:[[:space:]]*max-age=31536000([;[:space:]]|$)' "${headers}"
+            grep -Eiq "^content-security-policy:.*frame-ancestors[[:space:]]+'none'" "${headers}"
+            grep -Eiq '^x-content-type-options:[[:space:]]*nosniff[[:space:]]*$' "${headers}"
+            grep -Eiq '^x-frame-options:[[:space:]]*DENY[[:space:]]*$' "${headers}"
+          done
+      - name: Check immutable public downloads
+        run: |
+          set -euo pipefail
+          manifest="${RUNNER_TEMP}/manifest.json"
+          curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
+            "${DOWNLOADS_BASE_URL}/manifest.json" --output "${manifest}"
+          jq -e '.schema_version == 2 and (.downloads | length == 9) and ([.downloads[].path | startswith("releases/")] | all)' "${manifest}"
+          if [[ "${EXPECT_ATOMIC_RELEASE}" == "true" ]]; then
+            jq -e '.application_data.schema_version == 1 and .application_data.data.key and .application_data.data.sha256 and .application_data.metadata.key and .application_data.metadata.sha256' "${manifest}"
+          fi
+          jq -r '.downloads[].path' "${manifest}" | while IFS= read -r path; do
+            curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 60 \
+              --location --max-redirs 3 --head "${DOWNLOADS_BASE_URL}/${path}" --output /dev/null
+          done
+      - name: Report successful external heartbeat
+        env:
+          HEARTBEAT_URL: ${{ secrets.PRODUCTION_SMOKE_HEARTBEAT_URL }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import time
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlsplit
+          from urllib.request import urlopen
+
+          heartbeat_url = os.environ.get("HEARTBEAT_URL", "")
+          if not heartbeat_url:
+              raise SystemExit("PRODUCTION_SMOKE_HEARTBEAT_URL is required")
+          parsed = urlsplit(heartbeat_url)
+          if parsed.scheme != "https" or not parsed.hostname:
+              raise SystemExit("PRODUCTION_SMOKE_HEARTBEAT_URL must be an HTTPS URL")
+
+          for attempt in range(4):
+              try:
+                  with urlopen(heartbeat_url, timeout=30) as response:  # noqa: S310
+                      if not 200 <= response.status < 300:
+                          raise RuntimeError("heartbeat returned a non-success status")
+                  break
+              except (HTTPError, URLError, TimeoutError, RuntimeError):
+                  if attempt == 3:
+                      raise SystemExit("external heartbeat request failed") from None
+                  time.sleep(2**attempt)
+          PY

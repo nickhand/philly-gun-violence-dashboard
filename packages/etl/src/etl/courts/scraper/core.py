@@ -100,7 +100,11 @@ def _parse_results(html: str) -> list[PortalResult] | None:
 
         record = dict.fromkeys(RESULT_FIELDS, "")
         record.update(zip(RESULT_FIELDS, cells[: len(RESULT_FIELDS)], strict=False))
-        links = [a.attrs.get("href") for a in row.query("a") if a.attrs and a.attrs.get("href")]
+        links: list[str] = []
+        for anchor in row.query("a"):
+            href = anchor.attrs.get("href") if anchor.attrs else None
+            if isinstance(href, str) and href:
+                links.append(href)
         if links:
             record["court_summary_url"] = _absolute_portal_url(links[-1])
             record["docket_sheet_url"] = _absolute_portal_url(links[-2] if len(links) >= 2 else "")

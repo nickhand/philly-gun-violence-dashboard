@@ -1,7 +1,6 @@
 from typing import Literal
 
-import numpy as np
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from dashboard_utils.constants import DATE_FORMAT
 from dashboard_utils.models.geojson import GeoJSONFeature, GeoJSONFeatureCollection
@@ -20,6 +19,8 @@ AgeGroupOptions = Literal[
 
 class ShootingVictimsSchema(BaseModel):
     """Schema for the shooting victims dataset."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     dc_key: str = Field(
         title="Incident number",
@@ -49,9 +50,16 @@ class ShootingVictimsSchema(BaseModel):
         title="Age group",
         description="The victim's age group (or unknown).",
     )
-    has_court_case: bool = Field(
-        title="Associated Court Case?",
-        description="Does the incident number have an associated court case?",
+    has_court_case: StrictBool | None = Field(
+        title="Public court search result",
+        description=(
+            "Whether an automated incident-number search of Pennsylvania's public court "
+            "portal returned a result. True means the search returned a result; false "
+            "means a completed search returned an explicit no-results response; null "
+            "means the search was unavailable, incomplete, or inconclusive. This field "
+            "does not establish a relationship between a court record and a shooting "
+            "victim or report a case outcome."
+        ),
     )
     age: float | None = Field(
         title="Age",
@@ -98,14 +106,18 @@ class ShootingVictimsSchema(BaseModel):
         description="The ID of the street segment where the incident occurred, if available.",
     )
 
-    @field_validator("dc_key")
+    @field_validator("dc_key", mode="before")
     @classmethod
-    def verify_dc_key(cls, v: str) -> str:
-        if not isinstance(v, str):
-            assert not np.isnan(v), "cannot be NaN"
-        else:
-            assert not v.endswith(".0"), "bad string formatting"
-        return v
+    def verify_dc_key(cls, value: object) -> str:
+        """Require the source incident identifier to be a normalized string."""
+        if not isinstance(value, str):
+            raise ValueError("dc_key must be a string")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("dc_key must not be blank")
+        if normalized.endswith(".0"):
+            raise ValueError("dc_key must not use floating-point formatting")
+        return normalized
 
 
 class ShootingFeature(GeoJSONFeature[ShootingVictimsSchema]):

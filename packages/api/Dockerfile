@@ -1,5 +1,5 @@
-FROM python:3.13-slim-trixie
-COPY --from=ghcr.io/astral-sh/uv:0.12.0 /uv /uvx /bin/
+FROM python:3.13-slim-trixie@sha256:ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a
+COPY --from=ghcr.io/astral-sh/uv:0.12.0@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -18,13 +18,10 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 # Use a shared virtual environment for both projects.
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
-# Install a verified Supercronic release for production cron jobs. Do not use
-# the mutable releases/latest URL in a reproducible release image.
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Install a pinned and verified Supercronic binary for the external scheduler.
 ARG SUPERCRONIC_URL=https://github.com/aptible/supercronic/releases/download/v0.2.49/supercronic-linux-amd64
-ARG SUPERCRONIC_SHA1SUM=e63c11a9726b775a6a11801e81af4f3fb926aa68
-RUN curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic \
-    && echo "$SUPERCRONIC_SHA1SUM  /usr/local/bin/supercronic" | sha1sum -c - \
+ARG SUPERCRONIC_SHA256SUM=a53ae236602c7338aba3fbaff40bda6300eae3b9fedb8261eb06cfe3724430c1
+RUN python -c "import sys; from hashlib import sha256; from pathlib import Path; from urllib.request import urlopen; data = urlopen('$SUPERCRONIC_URL', timeout=60).read(); actual = sha256(data).hexdigest(); expected = '$SUPERCRONIC_SHA256SUM'; actual == expected or sys.exit(f'Supercronic checksum mismatch: {actual}'); Path('/usr/local/bin/supercronic').write_bytes(data)" \
     && chmod +x /usr/local/bin/supercronic
 
 # Copy lockfiles and minimal sources first to maximize cache reuse.
@@ -43,12 +40,25 @@ COPY packages/api/ /app/api/
 # Install the source code into the environment.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project /app/dashboard-utils --locked && \
-    uv sync --project /app/api --locked 
+    uv sync --project /app/api --locked
+
+# Runtime writes belong on Fly's temporary filesystem. Keep application code,
+# the shared virtual environment, and scheduler configuration image-owned so a
+# compromised non-root process cannot rewrite the executable deployment.
+ENV HOME=/tmp
+ENV XDG_CACHE_HOME=/tmp/.cache
+ENV XDG_CONFIG_HOME=/tmp/.config
+ENV TMPDIR=/tmp
+ENV PYTHONDONTWRITEBYTECODE=1
+RUN groupadd --system app \
+    && useradd --system --gid app --home-dir /tmp --no-create-home \
+        --shell /usr/sbin/nologin app
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app/api
+USER app
 EXPOSE 8080
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

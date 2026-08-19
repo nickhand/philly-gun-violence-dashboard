@@ -69,12 +69,20 @@ class MockPage:
 
     def query_selector_all(self, selector: str) -> list[MagicMock]:
         """Mock query_selector_all."""
-        if selector == "#caseSearchResultGrid tbody tr":
-            # Count actual rows in fixture
+        if selector in {
+            "#caseSearchResultGrid tbody tr",
+            ("#caseSearchResultGrid .no-records, #caseSearchResultGrid .no-results-message"),
+        }:
             from justhtml import JustHTML
 
             doc = JustHTML(self._content)
-            rows = doc.query("#caseSearchResultGrid tbody tr")
+            if selector == "#caseSearchResultGrid tbody tr":
+                rows = doc.query(selector)
+            else:
+                rows = [
+                    *doc.query("#caseSearchResultGrid .no-records"),
+                    *doc.query("#caseSearchResultGrid .no-results-message"),
+                ]
             mock_rows = []
             for row in rows:
                 text = row.to_text(strip=True)
@@ -82,6 +90,10 @@ class MockPage:
                     mock_row = MagicMock()
                     mock_row.inner_text.return_value = text
                     mock_row.get_attribute.return_value = row.attrs.get("class")
+                    style = str(row.attrs.get("style", "")).replace(" ", "").lower()
+                    mock_row.is_visible.return_value = (
+                        "display:none" not in style and "hidden" not in row.attrs
+                    )
                     mock_rows.append(mock_row)
             return mock_rows
         return []
@@ -194,6 +206,80 @@ class TestClassifierWithFixtures:
         assert result.marker_hits is not None
         assert result.marker_hits.get("has_rows") is False
         assert result.marker_hits.get("no_results_text") is True
+
+    def test_real_result_rows_win_over_stray_no_results_text(self):
+        """A hidden/template marker must not erase a visible result row."""
+        content = """
+        <div style="display:none">No results found</div>
+        <div id="caseSearchResultGrid">
+          <table>
+            <tbody><tr><td>CP-51-CR-0000001-2026</td></tr></tbody>
+          </table>
+        </div>
+        """
+        page = MockPage(content)
+        observer = NetworkObserver()
+
+        with patch.object(page, "wait_for_selector", return_value=MagicMock()):
+            result = classify_case_search(page, observer, results_wait_timeout_ms=100)
+
+        assert result.classification == Classification.HAS_RESULTS
+        assert result.row_count == 1
+        assert result.marker_hits is not None
+        assert result.marker_hits.get("no_results_text") is False
+
+    def test_hidden_external_marker_and_empty_grid_is_unknown(self):
+        """Unrelated template text cannot prove that the current search had no results."""
+        content = """
+        <div style="display:none">No results found</div>
+        <div id="caseSearchResultGrid"><table><tbody></tbody></table></div>
+        """
+        page = MockPage(content)
+        observer = NetworkObserver()
+
+        with patch.object(page, "wait_for_selector", return_value=MagicMock()):
+            result = classify_case_search(page, observer, results_wait_timeout_ms=100)
+
+        assert result.classification == Classification.UI_DRIFT_OR_UNKNOWN
+        assert result.row_count == 0
+        assert result.marker_hits is not None
+        assert result.marker_hits.get("no_results_text") is False
+
+    def test_visible_empty_grid_is_retryable_unknown(self):
+        """An empty grid is not proof that the portal found zero records."""
+        content = """
+        <div id="caseSearchResultGrid">
+          <table><tbody></tbody></table>
+        </div>
+        """
+        page = MockPage(content)
+        observer = NetworkObserver()
+
+        with patch.object(page, "wait_for_selector", return_value=MagicMock()):
+            result = classify_case_search(page, observer, results_wait_timeout_ms=100)
+
+        assert result.classification == Classification.UI_DRIFT_OR_UNKNOWN
+        assert result.row_count == 0
+        assert result.is_retryable is True
+
+    def test_row_inspection_error_is_retryable_unknown(self):
+        """DOM read failures must not collapse to a permanent zero-result result."""
+        content = """
+        <div>No results found</div>
+        <div id="caseSearchResultGrid"><table><tbody></tbody></table></div>
+        """
+        page = MockPage(content)
+        observer = NetworkObserver()
+
+        with (
+            patch.object(page, "wait_for_selector", return_value=MagicMock()),
+            patch.object(page, "query_selector_all", side_effect=RuntimeError("detached DOM")),
+        ):
+            result = classify_case_search(page, observer, results_wait_timeout_ms=100)
+
+        assert result.classification == Classification.UI_DRIFT_OR_UNKNOWN
+        assert result.is_retryable is True
+        assert result.error_message == "detached DOM"
 
     def test_classify_blocked_interstitial(self):
         """Should classify blocked page as SOFT_BLOCKED."""

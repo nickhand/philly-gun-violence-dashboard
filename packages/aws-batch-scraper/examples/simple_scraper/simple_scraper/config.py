@@ -15,6 +15,7 @@ class SimpleSubmitterConfig(SimpleWorkerConfig, SubmitterConfig):
     """Submitter defaults for the example scraper."""
 
     ecs_cluster_name: str = "simple-scraper"
-    ecs_task_definition: str = "simple-scraper"
+    ecs_task_definition: str = "simple-scraper:1"
+    ecs_monitor_task_definition: str = "simple-scraper-monitor:1"
     ecs_container_name: str = "simple-scraper"
     ecs_task_count: int = 1

@@ -25,14 +25,58 @@ app = create_cli(
 def process() -> None:
     """Aggregate scraper results and write processed courts flags.
 
-    Reads all results/*.json from S3, transforms to dc_key/has_court_case flags,
-    and writes processed/scraped_courts_data.csv plus portal_results.json.
+    Reads one completed run's inputs/results from S3, transforms them to
+    nullable court-search flags, and writes the processed flags and diagnostics.
     """
+    from uuid import uuid4
+
+    from aws_batch_scraper.aggregate import read_run_items
+    from aws_batch_scraper.lease import claim_run_lease_for_processing, release_run_lease
+
     from etl.courts.pipeline import process_results
 
     config = CourtsWorkerConfig()
     s3 = make_boto3_session(config=config).client("s3")
-    process_results(s3, config)
+    run_id = config.run_id.strip()
+    if not run_id or run_id == "unknown":
+        raise typer.BadParameter("Courts processing requires a concrete RUN_ID.")
+
+    # This read-only preflight must happen before claiming/releasing the lease.
+    # An early manual dispatch can otherwise turn "workers still live" into a
+    # terminal processing failure and accidentally permit an overlapping run.
+    read_run_items(s3, config, run_id, require_completed=True)
+
+    # Move from the coordinator's run-scoped owner to a unique process owner.
+    # CAS makes this exclusive even when duplicate callers use the same RUN_ID.
+    process_owner = f"process:{uuid4().hex}"
+    claim_run_lease_for_processing(s3, config, run_id, process_owner)
+    try:
+        process_results(s3, config)
+    except Exception as exc:
+        try:
+            released = release_run_lease(
+                s3,
+                config,
+                run_id,
+                owner=process_owner,
+                terminal_status="failure",
+                detail=str(exc),
+            )
+            if not released:
+                logger.error(f"Failed court-processing run {run_id} no longer owns its lease")
+        except Exception:
+            logger.exception(f"Could not release lease after court-processing failure for {run_id}")
+        raise
+    else:
+        released = release_run_lease(
+            s3,
+            config,
+            run_id,
+            owner=process_owner,
+            terminal_status="success",
+        )
+        if not released:
+            raise RuntimeError(f"Successful court-processing run {run_id} did not own its lease")
 
 
 @app.command()
@@ -48,6 +92,8 @@ def smoke(
 ) -> None:
     """Validate courts scraper runtime dependencies without writing outputs."""
     if not skip_aws:
+        from aws_batch_scraper.orchestrate import resolve_split_task_definitions
+
         config = CourtsSubmitterConfig()
         session = make_boto3_session(config=config)
         session.client("sqs").get_queue_attributes(
@@ -55,10 +101,7 @@ def smoke(
             AttributeNames=["QueueArn"],
         )
         session.client("s3").head_bucket(Bucket=config.s3_bucket)
-        session.client("ecs").describe_clusters(clusters=[config.ecs_cluster_name])
-        session.client("ecs").describe_task_definition(
-            taskDefinition=config.ecs_task_definition,
-        )
+        resolve_split_task_definitions(session.client("ecs"), config)
         logger.info("Courts AWS smoke checks passed.")
 
     if not skip_portal:

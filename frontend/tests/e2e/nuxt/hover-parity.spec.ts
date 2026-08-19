@@ -64,7 +64,10 @@ test("custom native controls retain system affordances in forced colors", async 
   await expect(year).toHaveCSS("appearance", "auto");
   await expect(year).toHaveCSS("background-image", "none");
 
-  for (const name of ["Fatal shootings only", "Has public court record"]) {
+  for (const name of [
+    "Fatal shootings only",
+    "Court search returned a result",
+  ]) {
     const control = page.getByRole("checkbox", { name });
     await expect(control).toHaveCSS("appearance", "auto");
     await expect(control).toHaveCSS("background-image", "none");

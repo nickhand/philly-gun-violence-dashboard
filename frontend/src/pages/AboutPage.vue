@@ -119,10 +119,10 @@
             </div>
             <div class="source-row">
               <div>
-                <h3 class="source-name">Public court records</h3>
+                <h3 class="source-name">Public court search</h3>
                 <p class="source-desc">
-                  Court dockets linked to incidents by police DC number through
-                  Pennsylvania's Unified Judicial System.
+                  Automated searches for police DC numbers in Pennsylvania's
+                  Unified Judicial System public portal.
                 </p>
               </div>
               <a
@@ -132,7 +132,7 @@
                 class="source-link"
                 @click="
                   trackExternalLink(
-                    'Court Records',
+                    'Court Search',
                     'https://ujsportal.pacourts.us/CaseSearch'
                   )
                 "
@@ -181,7 +181,7 @@
               </div>
             </div>
             <div class="currency-cell">
-              <div class="currency-label">Court records</div>
+              <div class="currency-label">Court search</div>
               <div class="currency-date">
                 {{ formatDate(meta?.courts?.data_through) }}
               </div>
@@ -231,10 +231,11 @@
             </p>
           </div>
           <div class="def-row">
-            <h3 class="def-label">Court case linkage</h3>
+            <h3 class="def-label">Court search result</h3>
             <p class="def-value">
-              Court records are refreshed weekly by searching each incident's
-              police DC number in the state's public portal.
+              Searches are refreshed weekly using each incident's police DC
+              number. A result does not establish how a court record relates
+              to a victim and does not report a case outcome.
             </p>
           </div>
           <div class="def-row">

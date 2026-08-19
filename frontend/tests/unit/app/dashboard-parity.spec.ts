@@ -596,6 +596,41 @@ describe("legacy data downloads", () => {
 });
 
 describe("synchronized category charts", () => {
+  it("keeps inconclusive court searches in an explicit Unknown category", () => {
+    const rows = [shootingRows[0], shootingRows[1], shootingRows[3]];
+    const wrapper = mount(DashboardCategoryCharts, {
+      props: { rows: rows as ShootingRow[] },
+    });
+    const courtChart = wrapper.get(
+      ".civic-dashboard-category-chart--court",
+    );
+
+    expect(
+      courtChart
+        .get('table[aria-label="Court Search Result distribution breakdown"]')
+        .findAll("tbody tr")
+        .map((row) =>
+          row
+            .findAll("td")
+            .slice(0, 2)
+            .map((cell) => cell.text()),
+        ),
+    ).toEqual([
+      ["Yes", "1"],
+      ["No", "1"],
+      ["Unknown", "1"],
+    ]);
+    expect(courtChart.get(".civic-info-tooltip__panel").text()).toContain(
+      "explicit no-results response",
+    );
+    expect(courtChart.get(".civic-info-tooltip__panel").text()).toContain(
+      "unavailable, incomplete, or inconclusive",
+    );
+    expect(courtChart.get(".civic-info-tooltip__panel").text()).toContain(
+      "does not establish how a record relates to a victim",
+    );
+  });
+
   it("renders the five legacy breakdowns and updates from filtered rows", async () => {
     const wrapper = mount(DashboardCategoryCharts, {
       props: { rows: shootingRows as ShootingRow[] },
@@ -604,7 +639,7 @@ describe("synchronized category charts", () => {
     expect(wrapper.findAll("figure")).toHaveLength(5);
     expect(wrapper.findAll("figcaption").map((item) => item.text())).toEqual([
       expect.stringContaining("Outcome"),
-      expect.stringContaining("Public Court Record"),
+      expect.stringContaining("Court Search Result"),
       expect.stringContaining("Gender"),
       expect.stringContaining("Race/Ethnicity"),
       expect.stringContaining("Age Group"),
@@ -616,7 +651,7 @@ describe("synchronized category charts", () => {
     expect(definitionControls.map((item) => item.text())).toEqual(
       expect.arrayContaining([
         expect.stringContaining("About Outcome"),
-        expect.stringContaining("About Public Court Record"),
+        expect.stringContaining("About Court Search Result"),
         expect.stringContaining("About Gender"),
         expect.stringContaining("About Race/Ethnicity"),
         expect.stringContaining("About Age Group"),
@@ -652,7 +687,7 @@ describe("synchronized category charts", () => {
     expect(definitionCopy).toEqual(
       expect.arrayContaining([
         expect.stringContaining("classified as fatal"),
-        expect.stringContaining("does not prove that no case exists"),
+        expect.stringContaining("explicit no-results response"),
         expect.stringContaining("reported sex field"),
         expect.stringContaining("Latino indicator"),
         expect.stringContaining("derived from reported age"),

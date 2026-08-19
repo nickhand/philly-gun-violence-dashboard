@@ -1,10 +1,15 @@
 import typer
 from loguru import logger
 
-from dashboard_utils.aws import make_s3_client, write_json
-from dashboard_utils.config import get_s3_settings
-from dashboard_utils.paths import get_reference_key
+from dashboard_utils.aws import make_s3_client
 from dashboard_utils.registry import get_geographic_data, iter_datasets, register_datasets
+
+from .publication import (
+    prepare_boundary_publication,
+    read_boundary_manifest_etag,
+    serialize_boundary_dataset,
+    write_boundary_publication,
+)
 
 app = typer.Typer(
     name="boundaries",
@@ -14,31 +19,28 @@ app = typer.Typer(
 )
 
 
-def _write_manifest(datasets: list[str]) -> None:
-    manifest = {
-        "datasets": {dataset: f"{dataset}.geojson" for dataset in datasets},
-    }
-
-    s3 = make_s3_client()
-    write_json(
-        s3,
-        get_s3_settings().s3_bucket,
-        get_reference_key("boundaries_manifest.json"),
-        manifest,
-        indent=2,
-    )
-
-
 @app.command()
 def extract() -> None:
-    """Extract all registered boundary datasets into the local reference dir."""
+    """Publish all registered boundaries as one atomic S3 generation."""
+    s3 = make_s3_client()
+    expected_manifest_etag = read_boundary_manifest_etag(s3)
+
     # Register the datasets
     register_datasets("etl.boundaries.extract")
 
-    # Load each registered dataset
+    # Build and serialize every member before writing any object. Stable cache
+    # keys remain untouched until the immutable generation pointer is complete.
     dataset_names = list(iter_datasets())
+    serialized: dict[str, bytes] = {}
     for name in dataset_names:
         logger.info(f"Extracting geographic dataset: {name}")
-        _ = get_geographic_data(name, refresh=True)
+        gdf = get_geographic_data(name, refresh=True, write_cache=False)
+        serialized[name] = serialize_boundary_dataset(gdf)
 
-    _write_manifest(dataset_names)
+    publication = prepare_boundary_publication(serialized)
+    write_boundary_publication(
+        s3,
+        publication,
+        expected_manifest_etag=expected_manifest_etag,
+    )
+    logger.info(f"Published boundary generation: sha256:{publication.release_id}")

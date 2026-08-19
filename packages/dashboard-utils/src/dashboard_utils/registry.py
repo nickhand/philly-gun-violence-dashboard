@@ -26,12 +26,17 @@ def register_datasets(module_path: str) -> None:
     importlib.import_module(module_path)
 
 
-def get_geographic_data(name: str, refresh: bool = False) -> gpd.GeoDataFrame:
+def get_geographic_data(
+    name: str,
+    refresh: bool = False,
+    *,
+    write_cache: bool = True,
+) -> gpd.GeoDataFrame:
     """Retrieve a geographic dataset by name from the registry."""
     if name not in REGISTRY:
         raise ValueError(f"Geographic dataset '{name}' is not registered.")
     fn = REGISTRY[name]
-    return fn(refresh=refresh)
+    return fn(refresh=refresh, write_cache=write_cache)
 
 
 def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., gpd.GeoDataFrame]:
@@ -55,7 +60,12 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
     filepath = f"{name}.geojson"
 
     @functools.wraps(func)
-    def wrapper(*args: Any, refresh: bool = False, **kwargs: Any) -> gpd.GeoDataFrame:
+    def wrapper(
+        *args: Any,
+        refresh: bool = False,
+        write_cache: bool = True,
+        **kwargs: Any,
+    ) -> gpd.GeoDataFrame:
         """
         Read and handle refreshing of geographic dataset.
 
@@ -64,6 +74,10 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
         refresh : bool
             If True, recompute and overwrite the cache.
             If False (default), load from cache if present.
+        write_cache : bool
+            When refreshing, whether to update the stable compatibility key.
+            Atomic multi-dataset publishers disable this and write mirrors only
+            after their generation pointer has moved successfully.
         """
         # Create S3 client
         s3 = make_s3_client()
@@ -81,8 +95,9 @@ def register_geodataset(func: Callable[..., gpd.GeoDataFrame]) -> Callable[..., 
         # Compute fresh result
         gdf = func(*args, **kwargs)
 
-        # Mirror to s3
-        write_geojson_gdf(s3, get_s3_settings().s3_bucket, key, gdf)
+        # Mirror to s3 unless a multi-dataset publisher owns commit ordering.
+        if write_cache:
+            write_geojson_gdf(s3, get_s3_settings().s3_bucket, key, gdf)
 
         # Return the GeoDataFrame
         return gdf

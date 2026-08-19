@@ -7,7 +7,7 @@
     tabindex="-1"
   >
     <h2 class="sr-only">Shooting Victim Statistics by Category</h2>
-    <!-- Top row: Outcome, Court Cases, Gender -->
+    <!-- Top row: Outcome, Court search result, Gender -->
     <div class="chart-row">
       <HistogramChart
         :rows="rows"
@@ -20,11 +20,11 @@
       />
       <HistogramChart
         :rows="rows"
-        title="Public Court Record"
+        title="Court Search Result"
         accessor="has_court_case"
         :color="colors.slate"
-        :categories="[true, false]"
-        :aliases="{ true: 'Yes', false: 'No' }"
+        :categories="[true, false, null]"
+        :aliases="{ true: 'Yes', false: 'No', null: 'Unknown' }"
         :label-width="100"
       />
       <HistogramChart

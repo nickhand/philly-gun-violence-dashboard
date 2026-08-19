@@ -22,6 +22,6 @@ class CourtsSubmitterConfig(CourtsWorkerConfig, SubmitterConfig):
     """
 
     ecs_cluster_name: str = "ujs-scraper"
-    ecs_task_definition: str = "ujs-scraper"
     ecs_container_name: str = "ujs-scraper"
     ecs_task_count: int = 9
+    github_workflow_file: str = "courts-process.yml"

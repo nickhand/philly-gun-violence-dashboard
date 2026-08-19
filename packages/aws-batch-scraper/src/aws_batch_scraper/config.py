@@ -1,11 +1,77 @@
 """Configuration classes for the aws-batch-scraper framework."""
 
 import os
+import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Self
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+_TASK_DEFINITION_FAMILY_REVISION = re.compile(r"^[A-Za-z0-9_-]{1,255}:[1-9][0-9]*$")
+_TASK_DEFINITION_ARN_REVISION = re.compile(
+    r"^arn:[^:]+:ecs:[^:]+:[0-9]{12}:task-definition/"
+    r"[A-Za-z0-9_-]{1,255}:[1-9][0-9]*$"
+)
+_GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$")
+_GITHUB_WORKFLOW_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\.ya?ml$")
+_SUBNET_ID = re.compile(r"^subnet-[A-Za-z0-9]+$")
+_SECURITY_GROUP_ID = re.compile(r"^sg-[A-Za-z0-9]+$")
+
+
+def require_exact_task_definition(
+    value: str,
+    *,
+    setting_name: str = "ECS_TASK_DEFINITION",
+) -> str:
+    """Return an exact ECS task-definition revision or raise actionable error."""
+    if isinstance(value, str) and (
+        _TASK_DEFINITION_FAMILY_REVISION.fullmatch(value)
+        or _TASK_DEFINITION_ARN_REVISION.fullmatch(value)
+    ):
+        return value
+    raise ValueError(
+        f"{setting_name} must be an exact family:revision or revisioned "
+        "task-definition ARN backed by an immutable image digest; bare families "
+        "silently select the mutable latest revision"
+    )
+
+
+def _task_definition_identity(value: str) -> str:
+    """Normalize short and ARN spellings so one revision cannot fill both roles."""
+    return value.rsplit("task-definition/", maxsplit=1)[-1]
+
+
+def require_split_task_definitions(worker: str, monitor: str) -> tuple[str, str]:
+    """Validate distinct, immutable worker and monitor task-definition revisions."""
+    exact_worker = require_exact_task_definition(worker)
+    exact_monitor = require_exact_task_definition(
+        monitor,
+        setting_name="ECS_MONITOR_TASK_DEFINITION",
+    )
+    if _task_definition_identity(exact_worker) == _task_definition_identity(exact_monitor):
+        raise ValueError(
+            "ECS_TASK_DEFINITION and ECS_MONITOR_TASK_DEFINITION must identify "
+            "different task-definition revisions; sharing a definition can expose "
+            "monitor-only credentials to workers"
+        )
+    return exact_worker, exact_monitor
+
+
+def require_github_repository(value: str | None) -> str:
+    """Require the explicit owner/repository target used for terminal dispatch."""
+    if isinstance(value, str) and _GITHUB_REPOSITORY.fullmatch(value):
+        _, repository = value.split("/", maxsplit=1)
+        if repository not in {".", ".."}:
+            return value
+    raise ValueError("GITHUB_REPOSITORY must be an explicit owner/repository value")
+
+
+def require_github_workflow_file(value: str | None) -> str:
+    """Require a workflow filename rather than an arbitrary API path."""
+    if isinstance(value, str) and _GITHUB_WORKFLOW_FILE.fullmatch(value):
+        return value
+    raise ValueError("GITHUB_WORKFLOW_FILE must be an explicit .yml or .yaml workflow filename")
 
 
 def _env_file() -> str | None:
@@ -57,6 +123,8 @@ class WorkerConfig(ScraperBaseConfig):
     sqs_dlq_name: str = Field(..., description="Dead-letter queue name")
 
     run_id: str = "unknown"
+    # Retained for backwards-compatible task environments. Current workers
+    # use the message-scoped force_rescrape field instead.
     force_rescrape: bool = False
     soft_blocked_delay_min: int = 300
     soft_blocked_delay_max: int = 900
@@ -87,9 +155,17 @@ class SubmitterConfig(WorkerConfig):
     """
 
     ecs_cluster_name: str = Field(..., description="ECS cluster name")
-    ecs_task_definition: str = Field(..., description="ECS task definition name or ARN")
+    ecs_task_definition: str = Field(
+        ...,
+        description="Exact worker ECS family:revision or revisioned task-definition ARN",
+    )
+    ecs_monitor_task_definition: str = Field(
+        ...,
+        description="Exact monitor ECS family:revision or revisioned task-definition ARN",
+    )
     ecs_container_name: str = Field(..., description="ECS container name for overrides")
-    ecs_task_count: int = 1
+    ecs_task_count: int = Field(default=1, ge=1, le=10)
+    github_workflow_file: str | None = None
 
     # ECS networking — accept comma-separated strings (e.g. subnet-a,subnet-b)
     ecs_subnet_ids: Annotated[list[str], NoDecode]
@@ -102,6 +178,63 @@ class SubmitterConfig(WorkerConfig):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("ecs_subnet_ids")
+    @classmethod
+    def _valid_subnet_ids(cls, value: list[str]) -> list[str]:
+        if not 1 <= len(value) <= 16:
+            raise ValueError("ECS_SUBNET_IDS must contain between 1 and 16 subnet IDs")
+        if len(set(value)) != len(value) or any(not _SUBNET_ID.fullmatch(item) for item in value):
+            raise ValueError("ECS_SUBNET_IDS must contain unique subnet-* identifiers")
+        return value
+
+    @field_validator("ecs_security_group_ids")
+    @classmethod
+    def _valid_security_group_ids(cls, value: list[str]) -> list[str]:
+        if not 1 <= len(value) <= 5:
+            raise ValueError(
+                "ECS_SECURITY_GROUP_IDS must contain between 1 and 5 security-group IDs"
+            )
+        if len(set(value)) != len(value) or any(
+            not _SECURITY_GROUP_ID.fullmatch(item) for item in value
+        ):
+            raise ValueError("ECS_SECURITY_GROUP_IDS must contain unique sg-* identifiers")
+        return value
+
+    @field_validator("ecs_task_definition")
+    @classmethod
+    def _exact_task_definition(cls, value: str) -> str:
+        return require_exact_task_definition(value)
+
+    @field_validator("ecs_monitor_task_definition")
+    @classmethod
+    def _exact_monitor_task_definition(cls, value: str) -> str:
+        return require_exact_task_definition(
+            value,
+            setting_name="ECS_MONITOR_TASK_DEFINITION",
+        )
+
+    @field_validator("github_repository")
+    @classmethod
+    def _valid_github_repository(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_github_repository(value)
+
+    @field_validator("github_workflow_file")
+    @classmethod
+    def _valid_github_workflow_file(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_github_workflow_file(value)
+
+    @model_validator(mode="after")
+    def _split_task_definitions(self) -> Self:
+        require_split_task_definitions(
+            self.ecs_task_definition,
+            self.ecs_monitor_task_definition,
+        )
+        return self
 
     @property
     def ecs_cluster_arn(self) -> str:

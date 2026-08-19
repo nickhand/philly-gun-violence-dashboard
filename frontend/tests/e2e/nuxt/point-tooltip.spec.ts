@@ -55,7 +55,7 @@ test("matches the production shooting-victim tooltip", async ({ page }) => {
   await expect(tooltip).toContainText("Male");
   await expect(tooltip).toContainText("Case Information");
   await expect(tooltip).toContainText("2026-01");
-  await expect(tooltip).toContainText("Court CaseYes");
+  await expect(tooltip).toContainText("Court search resultYes");
   await expect(tooltip).not.toContainText("Nearest-street context");
 
   expect(

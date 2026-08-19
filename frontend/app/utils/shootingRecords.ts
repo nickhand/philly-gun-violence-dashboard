@@ -9,7 +9,7 @@ export interface ShootingRow {
   dateInMs?: unknown;
   dc_key?: unknown;
   fatal: boolean;
-  has_court_case?: unknown;
+  has_court_case: boolean | null;
   house_district?: unknown;
   lat: number | null;
   lon: number | null;
@@ -71,6 +71,7 @@ function isShootingRow(value: unknown): value is ShootingRow {
 
   return (
     typeof row.fatal === "boolean" &&
+    (typeof row.has_court_case === "boolean" || row.has_court_case === null) &&
     validCoordinate(row.lat) &&
     validCoordinate(row.lon)
   );
@@ -167,10 +168,7 @@ export function rowsToShootingPoints(
             date: readRecordDate(row.date),
             dcKey: readText(row.dc_key),
             fatal: row.fatal,
-            hasCourtCase:
-              typeof row.has_court_case === "boolean"
-                ? row.has_court_case
-                : null,
+            hasCourtCase: row.has_court_case,
             race: readText(row.race),
             sex: readText(row.sex),
             streetBlock: readStreetBlock(row),

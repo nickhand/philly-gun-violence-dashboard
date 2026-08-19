@@ -13,10 +13,19 @@ from mypy_boto3_s3.client import S3Client
 from shapely.errors import ShapelyError
 from shapely.geometry import shape
 
+from dashboard_utils.boundary_releases import read_boundary_snapshot_json
 from dashboard_utils.config import get_s3_settings
-from dashboard_utils.processed import (
-    read_processed_geojson_json,
-    read_reference_json,
+from dashboard_utils.processed import read_processed_geojson_json
+from etl.utils.release_pointer import (
+    ReleaseOrder,
+    StablePointerSnapshot,
+    decode_json_object,
+    move_stable_pointer,
+    parse_aware_datetime,
+    read_json_pointer,
+    read_verified_json_object,
+    release_order_from_metadata,
+    validate_release_version,
 )
 
 PUBLIC_DOWNLOAD_MANIFEST_CACHE_CONTROL: Final = "public,max-age=300,stale-while-revalidate=86400"
@@ -30,6 +39,7 @@ PUBLIC_DOWNLOAD_RELEASES_PREFIX: Final = "releases"
 PUBLIC_DOWNLOAD_MANIFEST_SCHEMA_VERSION: Final = 2
 PUBLIC_SHOOTINGS_CSV_FILENAME: Final = "philadelphia-shooting-victims.csv"
 PUBLIC_SHOOTINGS_CSV_MEDIA_TYPE: Final = "text/csv; charset=utf-8"
+SHA256_HEX_LENGTH: Final = 64
 
 
 @dataclass(frozen=True)
@@ -66,6 +76,13 @@ class PublicDownloadPublication:
     release_id: str
     artifacts: tuple[PublicDownloadArtifact, ...]
     manifest_body: bytes
+    application_data_body: bytes | None = None
+    application_metadata_body: bytes | None = None
+
+    def __post_init__(self) -> None:
+        """Make a partial application publication unrepresentable."""
+        if (self.application_data_body is None) != (self.application_metadata_body is None):
+            raise ValueError("Application data and metadata must be published together")
 
 
 GEOGRAPHIC_REFERENCE_DOWNLOADS: Final = (
@@ -122,11 +139,17 @@ GEOGRAPHIC_REFERENCE_DOWNLOADS: Final = (
 
 
 def load_geographic_reference_downloads(s3: S3Client) -> dict[str, object]:
-    """Load the internal geographic snapshots used for public downloads."""
+    """Load one exact boundary generation plus the processed street snapshot."""
+    boundaries = read_boundary_snapshot_json(s3=s3)
     downloads: dict[str, object] = {}
     for item in GEOGRAPHIC_REFERENCE_DOWNLOADS:
         if item.source == "reference":
-            collection = read_reference_json(f"{item.dataset}.geojson", s3=s3)
+            try:
+                collection = boundaries[item.dataset]
+            except KeyError as exc:  # defensive if release inventory changes later
+                raise ValueError(
+                    f"Boundary release is missing public download dataset '{item.dataset}'"
+                ) from exc
         else:
             collection = read_processed_geojson_json(item.dataset, s3=s3)
         downloads[item.dataset] = collection
@@ -250,7 +273,10 @@ def _serialize_geographic_reference_downloads(
     return tuple(artifacts)
 
 
-def _publication_release_id(artifacts: tuple[PublicDownloadArtifact, ...]) -> str:
+def _publication_release_id(
+    artifacts: tuple[PublicDownloadArtifact, ...],
+    application_bodies: tuple[bytes, ...] = (),
+) -> str:
     """Return the SHA-256 release id for the exact public artifact set."""
     digest = hashlib.sha256()
     for artifact in artifacts:
@@ -258,12 +284,153 @@ def _publication_release_id(artifacts: tuple[PublicDownloadArtifact, ...]) -> st
         digest.update(b"\0")
         digest.update(artifact.body)
         digest.update(b"\0")
+    for body in application_bodies:
+        digest.update(body)
+        digest.update(b"\0")
     return digest.hexdigest()
 
 
 def _artifact_sha256(artifact: PublicDownloadArtifact) -> str:
     """Return the SHA-256 checksum for one artifact's exact bytes."""
     return hashlib.sha256(artifact.body).hexdigest()
+
+
+def _validate_application_pointer(value: dict[str, object]) -> None:
+    """Validate an application_data object before carrying it into N-1."""
+    if set(value) != {"schema_version", "data", "metadata"} or value.get("schema_version") != 1:
+        raise ValueError("Previous application_data has an invalid schema")
+    for field in ("data", "metadata"):
+        item = value.get(field)
+        if not isinstance(item, dict) or set(item) != {"key", "sha256"}:
+            raise ValueError(f"Previous application_data has an invalid {field} object")
+        key = item.get("key")
+        checksum = item.get("sha256")
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"Previous application_data has an invalid {field} key")
+        if (
+            not isinstance(checksum, str)
+            or len(checksum) != SHA256_HEX_LENGTH
+            or any(character not in "0123456789abcdef" for character in checksum)
+        ):
+            raise ValueError(f"Previous application_data has an invalid {field} checksum")
+
+
+def _validate_current_application_keys(
+    value: dict[str, object],
+    *,
+    release_id: str,
+) -> None:
+    """Constrain current application members to their content-addressed release."""
+    _validate_application_pointer(value)
+    prefix = get_s3_settings().s3_processed_prefix
+    expected = {
+        "data": f"{prefix}/shootings/releases/{release_id}/shootings.geojson",
+        "metadata": f"{prefix}/shootings/releases/{release_id}/meta.json",
+    }
+    for field, expected_key in expected.items():
+        member = value[field]
+        if not isinstance(member, dict) or member.get("key") != expected_key:
+            raise ValueError(f"Current application_data has an invalid {field} release key")
+
+
+def _public_manifest_order(
+    s3: S3Client,
+    manifest: dict[str, object],
+    *,
+    version: str,
+) -> ReleaseOrder:
+    """Validate one installed public manifest and return its monotonic order."""
+    if manifest.get("schema_version") != PUBLIC_DOWNLOAD_MANIFEST_SCHEMA_VERSION:
+        raise ValueError("Public download manifest has an unsupported schema version")
+    published_at = parse_aware_datetime(
+        manifest.get("published_at"),
+        label="Public download manifest published_at",
+    )
+    application = manifest.get("application_data")
+    if application is None:
+        if manifest.get("previous_application_data") is not None:
+            raise ValueError("Public manifest has previous application data without current data")
+        return ReleaseOrder(data_through=None, run_started_at=published_at)
+    if not isinstance(application, dict) or any(not isinstance(key, str) for key in application):
+        raise ValueError("Public download manifest has invalid application_data")
+    release_id = version.removeprefix("sha256:")
+    _validate_current_application_keys(application, release_id=release_id)
+    metadata_pointer = application["metadata"]
+    if not isinstance(metadata_pointer, dict):
+        raise ValueError("Public download manifest has invalid application metadata")
+    metadata = read_verified_json_object(
+        s3,
+        bucket=get_s3_settings().s3_bucket,
+        key=metadata_pointer.get("key"),
+        sha256=metadata_pointer.get("sha256"),
+        label="Shootings release metadata",
+    )
+    return release_order_from_metadata(
+        metadata,
+        run_started_at=published_at,
+        label="Shootings release metadata",
+    )
+
+
+def read_public_download_pointer(s3: S3Client) -> StablePointerSnapshot:
+    """Capture the exact public manifest revision before extraction begins."""
+    raw = read_json_pointer(
+        s3,
+        bucket=get_s3_settings().s3_bucket,
+        key=PUBLIC_DOWNLOAD_MANIFEST_KEY,
+        label="Public download manifest",
+    )
+    if raw is None:
+        return StablePointerSnapshot.missing()
+    version = validate_release_version(
+        raw.value.get("version"),
+        label="Public download manifest version",
+    )
+    return StablePointerSnapshot(
+        etag=raw.etag,
+        body=raw.body,
+        version=version,
+        order=_public_manifest_order(s3, raw.value, version=version),
+    )
+
+
+def _publication_pointer_identity(
+    publication: PublicDownloadPublication,
+) -> tuple[str, ReleaseOrder]:
+    """Validate the candidate manifest against its exact prepared bytes."""
+    manifest = decode_json_object(
+        publication.manifest_body,
+        label="Candidate public download manifest",
+    )
+    version = validate_release_version(
+        manifest.get("version"),
+        label="Candidate public download manifest version",
+    )
+    if version != f"sha256:{publication.release_id}":
+        raise ValueError("Candidate public manifest version does not match its release id")
+    published_at = parse_aware_datetime(
+        manifest.get("published_at"),
+        label="Candidate public download manifest published_at",
+    )
+    application = manifest.get("application_data")
+    if application is None:
+        return version, ReleaseOrder(data_through=None, run_started_at=published_at)
+    if not isinstance(application, dict) or any(not isinstance(key, str) for key in application):
+        raise ValueError("Candidate public manifest has invalid application_data")
+    _validate_current_application_keys(application, release_id=publication.release_id)
+    metadata_pointer = application["metadata"]
+    metadata_body = publication.application_metadata_body
+    if not isinstance(metadata_pointer, dict) or metadata_body is None:
+        raise ValueError("Candidate public manifest is missing application metadata")
+    checksum = metadata_pointer.get("sha256")
+    if checksum != hashlib.sha256(metadata_body).hexdigest():
+        raise ValueError("Candidate application metadata checksum does not match its bytes")
+    metadata = decode_json_object(metadata_body, label="Candidate shootings release metadata")
+    return version, release_order_from_metadata(
+        metadata,
+        run_started_at=published_at,
+        label="Candidate shootings release metadata",
+    )
 
 
 def _csv_row_count(body: bytes) -> int:
@@ -296,6 +463,9 @@ def prepare_public_download_publication(
     geographic_downloads: dict[str, object],
     *,
     published_at: datetime | None = None,
+    application_data_body: bytes | None = None,
+    application_metadata_body: bytes | None = None,
+    previous_application_data: dict[str, object] | None = None,
 ) -> PublicDownloadPublication:
     """Serialize all files and build a manifest from their exact uploaded bytes."""
     if not shootings_csv_body:
@@ -320,7 +490,39 @@ def prepare_public_download_publication(
     if len(paths) != len(set(paths)):
         raise ValueError("Public download paths must be unique")
 
-    release_id = _publication_release_id(artifacts)
+    if (application_data_body is None) != (application_metadata_body is None):
+        raise ValueError("Application data and metadata must be published together")
+    if previous_application_data is not None:
+        _validate_application_pointer(previous_application_data)
+    application_bodies = (
+        (application_data_body, application_metadata_body)
+        if application_data_body is not None and application_metadata_body is not None
+        else ()
+    )
+    release_id = _publication_release_id(artifacts, application_bodies)
+    application_fields: dict[str, object] = {}
+    if application_data_body is not None and application_metadata_body is not None:
+        processed_prefix = get_s3_settings().s3_processed_prefix
+        application_fields = {
+            "application_data": {
+                "schema_version": 1,
+                "data": {
+                    "key": (
+                        f"{processed_prefix}/shootings/releases/{release_id}/shootings.geojson"
+                    ),
+                    "sha256": hashlib.sha256(application_data_body).hexdigest(),
+                },
+                "metadata": {
+                    "key": f"{processed_prefix}/shootings/releases/{release_id}/meta.json",
+                    "sha256": hashlib.sha256(application_metadata_body).hexdigest(),
+                },
+            },
+            **(
+                {"previous_application_data": previous_application_data}
+                if previous_application_data is not None
+                else {}
+            ),
+        }
     manifest = {
         "schema_version": PUBLIC_DOWNLOAD_MANIFEST_SCHEMA_VERSION,
         "version": f"sha256:{release_id}",
@@ -347,6 +549,7 @@ def prepare_public_download_publication(
             }
             for artifact in artifacts
         ],
+        **application_fields,
     }
     manifest_body = (
         json.dumps(manifest, allow_nan=False, indent=2, separators=(",", ": ")) + "\n"
@@ -355,6 +558,8 @@ def prepare_public_download_publication(
         release_id=release_id,
         artifacts=artifacts,
         manifest_body=manifest_body,
+        application_data_body=application_data_body,
+        application_metadata_body=application_metadata_body,
     )
 
 
@@ -381,26 +586,36 @@ def write_public_download_artifacts(
 def write_public_download_manifest(
     s3: S3Client,
     publication: PublicDownloadPublication,
+    *,
+    expected_pointer: StablePointerSnapshot,
 ) -> None:
-    """Atomically move the stable manifest pointer to a complete release."""
+    """Conditionally move the stable manifest to a strictly newer release."""
     bucket = get_s3_settings().s3_bucket
-    # S3 replaces one object atomically. Because every path in this pointer is
-    # immutable and has already uploaded successfully, readers see either the
-    # complete previous release or the complete new release. Failed and
-    # overlapping jobs cannot expose a manifest that mixes artifact versions.
-    s3.put_object(
-        Bucket=bucket,
-        Key=PUBLIC_DOWNLOAD_MANIFEST_KEY,
-        Body=publication.manifest_body,
-        ContentType="application/json; charset=utf-8",
-        CacheControl=PUBLIC_DOWNLOAD_MANIFEST_CACHE_CONTROL,
+    version, order = _publication_pointer_identity(publication)
+    move_stable_pointer(
+        s3,
+        bucket=bucket,
+        key=PUBLIC_DOWNLOAD_MANIFEST_KEY,
+        body=publication.manifest_body,
+        version=version,
+        order=order,
+        expected=expected_pointer,
+        read_current=lambda: read_public_download_pointer(s3),
+        content_type="application/json; charset=utf-8",
+        cache_control=PUBLIC_DOWNLOAD_MANIFEST_CACHE_CONTROL,
     )
 
 
 def write_public_download_publication(
     s3: S3Client,
     publication: PublicDownloadPublication,
+    *,
+    expected_pointer: StablePointerSnapshot,
 ) -> None:
     """Upload an immutable release, then atomically move the stable manifest."""
     write_public_download_artifacts(s3, publication)
-    write_public_download_manifest(s3, publication)
+    write_public_download_manifest(
+        s3,
+        publication,
+        expected_pointer=expected_pointer,
+    )

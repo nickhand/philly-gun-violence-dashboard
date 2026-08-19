@@ -32,7 +32,9 @@
     "test:e2e:a11y": "playwright test --grep @a11y",
     "test:e2e:nuxt": "playwright test --config=playwright.nuxt.config.ts",
     "test:e2e:nuxt:chromium": "playwright test --config=playwright.nuxt.config.ts --project=nuxt-chromium",
-    "test:lighthouse": "npm run build:lighthouse && lhci autorun --config=./lighthouserc.cjs",
+    "test:lighthouse": "npm run build:lighthouse && node scripts/run-lighthouse.mjs",
+    "test:lighthouse:policy": "node --test tests/lighthouse-policy.test.mjs",
+    "audit:dependencies": "npm audit --audit-level=high",
     "deploy:nuxt:staging": "npm run build:nuxt:cloudflare:staging && wrangler deploy --env staging",
     "deploy:nuxt:production": "npm run build:nuxt:cloudflare:production && wrangler deploy --env production"
   },
@@ -62,7 +64,6 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
-    "@lhci/cli": "0.15.1",
     "@playwright/test": "^1.62.0",
     "@types/d3-array": "^3.2.2",
     "@types/d3-format": "^3.0.4",
@@ -75,6 +76,7 @@
     "@vitest/coverage-v8": "^4.1.10",
     "@vue/test-utils": "^2.4.11",
     "jsdom": "^26.1.0",
+    "lighthouse": "13.4.1",
     "sass-embedded": "^1.100.0",
     "typescript": "^5.5.3",
     "vite": "^7.3.0",

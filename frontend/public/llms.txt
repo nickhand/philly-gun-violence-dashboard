@@ -36,7 +36,7 @@ When citing a figure, identify the measure, period or year, original publisher, 
 - Records are preliminary and may be revised by their publishers.
 - A missing source time may be stored as midnight and should not always be read as an exact incident time.
 - Records without usable coordinates remain in totals and downloads but do not appear as point locations.
-- A court-search flag reports whether an automated search by police incident number returned a result. It does not establish a charge, disposition, or verified relationship to the shooting. A false value does not prove that no case exists.
+- A court-search flag has three states: true means an automated incident-number search returned a result; false means a completed search returned an explicit no-results response; unknown means the search was unavailable, incomplete, or inconclusive. None establishes a charge, disposition, case outcome, or verified relationship to a victim.
 - Coordinates, boundaries, and demographic fields describe published records; they do not establish causes or an individual's circumstances.
 
 ## Stewardship and licensing

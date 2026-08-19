@@ -284,8 +284,10 @@ useHead(() => ({
               search returned a result for the PPD incident number. It does not
               identify a defendant, establish a charge or disposition, or show
               how a court record relates to a particular victim. A negative flag
-              does not prove that no case exists; records may be delayed,
-              unavailable, or unmatched.
+              means a completed search returned an explicit no-results response;
+              it does not prove that no case exists. An unknown flag means the
+              search was unavailable, incomplete, or inconclusive. None of these
+              values reports a case outcome.
             </li>
           </ul>
         </section>

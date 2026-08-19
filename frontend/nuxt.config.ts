@@ -1,3 +1,5 @@
+import { createSharedResponseHeaders } from "./config/responseHeaders";
+
 const canonicalBasePath = "/philly-gun-violence-map/";
 const defaultDownloadsBaseUrl = "https://d2cemhjkwenjmb.cloudfront.net";
 const appBaseUrl = process.env.NUXT_APP_BASE_URL ?? canonicalBasePath;
@@ -16,13 +18,10 @@ const dataRouteRules =
         "/stats": { swr: 300 },
       }
     : {};
-const sharedResponseHeaders = {
-  "Content-Security-Policy": "frame-ancestors 'none'",
-  "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
-  "Referrer-Policy": "strict-origin-when-cross-origin",
-  "X-Content-Type-Options": "nosniff",
-  "X-Frame-Options": "DENY",
-};
+const sharedResponseHeaders = createSharedResponseHeaders({
+  indexable,
+  production: process.env.NODE_ENV === "production",
+});
 
 export default defineNuxtConfig({
   compatibilityDate: "2026-08-14",
@@ -39,10 +38,7 @@ export default defineNuxtConfig({
   },
   routeRules: {
     "/**": {
-      headers: {
-        ...sharedResponseHeaders,
-        ...(indexable ? {} : { "X-Robots-Tag": "noindex, nofollow" }),
-      },
+      headers: sharedResponseHeaders,
     },
     ...dataRouteRules,
   },

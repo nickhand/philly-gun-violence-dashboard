@@ -1,8 +1,9 @@
 [build]
-# Only frontend or Netlify configuration changes need a production deploy.
-# Git's top-level pathspec keeps this correct whether Netlify's base directory
-# is configured as the repository root or frontend/.
-ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ':(top)frontend' ':(top)netlify.toml'"
+# Netlify is a frozen rollback origin. A connected Git integration must never
+# turn an ordinary main push into a second production deployment. Exit zero to
+# cancel every Git-triggered build; an intentional rollback-origin refresh must
+# use an explicit, separately reviewed manual deploy.
+ignore = "true"
 
 [build.environment]
 VITE_PUBLIC_BASE = "/philly-gun-violence-map/"

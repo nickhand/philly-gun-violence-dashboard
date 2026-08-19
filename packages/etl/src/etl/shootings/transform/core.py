@@ -9,6 +9,7 @@ from shapely.geometry import Point
 
 from dashboard_utils.constants import DATE_FORMAT
 from dashboard_utils.models.shootings import ShootingVictimsSchema
+from etl.courts.semantics import sanitize_court_search_flags
 from etl.shootings.transform.boundaries import join_with_boundary_datasets
 from etl.shootings.transform.streets import join_with_street_blocks
 from etl.utils.storage import load_courts_flags, load_shootings_database
@@ -268,12 +269,8 @@ def clean_shootings(
 
     # Join with courts data
     logger.info("Joining with courts flags dataset")
-    courts_df = load_courts_flags(s3=s3)[["dc_key", "has_court_case"]]
+    courts_df = sanitize_court_search_flags(load_courts_flags(s3=s3))
     df = df.merge(courts_df, on="dc_key", how="left")
-
-    # Fill missing court case flags with False
-    missing_flags = df["has_court_case"].isnull()
-    df.loc[missing_flags, "has_court_case"] = False
 
     # Validate against the schema
     df = _validate_against_schema(df)

@@ -7,47 +7,68 @@
 #   aws_batch_scraper_cli_group := "courts"
 #   aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
 #   aws_batch_scraper_docker_context := "."
-#   aws_batch_scraper_ecr_repository_name := env_var_or_default("ECR_REPOSITORY_NAME", "ujs-scraper")
-#   aws_batch_scraper_aws_region := env_var_or_default("AWS_REGION", "us-east-1")
-#   aws_batch_scraper_aws_account_id := env("AWS_ACCOUNT_ID")
-#   aws_batch_scraper_aws_profile := env_var_or_default("AWS_PROFILE", "")
+#
+# Release recipes read AWS_ACCOUNT_ID, AWS_REGION, ECR_REPOSITORY_NAME,
+# SCRAPER_IMAGE_TAG, and optional AWS_PROFILE directly from the environment so
+# no environment-derived value is interpolated into shell source by Just.
 
 aws_batch_scraper_platform := "linux/amd64"
-aws_batch_scraper_image_tag := "latest"
-aws_batch_scraper_ecr_image_uri := aws_batch_scraper_aws_account_id + ".dkr.ecr." + aws_batch_scraper_aws_region + ".amazonaws.com/" + aws_batch_scraper_ecr_repository_name + ":" + aws_batch_scraper_image_tag
+
+# Reject unsafe environment-derived shell arguments before login or Docker.
+# The Python preflight additionally proves clean-source identity and exact ECR
+# registry/repository policy before every build and push.
+[private]
+scraper-require-release-target:
+	@if ! printf '%s\n' "${SCRAPER_IMAGE_TAG:-}" | grep -Eq '^[0-9a-f]{40}$'; then \
+		echo "Set SCRAPER_IMAGE_TAG to the full 40-character Git HEAD SHA." >&2; \
+		exit 1; \
+	fi
+	@if ! printf '%s\n' "${AWS_ACCOUNT_ID:-}" | grep -Eq '^[0-9]{12}$'; then \
+		echo "AWS_ACCOUNT_ID must contain exactly 12 digits." >&2; \
+		exit 1; \
+	fi
+	@if ! printf '%s\n' "${AWS_REGION:-us-east-1}" | grep -Eq '^[a-z]{2}(-[a-z0-9]+)+-[0-9]+$'; then \
+		echo "AWS_REGION is invalid." >&2; \
+		exit 1; \
+	fi
+	@if ! printf '%s\n' "${ECR_REPOSITORY_NAME:-ujs-scraper}" | grep -Eq '^[a-z0-9]+([._/-][a-z0-9]+)*$'; then \
+		echo "ECR_REPOSITORY_NAME is invalid." >&2; \
+		exit 1; \
+	fi
+	@if [ -n "${AWS_PROFILE:-}" ] && ! printf '%s\n' "$AWS_PROFILE" | grep -Eq '^[A-Za-z0-9_.@+-]+$'; then \
+		echo "AWS_PROFILE is invalid." >&2; \
+		exit 1; \
+	fi
 
 # Log in to the configured ECR registry.
 [group: "aws-batch-scraper"]
-scraper-aws-login:
-	@if [ -z "{{aws_batch_scraper_aws_account_id}}" ]; then \
-		echo "AWS_ACCOUNT_ID is required for ECR login." >&2; \
-		exit 1; \
-	fi
-	@profile_arg=""; \
-	if [ -n "{{aws_batch_scraper_aws_profile}}" ]; then \
-		profile_arg="--profile {{aws_batch_scraper_aws_profile}}"; \
-	fi; \
-	aws ecr get-login-password --region "{{aws_batch_scraper_aws_region}}" $profile_arg \
-		| docker login --username AWS --password-stdin "{{aws_batch_scraper_aws_account_id}}.dkr.ecr.{{aws_batch_scraper_aws_region}}.amazonaws.com"
+scraper-aws-login: scraper-require-release-target
+	@if [ -n "${AWS_PROFILE:-}" ]; then \
+		aws --profile "$AWS_PROFILE" --region "${AWS_REGION:-us-east-1}" ecr get-login-password; \
+	else \
+		aws --region "${AWS_REGION:-us-east-1}" ecr get-login-password; \
+	fi | docker login --username AWS --password-stdin \
+		"${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com"
 
 # Build the scraper container image locally.
 [group: "aws-batch-scraper"]
-scraper-build-container:
-	docker buildx build --platform={{aws_batch_scraper_platform}} -t {{aws_batch_scraper_ecr_repository_name}} -f {{aws_batch_scraper_dockerfile}} {{aws_batch_scraper_docker_context}}
+scraper-build-container: scraper-require-release-target
+	cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image preflight --account-id "${AWS_ACCOUNT_ID}" --repository "${ECR_REPOSITORY_NAME:-ujs-scraper}" --region "${AWS_REGION:-us-east-1}" --tag "${SCRAPER_IMAGE_TAG}" --profile "${AWS_PROFILE:-}"
+	docker buildx build --load --platform="{{aws_batch_scraper_platform}}" --label "org.opencontainers.image.revision=${SCRAPER_IMAGE_TAG}" -t "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" -f "{{aws_batch_scraper_dockerfile}}" "{{aws_batch_scraper_docker_context}}"
 
 # Push the scraper container image to ECR.
 [group: "aws-batch-scraper"]
-scraper-push-container:
-	@if [ -z "{{aws_batch_scraper_aws_account_id}}" ]; then \
-		echo "AWS_ACCOUNT_ID is required for ECR push." >&2; \
-		exit 1; \
-	fi
-	docker tag {{aws_batch_scraper_ecr_repository_name}}:latest {{aws_batch_scraper_ecr_image_uri}}
-	docker push {{aws_batch_scraper_ecr_image_uri}}
+scraper-push-container: scraper-require-release-target
+	cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image preflight --account-id "${AWS_ACCOUNT_ID}" --repository "${ECR_REPOSITORY_NAME:-ujs-scraper}" --region "${AWS_REGION:-us-east-1}" --tag "${SCRAPER_IMAGE_TAG}" --profile "${AWS_PROFILE:-}"
+	cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image verify-local-image --image "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" --tag "${SCRAPER_IMAGE_TAG}"
+	docker tag "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}"
+	docker push "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}"
+	@digest=$(cd packages/aws-batch-scraper && uv run aws-batch-scraper-release-image verify-scan --account-id "${AWS_ACCOUNT_ID}" --repository "${ECR_REPOSITORY_NAME:-ujs-scraper}" --region "${AWS_REGION:-us-east-1}" --tag "${SCRAPER_IMAGE_TAG}" --profile "${AWS_PROFILE:-}"); \
+	echo "Register the ECS task revision with: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/${ECR_REPOSITORY_NAME:-ujs-scraper}@$digest"
 
 # Complete container workflow: login, build, and push.
 [group: "aws-batch-scraper"]
-scraper-build-and-push-container: scraper-aws-login scraper-build-container scraper-push-container
+scraper-build-and-push-container: scraper-require-release-target scraper-aws-login scraper-build-container scraper-push-container
 
 # Seed the queue and launch workers.
 [group: "aws-batch-scraper"]

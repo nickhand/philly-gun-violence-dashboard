@@ -96,11 +96,18 @@ test("renders one quiet custom year selector at mobile width", async ({
   expect(yearAlignment.gapAfterHeader).toBeGreaterThanOrEqual(6);
   expect(yearAlignment.controlCenterDifference).toBeLessThanOrEqual(1.5);
 
-  await page.goto("./?year=All%20Years");
+  await expect(
+    page.locator(".civic-dashboard-browser-explorer"),
+  ).toHaveAttribute("aria-busy", "false");
+  await yearSelect.selectOption("All Years");
+  await expect(page).toHaveURL(/[?&]year=All(?:%20|\+)Years(?:&|$)/);
   await expect(yearSelect).toHaveValue("All Years");
   await expect(yearSelect).toHaveClass(
     /civic-legacy-year-bar__select--all/,
   );
+  await expect(
+    page.locator(".civic-dashboard-browser-explorer"),
+  ).toHaveAttribute("aria-busy", "false");
   const allYearsContract = await measureYearSelect();
   expect(allYearsContract).not.toBeNull();
   expect(allYearsContract).toMatchObject({
@@ -339,6 +346,7 @@ test("lets keyboard users cancel a mobile download while it is preparing", async
 });
 
 test("keeps chart definitions accessible without shifting or overflowing cards", async ({
+  browserName,
   page,
 }) => {
   await mockNuxtExternalServices(page);
@@ -377,50 +385,51 @@ test("keeps chart definitions accessible without shifting or overflowing cards",
   };
   const initialLayout = await measureLayout();
 
-  await charts.focus();
-  await page.keyboard.press("Tab");
-  await expect(trigger).toBeFocused();
-  await expect(tooltip).toBeVisible();
-  await expect(tooltip).toContainText("Fatal indicates");
-  const tooltipId = await tooltip.getAttribute("id");
-  expect(tooltipId).toBeTruthy();
-  await expect(trigger).toHaveAttribute("aria-controls", tooltipId!);
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
-  await expect(trigger).toHaveAttribute("aria-describedby", tooltipId!);
-  await expect(tooltip).toHaveAttribute("role", "tooltip");
+  const expectTooltipGeometry = async () => {
+    const mobileGeometry = await tooltip.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        clientWidth: element.clientWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        left: rect.left,
+        right: rect.right,
+        scrollWidth: element.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(mobileGeometry.left).toBeGreaterThanOrEqual(0);
+    expect(mobileGeometry.right).toBeLessThanOrEqual(mobileGeometry.viewportWidth);
+    expect(mobileGeometry.scrollWidth).toBeLessThanOrEqual(
+      mobileGeometry.clientWidth + 1,
+    );
+    expect(mobileGeometry.documentScrollWidth).toBeLessThanOrEqual(
+      mobileGeometry.viewportWidth,
+    );
+  };
 
-  const focusedLayout = await measureLayout();
-  expect(focusedLayout.cardHeight).toBeCloseTo(initialLayout.cardHeight ?? -1, 1);
-  expect(focusedLayout.nextOffset).toBeCloseTo(initialLayout.nextOffset, 1);
-  expect(focusedLayout.sectionHeight).toBeCloseTo(
-    initialLayout.sectionHeight ?? -1,
-    1,
-  );
-  const mobileGeometry = await tooltip.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    return {
-      clientWidth: element.clientWidth,
-      documentScrollWidth: document.documentElement.scrollWidth,
-      left: rect.left,
-      right: rect.right,
-      scrollWidth: element.scrollWidth,
-      viewportWidth: window.innerWidth,
-    };
-  });
-  expect(mobileGeometry.left).toBeGreaterThanOrEqual(0);
-  expect(mobileGeometry.right).toBeLessThanOrEqual(mobileGeometry.viewportWidth);
-  expect(mobileGeometry.scrollWidth).toBeLessThanOrEqual(
-    mobileGeometry.clientWidth + 1,
-  );
-  expect(mobileGeometry.documentScrollWidth).toBeLessThanOrEqual(
-    mobileGeometry.viewportWidth,
-  );
+  // Mobile Safari intentionally does not include buttons in sequential Tab
+  // navigation by default. Desktop cross-browser coverage owns the keyboard
+  // contract; this iPhone project exercises the native touch path below.
+  if (browserName !== "webkit") {
+    await charts.focus();
+    await page.keyboard.press("Tab");
+    await expect(trigger).toBeFocused();
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText("Fatal indicates");
+    const tooltipId = await tooltip.getAttribute("id");
+    expect(tooltipId).toBeTruthy();
+    await expect(trigger).toHaveAttribute("aria-controls", tooltipId!);
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+    await expect(trigger).toHaveAttribute("aria-describedby", tooltipId!);
+    await expect(tooltip).toHaveAttribute("role", "tooltip");
+    await expectTooltipGeometry();
 
-  await page.keyboard.press("Escape");
-  await expect(tooltip).not.toBeVisible();
-  await expect(trigger).toBeFocused();
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press("Escape");
+    await expect(tooltip).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  }
 
   await charts.focus();
   await trigger.tap();
@@ -429,6 +438,14 @@ test("keeps chart definitions accessible without shifting or overflowing cards",
   await expect(tooltip).toHaveAttribute("aria-label", "Outcome information");
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
   await expect(trigger).not.toHaveAttribute("aria-describedby");
+  await expectTooltipGeometry();
+  const tappedLayout = await measureLayout();
+  expect(tappedLayout.cardHeight).toBeCloseTo(initialLayout.cardHeight ?? -1, 1);
+  expect(tappedLayout.nextOffset).toBeCloseTo(initialLayout.nextOffset, 1);
+  expect(tappedLayout.sectionHeight).toBeCloseTo(
+    initialLayout.sectionHeight ?? -1,
+    1,
+  );
   await trigger.tap();
   await expect(tooltip).not.toBeVisible();
 
@@ -441,7 +458,9 @@ test("keeps chart definitions accessible without shifting or overflowing cards",
   expect(closeBox?.height).toBeGreaterThanOrEqual(44);
   await close.tap();
   await expect(tooltip).not.toBeVisible();
-  await expect(trigger).toBeFocused();
+  if (browserName !== "webkit") {
+    await expect(trigger).toBeFocused();
+  }
 
   await trigger.tap();
   await expect(tooltip).toBeVisible();
@@ -773,4 +792,45 @@ test("stacks the hydrated map and sidebar without mobile overflow", async ({
   await expect(
     page.locator(".v-application, .v-overlay-container, .v-dialog, .v-btn, .v-select"),
   ).toHaveCount(0);
+});
+
+test("keeps one correctly collapsed attribution control through phone orientation changes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ height: 844, width: 390 });
+  await mockNuxtExternalServices(page);
+  await page.goto("./");
+  await expect(page.locator(".civic-dashboard-browser-explorer")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
+  await expect(page.locator(".civic-dashboard-point-map")).toHaveClass(
+    /civic-dashboard-point-map--ready/,
+  );
+
+  const attribution = page.locator(".maplibregl-ctrl-attrib");
+  const attributionText = attribution.locator(
+    ".maplibregl-ctrl-attrib-inner",
+  );
+  await expect(attribution).toHaveCount(1);
+  await expect(attribution).toHaveClass(/maplibregl-compact/);
+  await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  await expect(attribution).not.toHaveAttribute("open", "");
+  await expect(attributionText).not.toBeVisible();
+
+  await page.setViewportSize({ height: 390, width: 844 });
+  await expect(attribution).toHaveCount(1);
+  await expect(attribution).toHaveClass(/maplibregl-compact/);
+  await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  await expect(attribution).not.toHaveAttribute("open", "");
+  await expect(attribution).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(attribution).toHaveCSS("color", "rgb(23, 33, 38)");
+  await expect(attributionText).not.toBeVisible();
+
+  await page.setViewportSize({ height: 844, width: 390 });
+  await expect(attribution).toHaveCount(1);
+  await expect(attribution).toHaveClass(/maplibregl-compact/);
+  await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  await expect(attribution).not.toHaveAttribute("open", "");
+  await expect(attributionText).not.toBeVisible();
 });

@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.data_loader import make_refresh_dependency
+from app.data_loader import get_data_snapshot, make_refresh_dependency, require_homicides
 
 router = APIRouter(dependencies=[Depends(make_refresh_dependency(["homicides"]))])
 
@@ -41,7 +41,7 @@ def get_homicide_totals(year: int, request: Request) -> HomicideTotalsResponse:
     HomicideTotalsResponse
         The annual and year-to-date totals for the requested year.
     """
-    totals = request.app.state.homicides_totals
+    totals = require_homicides(get_data_snapshot(request.app)).totals
     record = totals.get(str(year))
     if record is None:
         raise HTTPException(status_code=404, detail=f"Homicide totals not found for year {year}.")

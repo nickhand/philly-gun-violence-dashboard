@@ -9,12 +9,7 @@ build/
 !.dockerignore
 !.env.example
 !.github/
-.github/*
-!.github/workflows/
-.github/workflows/*
-!.github/workflows/api-quality.yml
-!.github/workflows/frontend-quality.yml
-!.github/workflows/etl-quality.yml
+!.github/**
 !.python-version
 !**/.terraform.lock.hcl
 __pycache__/

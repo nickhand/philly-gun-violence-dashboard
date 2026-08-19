@@ -15,38 +15,51 @@ on:
         default: 42
 
 permissions:
+  contents: read
   id-token: write
+
+concurrency:
+  group: courts-production
+  cancel-in-progress: false
 
 jobs:
   batch-courts-scraper:
     name: Batch Courts Scraper
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: aws-actions/configure-aws-credentials@v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate sample input
+        env:
+          SAMPLE: ${{ inputs.sample }}
+        run: |
+          if ! [[ "$SAMPLE" =~ ^[0-9]+$ ]]; then
+            echo "sample must be an integer greater than or equal to 0" >&2
+            exit 1
+          fi
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
           aws-region: us-east-1
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.12.0"
-      - uses: taiki-e/install-action@just
       - name: Verify identity
         run: aws sts get-caller-identity
       - name: Run courts ETL
         run: |
+          cd packages/etl
+          uv run gv-dashboard-etl courts smoke --skip-portal
           if [ "${SAMPLE}" -gt 0 ]; then
-            cd packages/etl
             uv run gv-dashboard-etl courts submit \
               --force \
               --monitor-in-ecs \
               --sample "${SAMPLE}" \
               --seed "${SEED}"
           else
-            just etl-courts-full
+            uv run gv-dashboard-etl courts submit --force --monitor-in-ecs
           fi
         env:
           SAMPLE: ${{ inputs.sample }}
@@ -61,7 +74,10 @@ jobs:
           SQS_QUEUE_NAME: ${{ vars.SQS_QUEUE_NAME }}
           SQS_DLQ_NAME: ${{ vars.SQS_DLQ_NAME }}
           ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
+          # Exact digest-backed worker revision; must not contain monitor secrets.
           ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
+          # Distinct exact monitor revision, permitted to receive the dispatch token.
+          ECS_MONITOR_TASK_DEFINITION: ${{ vars.ECS_MONITOR_TASK_DEFINITION }}
           ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
           ECS_TASK_COUNT: ${{ vars.ECS_TASK_COUNT }}
           ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}

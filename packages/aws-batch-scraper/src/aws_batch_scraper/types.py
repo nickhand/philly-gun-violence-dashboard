@@ -1,11 +1,62 @@
 """Core types for the aws-batch-scraper framework."""
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+RESERVED_WORK_MESSAGE_FIELDS = frozenset({"item_id", "run_id", "force_rescrape"})
+_MAX_JSON_NESTING = 100
+
+
+def _validate_json_value(
+    value: object,
+    *,
+    path: str,
+    depth: int = 0,
+    active_containers: set[int] | None = None,
+) -> None:
+    """Reject values that cannot round-trip through the strict JSON protocol."""
+    if depth > _MAX_JSON_NESTING:
+        raise ValueError(f"{path} exceeds maximum JSON nesting of {_MAX_JSON_NESTING}")
+    if value is None or isinstance(value, (bool, int, str)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"{path} must not contain NaN or Infinity")
+        return
+    if not isinstance(value, (dict, list)):
+        raise TypeError(f"{path} contains non-JSON value {type(value).__name__}")
+
+    active = active_containers if active_containers is not None else set()
+    identity = id(value)
+    if identity in active:
+        raise ValueError(f"{path} contains a cyclic JSON value")
+    active.add(identity)
+    try:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if not isinstance(key, str):
+                    raise TypeError(f"{path} contains a non-string JSON object key")
+                _validate_json_value(
+                    child,
+                    path=f"{path}.{key}",
+                    depth=depth + 1,
+                    active_containers=active,
+                )
+        else:
+            for index, child in enumerate(value):
+                _validate_json_value(
+                    child,
+                    path=f"{path}[{index}]",
+                    depth=depth + 1,
+                    active_containers=active,
+                )
+    finally:
+        active.remove(identity)
 
 
 class ScrapeStatus(str, Enum):
@@ -39,11 +90,86 @@ class WorkItem:
         Canonical identifier used as the S3 result key and for idempotency checks.
     extra : dict
         Any additional fields carried in the SQS message body beyond item_id/run_id.
-        Plugins can embed lookup context here (e.g. search type, date range).
+        Values must use strict JSON types. Plugins can embed lookup context here
+        (e.g. search type, date range).
     """
 
     item_id: str
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Reject ambiguous items before they reach the queue boundary."""
+        self.validate()
+
+    def validate(self) -> None:
+        """Re-check invariants after any plugin mutation of ``extra``."""
+        if not isinstance(self.item_id, str):
+            raise TypeError("WorkItem.item_id must be a string")
+        if not self.item_id.strip():
+            raise ValueError("WorkItem.item_id must not be blank")
+        if not isinstance(self.extra, dict):
+            raise TypeError("WorkItem.extra must be a dictionary")
+        if any(not isinstance(key, str) for key in self.extra):
+            raise TypeError("WorkItem.extra keys must be strings")
+        collisions = RESERVED_WORK_MESSAGE_FIELDS.intersection(self.extra)
+        if collisions:
+            fields = ", ".join(sorted(collisions))
+            raise ValueError(f"WorkItem.extra contains reserved queue field(s): {fields}")
+        _validate_json_value(self.extra, path="WorkItem.extra")
+
+
+class WorkMessage(BaseModel):
+    """Validated SQS envelope for one work item.
+
+    Plugin-specific fields remain flat in the JSON body for backwards
+    compatibility and are exposed through :attr:`extra_fields`.
+    """
+
+    model_config = ConfigDict(extra="allow", frozen=True, strict=True)
+
+    item_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    force_rescrape: bool = False
+
+    @field_validator("item_id", "run_id")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def _extra_is_strict_json(self) -> "WorkMessage":
+        _validate_json_value(self.extra_fields, path="WorkMessage.extra")
+        return self
+
+    @property
+    def extra_fields(self) -> dict[str, Any]:
+        """Return plugin fields not owned by the queue protocol."""
+        return dict(self.model_extra or {})
+
+    def to_work_item(self) -> WorkItem:
+        """Convert the validated envelope to the scraper-facing type."""
+        return WorkItem(item_id=self.item_id, extra=self.extra_fields)
+
+    @classmethod
+    def from_work_item(
+        cls,
+        item: WorkItem,
+        *,
+        run_id: str,
+        force_rescrape: bool = False,
+    ) -> "WorkMessage":
+        """Build an envelope without allowing plugin fields to shadow protocol fields."""
+        item.validate()
+        return cls.model_validate(
+            {
+                **item.extra,
+                "item_id": item.item_id,
+                "run_id": run_id,
+                "force_rescrape": force_rescrape,
+            }
+        )
 
 
 class ScrapeResult(BaseModel):

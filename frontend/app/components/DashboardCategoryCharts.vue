@@ -7,7 +7,7 @@ import type { ShootingRow } from "~/utils/shootingRecords";
 interface CategoryDefinition {
   label: string;
   shortLabel?: string;
-  value: boolean | string;
+  value: boolean | null | string;
 }
 
 interface ChartDefinition {
@@ -43,16 +43,17 @@ const definitions: ChartDefinition[] = [
     ],
   },
   {
-    title: "Public Court Record",
+    title: "Court Search Result",
     accessor: "has_court_case",
     className: "court",
     description:
-      "Yes means an automated search of the Pennsylvania public court portal returned a result for the incident number. No does not prove that no case exists, and this field does not report a case outcome.",
+      "Yes means the automated Pennsylvania court-portal search returned a result for the PPD incident number. No means a completed search returned an explicit no-results response. Unknown means the search was unavailable, incomplete, or inconclusive. This flag does not establish how a record relates to a victim or report a case outcome.",
     labelWidth: 100,
     responsiveLabelWidth: 100,
     categories: [
       { value: true, label: "Yes" },
       { value: false, label: "No" },
+      { value: null, label: "Unknown" },
     ],
   },
   {

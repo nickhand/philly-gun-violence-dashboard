@@ -1,10 +1,16 @@
 # Learning Nuxt through this migration
 
+Status: the Nuxt application is now the canonical Cloudflare production
+frontend. The phase descriptions below are an implementation record; references
+to parallel or future work describe the state at that phase, not today's
+topology. The Vite/Netlify build is retained only as a temporary rollback.
+
 The migration introduces Nuxt only where the current product needs it. The
 standing rule is: **if it can be simpler, simplify it.**
 
-Until legacy explorer parity is complete, each slice translates an existing
-behavior. Additions and product redesigns require a separate decision.
+During the migration, each slice translated an existing behavior until legacy
+explorer parity was complete. Additions and product redesigns still require a
+separate decision.
 
 ## Phase 1: shell and About page
 
@@ -154,10 +160,10 @@ four content pages, base-prefixed links, canonicals, canonical sitemap entries,
 the static robots policy and AI-readable guide, crawler-only duplicate guards,
 and the 404 status and metadata.
 
-This is still a parallel migration. The current Netlify rules serve the legacy
-About snapshot, proxy Statistics and the sitemap to FastAPI, and turn other
-subpath routes into the Vite shell with status 200. Those rules must be replaced
-as one explicit deployment cutover before these Nuxt responses become
+At this phase the work was still a parallel migration. Netlify served the
+legacy About snapshot, proxied Statistics and the sitemap to FastAPI, and
+turned other subpath routes into the Vite shell with status 200. The later
+Cloudflare cutover replaced those rules and made these Nuxt responses the
 production behavior.
 
 Finally, a robots file under `/philly-gun-violence-map/robots.txt` does not
@@ -250,8 +256,9 @@ reports mapped locations and records missing coordinates. Point, density,
 street-block, and boundary displays use that source plus only the requested
 overlay geometry. The city outline is a static reference layer. Point hover
 opens a compact incident tooltip and click pins it. Its date, time, location,
-demographics, incident number, and court-match flag are normalized before they
-enter GeoJSON and are built with DOM text nodes rather than raw tooltip HTML.
+demographics, incident number, and court-search-result flag are normalized
+before they enter GeoJSON and are built with DOM text nodes rather than raw
+tooltip HTML.
 The street note repeats the nearest-centerline limitation.
 
 ### Existing dashboard filters
@@ -259,7 +266,7 @@ The street note repeats the nearest-centerline limitation.
 The browser-only explorer now owns the selected-view request instead of the map
 component. It retains those rows only in browser memory and passes a summarized,
 filtered record set to the map. The Nuxt explorer now reproduces Fatal shootings
-only, Has public court record, Gender, Race/Ethnicity, Day of Week, Time of Day,
+only, Court search returned a result, Gender, Race/Ethnicity, Day of Week, Time of Day,
 Date, and Age. Category filters keep the legacy individual checkbox, “only,” and
 reset behavior. Age retains “Exclude unknown values.” Each range histogram
 respects every other active filter while ignoring its own current range. Filter
@@ -271,7 +278,7 @@ they are not new query parameters. The server-rendered total and no-JavaScript
 fallback remain the unfiltered selected view.
 
 The same filtered rows drive the five legacy view-only breakdowns: Outcome,
-Public Court Record, Gender, Race/Ethnicity, and Age Group. Accessible HTML/CSS
+Court Search Result, Gender, Race/Ethnicity, and Age Group. Accessible HTML/CSS
 bars replace the old chart lifecycle without adding a chart dependency or a new
 interaction. The download modal exports filtered or full selected-view records
 as CSV or GeoJSON and can aggregate by the same seven boundaries.
@@ -329,13 +336,14 @@ base-path assets, explicit staging Wrangler configuration, observability, and
 the crawler policy. Keeping this check next to the build makes a missing asset
 or accidentally indexable preview fail before deployment.
 
-`wrangler.jsonc` is intentionally a staging configuration: its Worker name ends
-in `-staging`, it defines no production route or custom domain, and no deploy
-script is installed. Nitro is also told not to generate a hidden Wrangler
-redirect file. Configuration stays visible and reviewable at the project root.
+At this phase `wrangler.jsonc` was intentionally staging-only: its Worker name
+ended in `-staging`, it defined no production route or custom domain, and no
+deploy script was installed. The final configuration now has explicit staging
+and production environments. Nitro is still told not to generate a hidden
+Wrangler redirect file, keeping routing visible and reviewable at the project
+root.
 
-This is build portability, not a hosting cutover. The next deployment step is a
-separately approved staging canary with runtime SSR, API failure, cache,
-observability, and crawler checks. Production routing changes only after that
-canary is stable; rollback returns the public route to the existing Netlify
-site without moving or modifying the FastAPI service.
+That slice proved build portability rather than changing hosting. A later
+staging canary covered runtime SSR, API failure, cache, observability, and
+crawler checks before production routing moved. The retained Netlify build is
+still the rollback path without moving or modifying the FastAPI service.

@@ -28,7 +28,7 @@ function buildHiddenAboutSummary() {
       <div style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0">
         <h2>About the Philadelphia Gun Violence Dashboard</h2>
         <p>Nick Hand first built this dashboard while serving as Director of Finance, Policy, and Data at the Philadelphia City Controller's Office. He now maintains it as an independent project, rebuilt with modern web tools and updated daily.</p>
-        <p>Data sources include shooting victim records from the Philadelphia Police Department through OpenDataPhilly, official homicide counts from the PPD Statistics Unit, and public court records from Pennsylvania's Unified Judicial System portal.</p>
+        <p>Data sources include shooting victim records from the Philadelphia Police Department through OpenDataPhilly and official homicide counts from the PPD Statistics Unit. The dashboard also reports whether an automated incident-number search of Pennsylvania's Unified Judicial System portal returned a result.</p>
         <p>The dashboard only includes criminal shooting victims, not officer-involved shootings. Homicide totals include all homicides, not just gun deaths. All data is preliminary and may differ from other official sources.</p>
         <p><a href="${CANONICAL_BASE}/stats">Current statistics and FAQ</a> | <a href="${CANONICAL_BASE}/">Interactive dashboard</a> | <a href="https://github.com/nickhand/philly-gun-violence-dashboard">Source code on GitHub</a></p>
       </div>`;

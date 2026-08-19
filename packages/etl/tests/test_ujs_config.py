@@ -9,6 +9,8 @@ def test_submitter_config_accepts_comma_separated_ecs_lists() -> None:
         _env_file=None,
         s3_bucket="bucket",
         aws_account_id="123456789012",
+        ecs_task_definition="ujs-scraper:1",
+        ecs_monitor_task_definition="ujs-scraper-monitor:1",
         ecs_subnet_ids="subnet-a, subnet-b",
         ecs_security_group_ids="sg-a,sg-b",
     )

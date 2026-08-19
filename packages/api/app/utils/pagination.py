@@ -38,6 +38,10 @@ def paginate_features[T](
     tuple[list[T], int, int | None, int]
         The page features, count, next offset, and total.
     """
+    if limit < 1:
+        raise ValueError("Pagination limit must be at least 1")
+    if offset < 0:
+        raise ValueError("Pagination offset must be non-negative")
     total = len(features)
     page_features = list(features[offset : offset + limit])
     count = len(page_features)

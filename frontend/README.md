@@ -3,69 +3,67 @@
 Interactive dashboard visualizing gun violence data in Philadelphia with maps,
 charts, and filtering capabilities.
 
-The production frontend is still the Vue/Vite application in `src/`. A Nuxt 4
-version is being built alongside it in `app/`, with a server-rendered dashboard
-shell and About, Statistics, Methodology, and Data pages. The existing
-application remains the default until the Nuxt version reaches feature parity.
+The canonical production frontend is the Nuxt 4 application in `app/`, mounted
+at `/philly-gun-violence-map/` on Cloudflare Workers. The former Vue/Vite
+application in `src/` remains runnable only as a temporary Netlify rollback
+artifact; keep its public data and terminology contracts aligned until that
+rollback window closes.
 
 ## Tech Stack
 
-- **Framework:** Vue 3 + Composition API
+- **Framework:** Nuxt 4 + Vue 3 Composition API
 - **Language:** TypeScript
-- **UI Library:** Vuetify 3
+- **UI:** Local `civic-ui` Nuxt layer backed by USWDS; Vuetify remains only in
+  the legacy rollback app
 - **Mapping:** MapLibre GL
 - **Charts:** D3.js
 - **Data Filtering:** Arquero
-- **State Management:** URL state and local Nuxt composables for the migration;
-  Pinia remains in the legacy explorer only
-- **Build Tool:** Vite
+- **State Management:** URL state and local Nuxt composables; Pinia remains in
+  the legacy explorer only
+- **Build Tool:** Nuxt/Nitro and Vite
 
 ## Prerequisites
 
 - Node.js 22.19+, 24.11+, or 26+
-- npm 9+
+- npm 11.18.0 (the exact version in `packageManager`)
 
 ## Getting Started
 
 ```bash
-# Install dependencies
-npm install
+# Reproduce the locked dependency graph
+npm ci
 
-# Start development server
-npm run dev
-
-# Build for production
-npm run build
-
-# Check compressed production bundle budgets
-npm run check:bundle
-
-# Preview production build
-npm run preview
-```
-
-The development server runs at `http://localhost:5173`.
-
-### Nuxt migration preview
-
-```bash
-# Start the parallel Nuxt application
+# Start the canonical Nuxt application
 npm run dev:nuxt
 
-# Type-check or build it
+# Type-check and build Nuxt
 npm run type-check:nuxt
 npm run build:nuxt
 
+# Validate the retained legacy rollback bundle
+npm run build:legacy
+npm run check:bundle
+```
+
+The Nuxt development server runs at
+`http://localhost:3000/philly-gun-violence-map/`.
+
+### Cloudflare release artifacts
+
+```bash
 # Build and validate a non-indexable Cloudflare staging artifact
-npm run build:nuxt:cloudflare
+npm run build:nuxt:cloudflare:staging
+
+# Build and validate the indexable production artifact without deploying it
+npm run build:nuxt:cloudflare:production
 ```
 
 Open `http://localhost:3000/philly-gun-violence-map/` for the dashboard shell.
 The content routes are `/about`, `/stats`, `/methodology`, and `/data`. Nuxt
 uses the public API by default; set
 `NUXT_PUBLIC_API_BASE_URL=http://localhost:8000` to use a local API. See
-[`NUXT_LEARNING.md`](./NUXT_LEARNING.md) for the concepts introduced in each
-migration slice.
+[`NUXT_LEARNING.md`](./NUXT_LEARNING.md) records the concepts introduced in each
+completed migration slice.
 
 The shell uses the same server-rendered statistics snapshot as `/stats`. Its
 year selector uses a regular `GET` form, so URLs such as `?year=2024` remain
@@ -80,7 +78,7 @@ validated, rounded view such as
 `map=12.76/39.97240/-75.14142` to the shareable URL without adding a history
 entry for every movement. Back/forward view changes reuse the existing map and
 record data. After the selected view loads, the legacy Fatal shootings
-only, Has public court record, Gender, Race/Ethnicity, Day of Week, Time of Day,
+only, Court search returned a result, Gender, Race/Ethnicity, Day of Week, Time of Day,
 Date, and Age filters run entirely in the browser. The range filters retain
 their cross-filtered histograms, and Age keeps the legacy “Exclude unknown
 values” choice. The same filtered rows update the five category breakdowns and
@@ -91,8 +89,8 @@ clicking pins it. Tooltip values are normalized and inserted as text, including
 the honest nearest-street limitation, rather than passed through the legacy
 raw-HTML formatter.
 
-Migration slices reproduce an existing legacy capability before any new
-explorer feature is considered.
+The completed migration preserved the legacy capabilities; future product
+features still require their own decision and regression coverage.
 
 ## Testing
 
@@ -118,13 +116,16 @@ npm run test:e2e:a11y
 
 # Production Lighthouse audit with performance thresholds
 npm run test:lighthouse
+
+# Dependency advisories that meet the CI severity threshold
+npm run audit:dependencies
 ```
 
 The Nuxt browser gate uses a deterministic cross-origin API fixture and creates
 a real MapLibre map; only third-party basemap and geocoder traffic is stubbed.
-It covers desktop and Pixel-sized mobile geometry without depending on
-production data. The legacy Vite browser suite remains available during
-cutover. See
+It covers desktop browsers, Pixel-sized Chromium, and an iPhone WebKit profile
+without depending on production data. The legacy Vite browser suite remains a
+required rollback gate. See
 [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) for the manual WCAG 2.1 AA evaluation
 checklist.
 
@@ -134,13 +135,19 @@ The production build emits a Vite manifest and `npm run check:bundle` enforces
 gzip budgets for the initial app shell, the asynchronously loaded map, their
 combined core experience, and deferred analytics. The check also prevents the
 full Material Design icon font from being bundled again. Lighthouse runs three
-desktop audits against deterministic local data and a local map style, then
-enforces scores and Core Web Vitals-oriented thresholds.
+desktop audits against deterministic local data and a local map style. The
+direct Lighthouse runner stores HTML and JSON for every run plus a machine-
+readable summary, then enforces median scores and Core Web Vitals-oriented
+thresholds.
 
 ## Project Structure
 
 ```
-src/
+app/                       # Canonical Nuxt pages, components, and utilities
+layers/civic-ui/           # Reusable civic UI Nuxt layer
+server/                    # Same-origin server endpoints used during SSR
+tests/                     # Unit, SSR/SEO, accessibility, and browser contracts
+src/                       # Legacy Vite rollback application
 ├── app/                    # Application setup
 │   ├── components/         # Shared layout components (AppNavbar, AppFooter)
 │   ├── router.ts           # Vue Router configuration
@@ -174,7 +181,7 @@ src/
 - Filter by date range, time of day, age
 - Filter by victim demographics (race, gender)
 - Filter by incident type (fatal/nonfatal)
-- Filter by court case status
+- Filter by automated court-search result (Yes, No, or Unknown)
 
 ### Charts
 - Breakdowns by time, location, and demographics
@@ -189,9 +196,10 @@ VITE_API_BASE_URL=http://localhost:8000
 VITE_POSTHOG_KEY=              # Optional: PostHog analytics key
 ```
 
-For production, `VITE_API_BASE_URL` points to the Fly.io API deployment.
+For the legacy rollback build, `VITE_API_BASE_URL` points to the Fly.io API
+deployment.
 
-The parallel Nuxt app also supports:
+The canonical Nuxt app supports:
 
 ```env
 NUXT_PUBLIC_API_BASE_URL=http://localhost:8000
@@ -216,7 +224,7 @@ CSV and GeoJSON links still point directly to the public download host.
 generate sitemap URLs;
 `NUXT_PUBLIC_CANONICAL_BASE_URL` includes this app's public subpath; and
 `NUXT_APP_BASE_URL` is the matching router/server mount path. Keep
-`NUXT_PUBLIC_INDEXABLE=true` for the eventual canonical production deployment.
+`NUXT_PUBLIC_INDEXABLE=true` for the canonical production deployment.
 The Cloudflare staging build command forces it to `false`, adding both page
 metadata and an `X-Robots-Tag` response policy that keep previews out of search
 results.
@@ -274,7 +282,7 @@ Production builds are optimized with:
 - CSS extraction
 - Asset hashing for cache busting
 
-The legacy output is in `dist/` and remains the current Netlify rollback build.
+The legacy output is in `dist/` and remains the temporary Netlify rollback build.
 Nuxt emits its server build in `.output/`. The pinned Wrangler configuration
 has separate environments:
 
@@ -291,16 +299,16 @@ enters the slash-subtree route without capturing nearby path prefixes.
 The Cloudflare build copies the static `_headers` file to the Workers Assets
 root, validates base-path assets, indexability, security headers, and route
 ownership, then deploys with the exact Wrangler version in `package-lock.json`.
-Follow [the cutover runbook](../docs/cloudflare-cutover.md); do not use the
-production command until the API, public-download v2 release, DNS/main-site
-migration, and noindex canary have passed.
+Follow [the cutover runbook](../docs/cloudflare-cutover.md). Production deploys
+remain explicit and require green API, download, indexing, browser, and rollback
+checks; a push alone does not deploy this Worker.
 
-The Nuxt dashboard now reproduces the production Explore composition and its
-principal map, filter, chart, address-search, and download interactions. Current
-Netlify proxies and its status-200 SPA fallback must be replaced at the Nuxt
-cutover. The main
-`www.nickhand.dev/robots.txt` must also advertise the subpath sitemap; the
-app's own subpath robots file cannot set host-wide policy.
+The Nuxt dashboard owns the production Explore route and its map, filter,
+chart, address-search, and download interactions. Netlify remains outside the
+normal request path as a frozen temporary rollback origin; `netlify.toml`
+cancels every Git-triggered build. The main
+`www.nickhand.dev/robots.txt` advertises the subpath sitemap because the app's
+own subpath robots file cannot set host-wide policy.
 
 ## Browser Support
 

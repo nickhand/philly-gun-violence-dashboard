@@ -4,7 +4,12 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
 
-from app.data_loader import make_refresh_dependency
+from app.data_loader import (
+    get_data_snapshot,
+    make_refresh_dependency,
+    require_homicides,
+    require_shootings,
+)
 from dashboard_utils.processed import read_processed_json
 
 router = APIRouter(
@@ -23,9 +28,10 @@ def get_all_meta(request: Request) -> dict[str, Any]:
     dict[str, Any]
         Metadata including last_updated and data_through for each dataset.
     """
+    snapshot = get_data_snapshot(request.app)
     return {
-        "shootings": request.app.state.shootings_freshness,
-        "homicides": request.app.state.homicides_freshness,
+        "shootings": require_shootings(snapshot).freshness,
+        "homicides": require_homicides(snapshot).freshness,
         "courts": read_processed_json("courts_meta", s3=request.app.state.s3),
     }
 
@@ -39,7 +45,7 @@ def get_shootings_meta(request: Request) -> dict[str, Any]:
     dict[str, Any]
         Metadata including last_updated and data_through.
     """
-    return cast(dict[str, Any], request.app.state.shootings_freshness)
+    return require_shootings(get_data_snapshot(request.app)).freshness
 
 
 @router.get("/homicides")
@@ -51,7 +57,7 @@ def get_homicides_meta(request: Request) -> dict[str, Any]:
     dict[str, Any]
         Metadata including last_updated and data_through.
     """
-    return cast(dict[str, Any], request.app.state.homicides_freshness)
+    return require_homicides(get_data_snapshot(request.app)).freshness
 
 
 @router.get("/courts")

@@ -90,7 +90,7 @@ interface Props {
   /** Bar color (hex) */
   color: string;
   /** Ordered category values */
-  categories: (string | number | boolean)[];
+  categories: (string | number | boolean | null)[];
   /** Display labels for categories */
   aliases?: Record<string, string>;
   /** Short labels for mobile */
@@ -209,12 +209,17 @@ const chartData = computed<ChartDataItem[]>(() => {
   const grouped = rollup(
     props.rows,
     (v: ShootingRow[]) => v.length,
-    (d: ShootingRow) => d[props.accessor as keyof ShootingRow]
+    (d: ShootingRow) => {
+      const value = d[props.accessor as keyof ShootingRow];
+      return props.accessor === "has_court_case" && typeof value !== "boolean"
+        ? null
+        : value;
+    }
   );
 
   const total = props.rows.length;
 
-  return props.categories.map((cat: string | number | boolean) => {
+  return props.categories.map((cat: string | number | boolean | null) => {
     const key = String(cat);
     const count = grouped.get(cat) ?? 0;
     const percent = total > 0 ? count / total : 0;

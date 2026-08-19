@@ -20,9 +20,12 @@ Cloudflare references:
 
 - Commit every intended Nuxt, API, ETL, test, and deployment file.
 - Run all Python, unit, SEO, bundle, and browser gates from a clean checkout.
-- Publish one schema-v2 public-download release and verify its immutable links.
-- Confirm the GitHub OIDC role can write `public/downloads/releases/*` and the
-  stable `public/downloads/manifest.json` pointer.
+- Save and inspect the current schema-v2 manifest before pointer publication.
+- Confirm the GitHub OIDC role can write `public/downloads/releases/*`, and can
+  read and write the stable `public/downloads/manifest.json` pointer.
+- Confirm the Fly API identity can read `public/downloads/manifest.json`, and
+  that no S3 lifecycle rule can expire a release still named by the current or
+  previous application-data pointer.
 - Keep the existing Netlify deployment available.
 
 ## 2. Deploy the API contract first
@@ -31,6 +34,7 @@ Deploy the new Fly image rather than merely restarting the old image. Verify:
 
 ```text
 /health
+/ready
 /meta
 /shootings/meta
 /stats.json
@@ -39,6 +43,16 @@ Deploy the new Fly image rather than merely restarting the old image. Verify:
 
 The canary browser origin must be added through `API_CORS_ORIGINS` before the
 canary is tested. Keep that value to exact comma-separated origins.
+
+Only after the pointer-aware API is healthy should data migration continue.
+First complete and verify the courts semantics-v2 migration: the flags CSV and
+courts metadata must both report version 2, legacy false must be unknown, and
+only explicit current no-results observations may be false. Then let the updated
+shootings ETL publish `application_data`. Run it once, verify the pointer and
+current URL, then run it a second time (or wait for the next normal release),
+restart the API, and verify both current and previous immutable row URLs.
+Publish the homicide pointer after that contract is green. Do not publish the
+new pointer format before the API and manifest-read IAM grant are deployed.
 
 ## 3. Move `nickhand.dev` DNS to Cloudflare without moving traffic
 

@@ -406,7 +406,7 @@ useHead(() => ({
                 variant="button"
                 type="text/csv"
                 aria-describedby="all-records-download-description"
-              >Download all shooting-victim records</CivicFileDownloadLink>
+              >Download all <span class="usa-sr-only">shooting-victim </span>records</CivicFileDownloadLink>
             </p>
           </div>
 
@@ -475,7 +475,7 @@ useHead(() => ({
             tabindex="0"
           >
             <table
-              class="usa-table usa-table--borderless civic-table civic-table--wrap"
+              class="usa-table usa-table--borderless civic-table civic-table--wrap civic-data-stacked-table civic-source-table"
             >
               <caption>
                 Public sources and dates used by this dashboard
@@ -490,6 +490,10 @@ useHead(() => ({
               <tbody>
                 <tr>
                   <th scope="row">
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >Source:</span>
                     <a
                       href="https://opendataphilly.org/datasets/shooting-victims/"
                       rel="external"
@@ -498,10 +502,18 @@ useHead(() => ({
                     </a>
                   </th>
                   <td>
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >How it is used:</span>
                     Victim details, fatal or nonfatal outcome, incident date,
                     location, race, sex, and age.
                   </td>
                   <td>
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >Dates in this dashboard:</span>
                     <template v-if="meta?.shootings?.data_through">
                       Records through
                       {{ formatDataDate(meta.shootings.data_through) }}.
@@ -523,6 +535,10 @@ useHead(() => ({
                 </tr>
                 <tr>
                   <th scope="row">
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >Source:</span>
                     <a
                       href="https://www.phillypolice.com/crime-data/crime-statistics/"
                       rel="external"
@@ -531,9 +547,17 @@ useHead(() => ({
                     </a>
                   </th>
                   <td>
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >How it is used:</span>
                     All homicides citywide, whether or not a gun was involved.
                   </td>
                   <td>
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >Dates in this dashboard:</span>
                     <template v-if="meta?.homicides?.data_through">
                       Records through
                       {{ formatDataDate(meta.homicides.data_through) }}.
@@ -543,6 +567,10 @@ useHead(() => ({
                 </tr>
                 <tr>
                   <th scope="row">
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >Source:</span>
                     <a
                       href="https://ujsportal.pacourts.us/CaseSearch"
                       rel="external"
@@ -551,12 +579,20 @@ useHead(() => ({
                     </a>
                   </th>
                   <td>
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >How it is used:</span>
                     Results from an automated search of public court records
                     using the police incident number.
                   </td>
                   <td>
+                    <span
+                      class="civic-data-stacked-table__label"
+                      aria-hidden="true"
+                    >Dates in this dashboard:</span>
                     <template v-if="meta?.courts?.last_updated">
-                      Court records checked
+                      Court search checked
                       {{ formatDataDate(meta.courts.last_updated) }}.
                     </template>
                     <template v-else>Date unavailable.</template>
@@ -582,9 +618,12 @@ useHead(() => ({
             <li>
               A positive court-search flag means the automated search found a
               result for the police incident number in the public court portal.
-              It does not prove that someone was charged, show how a case ended,
-              or prove that the result is tied to the shooting. A negative flag
-              does not prove that no case exists.
+              A negative flag means a completed search returned an explicit
+              no-results response; it does not prove that no case exists. An
+              unknown flag means the search was unavailable, incomplete, or
+              inconclusive. None of these values proves that someone was
+              charged, shows how a case ended, or establishes how a record
+              relates to a victim.
             </li>
           </ul>
           <p>
@@ -608,7 +647,7 @@ useHead(() => ({
             tabindex="0"
           >
             <table
-              class="usa-table usa-table--borderless civic-table civic-table--wrap civic-table--two-column"
+              class="usa-table usa-table--borderless civic-table civic-table--wrap civic-table--two-column civic-data-stacked-table"
             >
               <caption>
                 Key fields in record-level downloads
@@ -676,9 +715,13 @@ useHead(() => ({
                 <tr>
                   <th scope="row"><code>has_court_case</code></th>
                   <td>
-                    Whether the automated search found a result for the
-                    incident number in the public court portal. This field does
-                    not show how a case ended.
+                    <code>true</code> means the automated court-portal search
+                    returned a result for the PPD incident number.
+                    <code>false</code> means a completed search returned an
+                    explicit no-results response. A blank CSV value or GeoJSON
+                    <code>null</code> means the search was unavailable,
+                    incomplete, or inconclusive. This field does not establish
+                    how a record relates to a victim or report a case outcome.
                   </td>
                 </tr>
               </tbody>
@@ -711,7 +754,7 @@ useHead(() => ({
               tabindex="0"
             >
               <table
-                class="usa-table usa-table--borderless civic-table civic-table--wrap civic-table--two-column civic-reference-download-table"
+                class="usa-table usa-table--borderless civic-table civic-table--wrap civic-table--two-column civic-data-stacked-table civic-reference-download-table"
               >
                 <caption>
                   Map reference downloads and their matching record fields
@@ -736,7 +779,15 @@ useHead(() => ({
                         type="application/geo+json"
                       >Download {{ reference.label }}</CivicFileDownloadLink>
                     </th>
-                    <td><code>{{ reference.joinField }}</code></td>
+                    <td>
+                      <span
+                        class="civic-data-stacked-table__label"
+                        aria-hidden="true"
+                      >
+                        Match this field:
+                      </span>
+                      <code>{{ reference.joinField }}</code>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -822,11 +873,91 @@ useHead(() => ({
   margin-left: 2.25rem;
 }
 
+.civic-data-stacked-table__label {
+  display: none;
+}
+
 @media (max-width: 35.99em) {
-  .civic-reference-download-table th,
-  .civic-reference-download-table td {
+  .civic-data-stacked-table {
+    display: block;
+    min-width: 0;
+    table-layout: auto;
+  }
+
+  .civic-data-stacked-table caption {
+    display: block;
+  }
+
+  .civic-data-stacked-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .civic-data-stacked-table tbody,
+  .civic-data-stacked-table tbody tr,
+  .civic-data-stacked-table tbody th,
+  .civic-data-stacked-table tbody td {
+    display: block;
+    width: 100%;
+  }
+
+  .civic-data-stacked-table.civic-table--two-column tbody th:first-child {
+    width: 100%;
+  }
+
+  .civic-data-stacked-table tbody tr {
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--civic-color-rule-subtle);
+  }
+
+  .civic-data-stacked-table tbody th,
+  .civic-data-stacked-table tbody td {
     padding-right: 0.5rem;
     padding-left: 0.5rem;
+    border: 0;
+  }
+
+  .civic-data-stacked-table tbody th {
+    padding-top: 0;
+    padding-bottom: 0.2rem;
+  }
+
+  .civic-data-stacked-table tbody td {
+    padding-top: 0.2rem;
+    padding-bottom: 0;
+  }
+
+  .civic-data-stacked-table code {
+    overflow-wrap: normal;
+    word-break: normal;
+    white-space: nowrap;
+  }
+
+  .civic-data-stacked-table__label {
+    display: inline;
+    margin-right: 0.25rem;
+    color: var(--civic-color-ink-subtle);
+    font-size: 0.88rem;
+  }
+
+  .civic-reference-download-table tbody th {
+    padding-bottom: 0.35rem;
+  }
+
+  .civic-source-table tbody th {
+    padding-bottom: 0.35rem;
+    font-weight: 600;
+  }
+
+  .civic-source-table tbody td + td {
+    padding-top: 0.45rem;
   }
 }
 </style>

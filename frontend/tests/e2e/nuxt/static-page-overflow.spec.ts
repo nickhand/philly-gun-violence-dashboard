@@ -347,7 +347,12 @@ for (const viewport of [
       expect(row.joinField).not.toBeNull();
       if (!row.rowHeader || !row.joinField) continue;
 
-      expect(row.rowHeader.right).toBeLessThanOrEqual(row.joinField.left + 1);
+      const mobileStack = viewport.width < 576;
+      if (mobileStack) {
+        expect(row.rowHeader.bottom).toBeLessThanOrEqual(row.joinField.top + 1);
+      } else {
+        expect(row.rowHeader.right).toBeLessThanOrEqual(row.joinField.left + 1);
+      }
       for (const [partName, part] of Object.entries(row.parts)) {
         expect(part, `${partName} is present for ${row.name}`).not.toBeNull();
         if (!part) continue;
@@ -357,8 +362,8 @@ for (const viewport of [
         ).toBeGreaterThanOrEqual(row.rowHeader.left - 1);
         expect(
           part.right,
-          `${partName} stays out of the join-field cell for ${row.name}`,
-        ).toBeLessThanOrEqual(row.joinField.left + 1);
+          `${partName} stays inside the row-header right edge for ${row.name}`,
+        ).toBeLessThanOrEqual(row.rowHeader.right + 1);
         expect(
           part.top,
           `${partName} stays inside the row-header top edge for ${row.name}`,

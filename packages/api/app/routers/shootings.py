@@ -8,13 +8,13 @@ This module provides endpoints for accessing shootings data:
 import hashlib
 import json
 from collections.abc import Iterator
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.data_loader import make_refresh_dependency
+from app.data_loader import get_data_snapshot, make_refresh_dependency, require_shootings
 
 router = APIRouter(dependencies=[Depends(make_refresh_dependency(["shootings"]))])
 
@@ -98,7 +98,7 @@ def get_shootings_meta(
     Response | dict[str, Any]
         304 Not Modified if ETag matches, otherwise the metadata dict.
     """
-    meta = request.app.state.shootings_meta
+    meta = require_shootings(get_data_snapshot(request.app)).current.meta
     etag = hashlib.sha256(
         json.dumps(meta, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -114,7 +114,7 @@ def get_shootings_meta(
     # Set cache headers
     response.headers.update(headers)
 
-    return cast(dict[str, Any], meta)
+    return meta
 
 
 @router.get(
@@ -159,14 +159,16 @@ def get_shootings_rows_by_year(
     HTTPException
         404 if version doesn't match or year not available.
     """
-    current_version = request.app.state.shootings_version
-    if version != current_version:
+    shootings = require_shootings(get_data_snapshot(request.app))
+    version_snapshot = shootings.find_version(version)
+    if version_snapshot is None:
+        current_version = shootings.current.version
         raise HTTPException(
             status_code=404,
             detail=f"Version '{version}' not found. Current version is '{current_version}'.",
         )
 
-    rows_by_year = request.app.state.shootings_rows_by_year
+    rows_by_year = version_snapshot.rows_by_year
     if year not in rows_by_year:
         available_years = sorted(rows_by_year.keys())
         raise HTTPException(

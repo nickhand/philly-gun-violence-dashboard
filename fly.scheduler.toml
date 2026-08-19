@@ -1,0 +1,20 @@
+app = "philly-gun-violence-dashboard-scheduler"
+primary_region = "iad"
+
+[build]
+dockerfile = "packages/api/Dockerfile"
+
+[env]
+ENV = "prod"
+
+[processes]
+cron = "supercronic /app/api/crontab"
+
+[deploy]
+# A rolling deploy can briefly run old and new cron Machines concurrently.
+strategy = "immediate"
+
+[[vm]]
+processes = ["cron"]
+size = "shared-cpu-1x"
+memory = "256mb"

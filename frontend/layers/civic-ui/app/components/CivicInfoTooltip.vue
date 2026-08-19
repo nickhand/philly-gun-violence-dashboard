@@ -121,7 +121,7 @@ onBeforeUnmount(() => {
       aria-haspopup="dialog"
       @click="toggle"
     >
-      <span aria-hidden="true">i</span>
+      <span class="civic-info-tooltip__glyph" aria-hidden="true">i</span>
       <span class="usa-sr-only">{{ label }}</span>
     </button>
     <span
@@ -161,9 +161,7 @@ onBeforeUnmount(() => {
 
   position: static;
   display: inline-flex;
-  padding-block: 0.25rem;
   align-items: center;
-  margin-block: -0.25rem;
   margin-inline-start: 0.4rem;
   vertical-align: middle;
 }
@@ -181,13 +179,13 @@ onBeforeUnmount(() => {
 
 .civic-info-tooltip__trigger {
   display: inline-flex;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
   padding: 0;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--civic-info-tooltip-trigger-border);
-  border-radius: 50%;
+  border: 0;
+  border-radius: 4px;
   color: var(--civic-info-tooltip-trigger-color);
   background: transparent;
   cursor: pointer;
@@ -195,6 +193,21 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
   font-weight: 700;
   line-height: 1;
+}
+
+.civic-info-tooltip__glyph {
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--civic-info-tooltip-trigger-border);
+  border-radius: 50%;
+}
+
+.civic-info-tooltip__trigger:focus-visible {
+  outline: 3px solid var(--civic-info-tooltip-focus);
+  outline-offset: -3px;
 }
 
 .civic-info-tooltip__panel {

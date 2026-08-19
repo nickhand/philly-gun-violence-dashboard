@@ -26,6 +26,9 @@ PORTAL_URL = "https://ujsportal.pacourts.us/CaseSearch"
 # Selectors for results detection
 RESULTS_CONTAINER_SELECTOR = "#caseSearchResultGrid"
 RESULTS_ROW_SELECTOR = "#caseSearchResultGrid tbody tr"
+NO_RESULTS_ELEMENT_SELECTOR = (
+    "#caseSearchResultGrid .no-records, #caseSearchResultGrid .no-results-message"
+)
 NO_RESULTS_TEXT_MARKERS = [
     "No results found",
     "no results were found",
@@ -152,23 +155,33 @@ def _check_url_patterns(url: str, patterns: list[str]) -> tuple[bool, str | None
 
 
 def _count_result_rows(page: Page, selector: str = RESULTS_ROW_SELECTOR) -> int:
-    try:
-        rows = page.query_selector_all(selector)
-        visible_count = 0
-        for row in rows:
-            text = row.inner_text()
-            if not text or not text.strip():
-                continue
-            no_results_found, _ = _check_text_markers(text, NO_RESULTS_TEXT_MARKERS)
-            if no_results_found:
-                continue
-            class_attr = row.get_attribute("class") or ""
-            if "no-records" in class_attr.split():
-                continue
-            visible_count += 1
-        return visible_count
-    except Exception:
-        return 0
+    rows = page.query_selector_all(selector)
+    visible_count = 0
+    for row in rows:
+        if not row.is_visible():
+            continue
+        text = row.inner_text()
+        if not text or not text.strip():
+            continue
+        no_results_found, _ = _check_text_markers(text, NO_RESULTS_TEXT_MARKERS)
+        if no_results_found:
+            continue
+        class_attr = row.get_attribute("class") or ""
+        if "no-records" in class_attr.split():
+            continue
+        visible_count += 1
+    return visible_count
+
+
+def _visible_no_results_marker(page: Page) -> tuple[bool, str | None]:
+    """Find an explicit, visible no-records element inside the result grid."""
+    for element in page.query_selector_all(NO_RESULTS_ELEMENT_SELECTOR):
+        if not element.is_visible():
+            continue
+        found, marker = _check_text_markers(element.inner_text(), NO_RESULTS_TEXT_MARKERS)
+        if found:
+            return True, marker
+    return False, None
 
 
 def classify_case_search(
@@ -313,19 +326,16 @@ def classify_case_search(
 
     # Priority 4: results container visible, check rows
     if results_container_visible:
-        row_count = _count_result_rows(page)
+        try:
+            row_count = _count_result_rows(page)
+        except Exception as exc:
+            return result(
+                Classification.UI_DRIFT_OR_UNKNOWN,
+                subreason="Failed to inspect results table rows",
+                error_message=str(exc),
+            )
         marker_hits["has_rows"] = row_count > 0
 
-        no_results_found, _ = _check_text_markers(page_content, NO_RESULTS_TEXT_MARKERS)
-        marker_hits["no_results_text"] = no_results_found
-
-        if no_results_found:
-            return result(
-                Classification.ZERO_RESULTS,
-                subreason="No results text marker found",
-                row_count=0,
-                error_message=None,
-            )
         if row_count > 0:
             return result(
                 Classification.HAS_RESULTS,
@@ -333,9 +343,26 @@ def classify_case_search(
                 row_count=row_count,
                 error_message=None,
             )
+        try:
+            no_results_found, _ = _visible_no_results_marker(page)
+        except Exception as exc:
+            return result(
+                Classification.UI_DRIFT_OR_UNKNOWN,
+                subreason="Failed to inspect explicit no-results indicator",
+                row_count=0,
+                error_message=str(exc),
+            )
+        marker_hits["no_results_text"] = no_results_found
+        if no_results_found:
+            return result(
+                Classification.ZERO_RESULTS,
+                subreason="No results text marker found",
+                row_count=0,
+                error_message=None,
+            )
         return result(
-            Classification.ZERO_RESULTS,
-            subreason="Results table empty",
+            Classification.UI_DRIFT_OR_UNKNOWN,
+            subreason="Results table was visible but empty without an explicit no-results marker",
             row_count=0,
             error_message=None,
         )

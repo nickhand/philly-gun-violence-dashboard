@@ -1,8 +1,13 @@
 # Frontend modernization: Nuxt, civic UI, SEO, and hosting
 
-Status: parallel Nuxt phases 1–5 implemented through the major legacy explorer
-parity slice; legacy app remains production
-Date: 2026-08-15
+Status: completed; Nuxt is production on Cloudflare Workers and the legacy Vite
+app remains temporarily available only for rollback
+Original plan: 2026-08-15; production cutover: 2026-08-18
+
+The document below preserves the decisions and gates used during migration.
+Future-tense and “current Netlify” language in the phase plan describes the
+historical state at that gate; use `README.md`, `frontend/README.md`, and the
+cutover runbook for the live topology.
 
 ## Decision summary
 
@@ -322,14 +327,14 @@ Recommended content order:
 1. **Why this exists** — a short first-person account of the public need and why
    the project continues. Avoid the current third-person biography.
 2. **What the dashboard shows** — shooting victims, fatal/nonfatal outcome,
-   geography, time, demographics, and linked public court records; distinguish
-   victim records from incidents.
+   geography, time, demographics, and automated public-court-search results;
+   distinguish victim records from incidents.
 3. **Where the data comes from** — a source register with publisher, dataset,
    coverage, update schedule, data-through date, and source link.
 4. **How the data moves** — a plain-language pipeline: public source → automated
    checks and transformations → versioned data → map, charts, and downloads.
 5. **What the data cannot tell you** — preliminary status, revisions,
-   officer-involved-shooting exclusion, court-match uncertainty, homicide-count
+   officer-involved-shooting exclusion, court-search uncertainty, homicide-count
    differences, missing fields, and the limits of point locations.
 6. **Stewardship and corrections** — who maintains the project, how issues are
    corrected, source/code links, and a direct contact path.
@@ -575,10 +580,10 @@ viewport. The existing `layers` grammar now supports point, density heat-map,
 street-block hot spots, and the seven mutually exclusive boundary aggregations.
 The city outline remains a static reference. Point hover and pinned click use a
 restrained MapLibre popup with normalized date, time, location, demographic,
-incident-number, and court-match fields. It avoids the legacy raw-HTML tooltip
+incident-number, and court-search-result fields. It avoids the legacy raw-HTML tooltip
 builder and preserves the nearest-street caveat.
 The client explorer now owns the selected-view rows once and ports the legacy
-Fatal shootings only, Has public court record, Gender, Race/Ethnicity, Day of
+Fatal shootings only, Court search returned a result, Gender, Race/Ethnicity, Day of
 Week, Time of Day, Date, and Age filters. Category filters retain the legacy
 individual checkbox, “only,” and reset behavior. Each histogram excludes its
 own range while respecting every other active filter; Age retains “Exclude

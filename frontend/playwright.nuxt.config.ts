@@ -13,6 +13,10 @@ const crossBrowserCore = [
   "**/dashboard.spec.ts",
   "**/stats-mobile.spec.ts",
 ];
+const webkitCore = [
+  ...crossBrowserCore,
+  "**/data-mobile-tables.spec.ts",
+];
 // Headless Firefox on GitHub's Ubuntu runner cannot create the WebGL context
 // MapLibre requires, even with webgl.force-enabled. Chromium and WebKit retain
 // the real-map coverage; Firefox still runs the non-map core smoke/a11y flows.
@@ -82,9 +86,19 @@ export default defineConfig({
     },
     {
       name: "nuxt-webkit-core",
-      testMatch: crossBrowserCore,
+      testMatch: webkitCore,
       grepInvert: webkitNonPortable,
       use: { ...devices["Desktop Safari"] },
+    },
+    {
+      name: "nuxt-mobile-webkit",
+      testMatch: [
+        "**/mobile.spec.ts",
+        "**/data-mobile-tables.spec.ts",
+        "**/stats-mobile.spec.ts",
+      ],
+      grepInvert: webkitNonPortable,
+      use: { ...devices["iPhone 13"] },
     },
   ],
 });

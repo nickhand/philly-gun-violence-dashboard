@@ -97,10 +97,11 @@ const metadata = computed(() => {
 }
 
 .civic-file-download-link--button {
-  display: inline-flex;
+  display: inline-grid;
   max-width: 100%;
   min-width: 0;
-  flex-wrap: wrap;
+  grid-template-areas: "icon label metadata";
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 0.4rem;
   align-items: center;
   margin: 0;

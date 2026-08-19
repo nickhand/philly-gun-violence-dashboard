@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from dashboard_utils.registry import get_geographic_data, iter_datasets, register_datasets
+from dashboard_utils.boundary_releases import read_boundary_snapshot_gdfs
 
 from ..extract import fetch_criminal_incidents
 
@@ -84,12 +84,11 @@ def _backfill_location_data(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 def join_with_boundary_datasets(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Add geographic columns to the input dataframe."""
-    # Register the geographic datasets
-    register_datasets("etl.boundaries.extract")
-
     # Get a fresh copy
     df = df.copy().reset_index(drop=True)
-    assert df.crs is not None
+    if df.crs is None:
+        raise ValueError("Boundary joins require a known input coordinate system")
+    boundaries = read_boundary_snapshot_gdfs()
 
     # The original length
     original_length = len(df)
@@ -99,7 +98,7 @@ def join_with_boundary_datasets(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # -------------------------------------------------------------------------
 
     # Check city limits
-    city_limits = get_geographic_data("city_limits")
+    city_limits = boundaries["city_limits"]
     city_limits = city_limits.to_crs(df.crs)
     outside_limits = ~df.geometry.within(city_limits.iloc[0].geometry)
     missing = outside_limits.sum()
@@ -113,12 +112,13 @@ def join_with_boundary_datasets(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # 2. Backfill missing location data from criminal incidents dataset
     # -------------------------------------------------------------------------
     df = _backfill_location_data(df)
-    assert df.crs is not None
+    if df.crs is None:
+        raise ValueError("Location backfill removed the input coordinate system")
 
     # -------------------------------------------------------------------------
     # 3. Add geographic columns
     # -------------------------------------------------------------------------
-    for dataset in iter_datasets():
+    for dataset, geo in boundaries.items():
         # Skip city limits
         if dataset == "city_limits":
             continue
@@ -127,8 +127,6 @@ def join_with_boundary_datasets(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         # Track original columns
         original_columns = set(df.columns)
 
-        # Load the geo dataset
-        geo = get_geographic_data(dataset)
         geo = geo.to_crs(df.crs)
 
         # Merge

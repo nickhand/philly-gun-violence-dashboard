@@ -95,6 +95,7 @@ let cachedBoundary:
   | null = null;
 
 interface ActiveMap {
+  cleanupAttribution: () => void;
   cleanupInteractions: () => void;
   createPopup: (options: PopupOptions) => Popup;
   instance: MapLibreMap;
@@ -115,9 +116,17 @@ const DATA_ATTRIBUTION =
   "Shooting-victim records: Philadelphia Police Department via OpenDataPhilly.";
 const MAP_PRINT_CLASS = "civic-dashboard-map-print-active";
 const MOBILE_MAP_BREAKPOINT = 768;
+const COARSE_POINTER_QUERY = "(pointer: coarse)";
 
-function collapseMobileAttribution(container: HTMLElement | null): void {
-  if (window.innerWidth >= MOBILE_MAP_BREAKPOINT) return;
+function shouldCompactAttribution(): boolean {
+  return (
+    window.innerWidth < MOBILE_MAP_BREAKPOINT ||
+    window.matchMedia(COARSE_POINTER_QUERY).matches
+  );
+}
+
+function collapseCompactAttribution(container: HTMLElement | null): void {
+  if (!shouldCompactAttribution()) return;
 
   const attribution = container?.querySelector<HTMLElement>(
     ".maplibregl-ctrl-attrib.maplibregl-compact",
@@ -641,6 +650,7 @@ function destroyMap(target = activeMap): void {
   if (!target) return;
   abortOverlayRequests();
   if (target.timer) clearTimeout(target.timer);
+  target.cleanupAttribution();
   target.cleanupInteractions();
   boundaryCleanup?.();
   streetCleanup?.();
@@ -771,8 +781,12 @@ function pointPopupContent(record: ShootingPointProperties): HTMLElement {
   addSection("Case Information");
   addRow("DC Number", record.dcKey);
   addRow(
-    "Court Case",
-    record.hasCourtCase === null ? null : record.hasCourtCase ? "Yes" : "No",
+    "Court search result",
+    record.hasCourtCase === null
+      ? "Unknown"
+      : record.hasCourtCase
+        ? "Yes"
+        : "No",
   );
   return root;
 }
@@ -1182,6 +1196,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       }
     };
     candidate = {
+      cleanupAttribution: () => {},
       cleanupInteractions: () => {},
       createPopup: (options) => new maplibregl.Popup(options),
       instance,
@@ -1203,12 +1218,32 @@ async function initializeMap(currentLoadId: number): Promise<void> {
     );
     instance.addControl(new HomeControl(), "top-right");
     instance.addControl(new maplibregl.ScaleControl(), "bottom-left");
-    const compactAttribution = window.innerWidth < MOBILE_MAP_BREAKPOINT;
+    let compactAttribution = shouldCompactAttribution();
+    let attributionControl = new maplibregl.AttributionControl({
+      compact: compactAttribution,
+    });
     instance.addControl(
-      new maplibregl.AttributionControl({ compact: compactAttribution }),
+      attributionControl,
       "bottom-right",
     );
-    collapseMobileAttribution(mapContainer.value);
+    collapseCompactAttribution(mapContainer.value);
+    const onAttributionResize = () => {
+      if (activeMap !== candidate || currentLoadId !== loadId) return;
+      const shouldBeCompact = shouldCompactAttribution();
+      if (shouldBeCompact === compactAttribution) return;
+
+      instance.removeControl(attributionControl);
+      compactAttribution = shouldBeCompact;
+      attributionControl = new maplibregl.AttributionControl({
+        compact: compactAttribution,
+      });
+      instance.addControl(attributionControl, "bottom-right");
+      collapseCompactAttribution(mapContainer.value);
+    };
+    window.addEventListener("resize", onAttributionResize);
+    candidate.cleanupAttribution = () => {
+      window.removeEventListener("resize", onAttributionResize);
+    };
 
     candidate.timer = setTimeout(() => {
       if (
@@ -1227,7 +1262,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       try {
         // MapLibre expands a newly compacted attribution control. Collapse it
         // after style attribution has loaded so it starts as an info button.
-        collapseMobileAttribution(mapContainer.value);
+        collapseCompactAttribution(mapContainer.value);
         enhanceBasemapLabels(instance);
         instance.addSource("shooting-records", {
           type: "geojson",
@@ -1928,7 +1963,7 @@ onBeforeUnmount(() => {
   color: #b8ddf5;
 }
 
-@media screen and (max-width: 47.99em) {
+@media screen and (max-width: 47.99em), screen and (pointer: coarse) {
   :deep(.maplibregl-ctrl-attrib.maplibregl-compact) {
     box-sizing: content-box;
     max-width: calc(100% - 20px);

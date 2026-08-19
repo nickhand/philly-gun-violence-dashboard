@@ -5,7 +5,37 @@ import pandas as pd
 import pytest
 from shapely.geometry import Point
 
+from etl.courts.semantics import sanitize_court_search_flags
+from etl.shootings.transform import boundaries as boundary_transform
 from etl.shootings.transform import core
+
+
+def _valid_schema_frame(has_court_case: object) -> gpd.GeoDataFrame:
+    """Build one row at the final shootings schema boundary."""
+    return gpd.GeoDataFrame(
+        {
+            "dc_key": ["202612345678"],
+            "race": ["B"],
+            "sex": ["M"],
+            "fatal": [False],
+            "date": ["2026-08-01 12:30:00"],
+            "age_group": ["18 to 30"],
+            "has_court_case": [has_court_case],
+            "age": [25.0],
+            "street_name": [None],
+            "block_number": [None],
+            "zip_code": [None],
+            "council_district": [None],
+            "police_district": [None],
+            "neighborhood": [None],
+            "school_name": [None],
+            "house_district": [None],
+            "senate_district": [None],
+            "segment_id": [None],
+        },
+        geometry=[Point(-75.1, 40.0)],
+        crs="EPSG:4326",
+    )
 
 
 def _binary_frame(values: list[object]) -> gpd.GeoDataFrame:
@@ -58,6 +88,59 @@ def test_run_checks_rejects_large_fatal_count_decrease(monkeypatch) -> None:
         core._run_checks(new)
 
 
+def test_boundary_join_rejects_unknown_coordinate_system(monkeypatch) -> None:
+    """Spatial joins must not guess the coordinate system of source points."""
+    raw = gpd.GeoDataFrame(geometry=[Point(-75.1, 40.0)])
+
+    with pytest.raises(ValueError, match="known input coordinate system"):
+        boundary_transform.join_with_boundary_datasets(raw)
+
+
+def test_schema_boundary_preserves_unknown_court_search_result() -> None:
+    result = core._validate_against_schema(_valid_schema_frame(pd.NA))
+
+    assert pd.isna(result["has_court_case"].iloc[0])
+
+
+def test_unversioned_court_flags_keep_true_but_invalidate_false() -> None:
+    result = sanitize_court_search_flags(
+        pd.DataFrame(
+            {
+                "dc_key": ["1", "2", "3"],
+                "has_court_case": [True, False, pd.NA],
+            }
+        )
+    ).set_index("dc_key")["has_court_case"]
+
+    assert bool(result["1"]) is True
+    assert pd.isna(result["2"])
+    assert pd.isna(result["3"])
+    assert str(result.dtype) == "boolean"
+
+
+def test_mixed_court_flag_versions_preserve_only_v2_false() -> None:
+    result = sanitize_court_search_flags(
+        pd.DataFrame(
+            {
+                "dc_key": ["1", "2", "3", "4"],
+                "has_court_case": ["True", "False", "False", "False"],
+                "court_search_semantics_version": [pd.NA, 2, 1, pd.NA],
+            }
+        )
+    ).set_index("dc_key")["has_court_case"]
+
+    assert bool(result["1"]) is True
+    assert bool(result["2"]) is False
+    assert pd.isna(result["3"])
+    assert pd.isna(result["4"])
+
+
+@pytest.mark.parametrize("value", [0, 1, "false", "true"])
+def test_schema_boundary_rejects_coercive_court_search_values(value: object) -> None:
+    with pytest.raises(ValueError, match="failed schema validation"):
+        core._validate_against_schema(_valid_schema_frame(value))
+
+
 def test_clean_shootings_uses_normalized_flags_before_race_mapping(monkeypatch) -> None:
     raw = gpd.GeoDataFrame(
         {
@@ -85,7 +168,13 @@ def test_clean_shootings_uses_normalized_flags_before_race_mapping(monkeypatch) 
     monkeypatch.setattr(
         core,
         "load_courts_flags",
-        lambda **_kwargs: pd.DataFrame({"dc_key": ["1", "2"], "has_court_case": [False, False]}),
+        lambda **_kwargs: pd.DataFrame(
+            {
+                "dc_key": ["1", "2"],
+                "has_court_case": [False, False],
+                "court_search_semantics_version": [pd.NA, 2],
+            }
+        ),
     )
     monkeypatch.setattr(core, "_validate_against_schema", lambda df: df)
 
@@ -96,3 +185,5 @@ def test_clean_shootings_uses_normalized_flags_before_race_mapping(monkeypatch) 
     assert result["outside"].tolist() == [True, False]
     assert result["latino"].tolist() == [False, True]
     assert result["race"].tolist() == ["W", "H"]
+    assert pd.isna(result.loc[result["dc_key"] == "1", "has_court_case"].iloc[0])
+    assert bool(result.loc[result["dc_key"] == "2", "has_court_case"].iloc[0]) is False

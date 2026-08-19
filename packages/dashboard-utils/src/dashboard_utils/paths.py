@@ -30,6 +30,7 @@ _PROCESSED_PATHS = {
     "homicides_daily": ("homicides", "homicide_totals_daily.csv"),
     "homicides_totals": ("homicides", "homicide_totals.json"),
     "homicides_meta": ("homicides", "meta.json"),
+    "homicides_release": ("homicides", "release.json"),
     "courts_flags": ("courts", "scraped_courts_data.csv"),
     "courts_meta": ("courts", "meta.json"),
     "portal_results": ("courts", "portal_results.json"),

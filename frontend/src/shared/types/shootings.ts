@@ -16,7 +16,7 @@ export interface ShootingVictimsPropertiesBase {
   fatal: boolean;
   date: string;
   age_group: AgeGroupValues;
-  has_court_case: boolean;
+  has_court_case: boolean | null;
   age: number | null;
   street_name: string | null;
   block_number: number | null;

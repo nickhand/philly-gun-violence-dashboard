@@ -1,7 +1,5 @@
 """SQS queue seeding and item discovery."""
 
-import json
-
 from loguru import logger
 from mypy_boto3_s3.client import S3Client
 from mypy_boto3_sqs.client import SQSClient
@@ -11,7 +9,7 @@ from mypy_boto3_sqs.type_defs import (
 )
 
 from aws_batch_scraper.config import WorkerConfig
-from aws_batch_scraper.types import WorkItem
+from aws_batch_scraper.types import WorkItem, WorkMessage
 
 _SQS_BATCH_SIZE = 10
 _SQS_BATCH_ATTEMPTS = 3
@@ -44,23 +42,40 @@ def seed_queue(
     config: WorkerConfig,
     items: list[WorkItem],
     run_id: str,
+    *,
+    force_rescrape: bool = False,
 ) -> int:
     """Send WorkItems to SQS in batches of 10. Returns count sent.
 
     Each SQS message body has the form:
-    ``{"item_id": str, "run_id": str, **item.extra}``
+    ``{"item_id": str, "run_id": str, "force_rescrape": bool, **item.extra}``
 
     The worker reconstructs a ``WorkItem`` from this body.
     """
+    # Validate and serialize every plugin item before mutating the queue. This
+    # prevents a late contract error from leaving only the earlier batches sent.
+    for item in items:
+        item.validate()
+    item_ids = [item.item_id for item in items]
+    if len(set(item_ids)) != len(item_ids):
+        raise ValueError("Queue input contains duplicate item IDs")
+    message_bodies = [
+        WorkMessage.from_work_item(
+            item,
+            run_id=run_id,
+            force_rescrape=force_rescrape,
+        ).model_dump_json()
+        for item in items
+    ]
+
     sent = 0
     batch: list[SendMessageBatchRequestEntryTypeDef] = []
 
-    for i, item in enumerate(items):
-        body = {"item_id": item.item_id, "run_id": run_id, **item.extra}
+    for i, body in enumerate(message_bodies):
         batch.append(
             {
                 "Id": str(i % _SQS_BATCH_SIZE),
-                "MessageBody": json.dumps(body),
+                "MessageBody": body,
             }
         )
         if len(batch) == _SQS_BATCH_SIZE:

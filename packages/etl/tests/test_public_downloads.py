@@ -1,15 +1,18 @@
 """Tests for curated public geographic reference downloads."""
 
 import hashlib
+import io
 import json
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import pandas as pd
 import pytest
+from botocore.exceptions import ClientError
 from mypy_boto3_s3.client import S3Client
 
 from etl import public_downloads
+from etl.utils.release_pointer import StablePointerRegression
 
 
 class RecordingS3:
@@ -33,6 +36,52 @@ class FailingS3(RecordingS3):
         if len(self.puts) + 1 == self.fail_on_put:
             raise RuntimeError("simulated upload failure")
         super().put_object(**kwargs)
+
+
+class ConditionalPublicS3:
+    """In-memory S3 with exact object bodies and conditional pointer writes."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, tuple[bytes, str]] = {}
+        self.put_count = 0
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, object]:
+        assert Bucket == "test-bucket"
+        try:
+            body, etag = self.objects[Key]
+        except KeyError as exc:
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+                "GetObject",
+            ) from exc
+        return {"Body": io.BytesIO(body), "ETag": etag}
+
+    def put_object(self, **kwargs: Any) -> None:
+        assert kwargs["Bucket"] == "test-bucket"
+        key = cast(str, kwargs["Key"])
+        current = self.objects.get(key)
+        if kwargs.get("IfNoneMatch") == "*" and current is not None:
+            raise ClientError(
+                {"Error": {"Code": "PreconditionFailed", "Message": "stale"}},
+                "PutObject",
+            )
+        if "IfMatch" in kwargs and (current is None or current[1] != kwargs["IfMatch"]):
+            raise ClientError(
+                {"Error": {"Code": "PreconditionFailed", "Message": "stale"}},
+                "PutObject",
+            )
+        self.put_count += 1
+        self.objects[key] = (cast(bytes, kwargs["Body"]), f'"etag-{self.put_count}"')
+
+
+def test_publication_type_rejects_partial_application_release() -> None:
+    with pytest.raises(ValueError, match="published together"):
+        public_downloads.PublicDownloadPublication(
+            release_id="a" * 64,
+            artifacts=(),
+            manifest_body=b"{}",
+            application_data_body=b"{}",
+        )
 
 
 def _collection(field: str, value: str) -> dict[str, object]:
@@ -77,6 +126,7 @@ def test_manifest_describes_one_immutable_release_and_is_written_last(monkeypatc
     public_downloads.write_public_download_publication(
         cast(S3Client, fake_s3),
         publication,
+        expected_pointer=public_downloads.StablePointerSnapshot.missing(),
     )
 
     assert len(publication.artifacts) == 9
@@ -149,6 +199,52 @@ def test_manifest_describes_one_immutable_release_and_is_written_last(monkeypatc
     assert puts_by_key.keys().isdisjoint(stable_data_keys)
 
 
+def test_public_manifest_is_also_the_atomic_application_release_pointer(monkeypatch) -> None:
+    _, downloads = _matching_downloads()
+    monkeypatch.setattr(
+        public_downloads,
+        "get_s3_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {"s3_bucket": "test-bucket", "s3_processed_prefix": "processed"},
+        )(),
+    )
+    data_body = b'{"type":"FeatureCollection","features":[]}'
+    metadata_body = b'{"data_through":"2026-08-17"}'
+
+    publication = public_downloads.prepare_public_download_publication(
+        b"dc_key\n123\n",
+        downloads,
+        application_data_body=data_body,
+        application_metadata_body=metadata_body,
+    )
+    manifest = json.loads(publication.manifest_body)
+    application = manifest["application_data"]
+
+    assert application == {
+        "schema_version": 1,
+        "data": {
+            "key": (f"processed/shootings/releases/{publication.release_id}/shootings.geojson"),
+            "sha256": hashlib.sha256(data_body).hexdigest(),
+        },
+        "metadata": {
+            "key": f"processed/shootings/releases/{publication.release_id}/meta.json",
+            "sha256": hashlib.sha256(metadata_body).hexdigest(),
+        },
+    }
+
+    changed_metadata = public_downloads.prepare_public_download_publication(
+        b"dc_key\n123\n",
+        downloads,
+        application_data_body=data_body,
+        application_metadata_body=b'{"data_through":"2026-08-18"}',
+        previous_application_data=application,
+    )
+    assert changed_metadata.release_id != publication.release_id
+    assert json.loads(changed_metadata.manifest_body)["previous_application_data"] == application
+
+
 def test_preparation_rejects_invalid_geojson_before_public_writes(monkeypatch) -> None:
     _, downloads = _matching_downloads()
     invalid = cast(dict[str, Any], downloads["zip_codes"])
@@ -164,7 +260,11 @@ def test_preparation_rejects_invalid_geojson_before_public_writes(monkeypatch) -
 
     with pytest.raises(ValueError, match="zip_codes.*invalid geometry.*index 0"):
         publication = public_downloads.prepare_public_download_publication(b"header\n", downloads)
-        public_downloads.write_public_download_publication(cast(S3Client, fake_s3), publication)
+        public_downloads.write_public_download_publication(
+            cast(S3Client, fake_s3),
+            publication,
+            expected_pointer=public_downloads.StablePointerSnapshot.missing(),
+        )
 
     assert fake_s3.puts == []
 
@@ -219,6 +319,7 @@ def test_failed_release_does_not_move_stable_manifest(monkeypatch) -> None:
         public_downloads.write_public_download_publication(
             cast(S3Client, fake_s3),
             publication,
+            expected_pointer=public_downloads.StablePointerSnapshot.missing(),
         )
 
     assert fake_s3.puts
@@ -312,26 +413,130 @@ def test_public_geographic_downloads_reject_invalid_geometry() -> None:
 
 
 def test_geographic_download_loader_uses_processed_street_blocks(monkeypatch) -> None:
-    reference_calls: list[str] = []
+    boundary_calls: list[object] = []
     processed_calls: list[str] = []
 
-    def read_reference(name: str, *, s3: object) -> dict[str, str]:
-        reference_calls.append(name)
-        return {"source": name}
+    expected_boundaries = {
+        item.dataset: {"source": item.dataset}
+        for item in public_downloads.GEOGRAPHIC_REFERENCE_DOWNLOADS
+        if item.source == "reference"
+    }
+
+    def read_boundaries(*, s3: object) -> dict[str, dict[str, str]]:
+        boundary_calls.append(s3)
+        return expected_boundaries
 
     def read_processed(name: str, *, s3: object) -> dict[str, str]:
         processed_calls.append(name)
         return {"source": name}
 
-    monkeypatch.setattr(public_downloads, "read_reference_json", read_reference)
+    monkeypatch.setattr(public_downloads, "read_boundary_snapshot_json", read_boundaries)
     monkeypatch.setattr(public_downloads, "read_processed_geojson_json", read_processed)
 
-    result = public_downloads.load_geographic_reference_downloads(cast(S3Client, object()))
+    s3 = cast(S3Client, object())
+    result = public_downloads.load_geographic_reference_downloads(s3)
 
     assert processed_calls == ["street_blocks"]
     assert "street_blocks" in result
-    assert set(reference_calls) == {
-        f"{item.dataset}.geojson"
-        for item in public_downloads.GEOGRAPHIC_REFERENCE_DOWNLOADS
-        if item.source == "reference"
-    }
+    assert boundary_calls == [s3]
+    assert {name: value for name, value in result.items() if name != "street_blocks"} == (
+        expected_boundaries
+    )
+
+
+def _application_publication(
+    downloads: dict[str, object],
+    *,
+    data_through: str,
+    run_started_at: datetime,
+) -> public_downloads.PublicDownloadPublication:
+    metadata_body = json.dumps(
+        {
+            "data_through": data_through,
+            "last_updated": run_started_at.isoformat(),
+        },
+        separators=(",", ":"),
+    ).encode()
+    return public_downloads.prepare_public_download_publication(
+        f"dc_key\n{data_through}\n".encode(),
+        downloads,
+        published_at=run_started_at,
+        application_data_body=json.dumps({"generation": data_through}).encode(),
+        application_metadata_body=metadata_body,
+    )
+
+
+def _write_application_members(
+    s3: ConditionalPublicS3,
+    publication: public_downloads.PublicDownloadPublication,
+) -> None:
+    manifest = json.loads(publication.manifest_body)
+    application = manifest["application_data"]
+    assert publication.application_data_body is not None
+    assert publication.application_metadata_body is not None
+    s3.put_object(
+        Bucket="test-bucket",
+        Key=application["data"]["key"],
+        Body=publication.application_data_body,
+    )
+    s3.put_object(
+        Bucket="test-bucket",
+        Key=application["metadata"]["key"],
+        Body=publication.application_metadata_body,
+    )
+
+
+def test_stale_shootings_publisher_cannot_regress_shared_public_pointer(monkeypatch) -> None:
+    _, downloads = _matching_downloads()
+    monkeypatch.setattr(
+        public_downloads,
+        "get_s3_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {"s3_bucket": "test-bucket", "s3_processed_prefix": "processed"},
+        )(),
+    )
+    s3 = ConditionalPublicS3()
+    client = cast(S3Client, s3)
+
+    baseline = _application_publication(
+        downloads,
+        data_through="2026-08-16",
+        run_started_at=datetime(2026, 8, 16, 8, tzinfo=UTC),
+    )
+    _write_application_members(s3, baseline)
+    public_downloads.write_public_download_publication(
+        client,
+        baseline,
+        expected_pointer=public_downloads.StablePointerSnapshot.missing(),
+    )
+    shared_start = public_downloads.read_public_download_pointer(client)
+
+    newer = _application_publication(
+        downloads,
+        data_through="2026-08-18",
+        run_started_at=datetime(2026, 8, 18, 8, tzinfo=UTC),
+    )
+    _write_application_members(s3, newer)
+    public_downloads.write_public_download_publication(
+        client,
+        newer,
+        expected_pointer=shared_start,
+    )
+    newer_pointer = s3.objects[public_downloads.PUBLIC_DOWNLOAD_MANIFEST_KEY][0]
+
+    stale = _application_publication(
+        downloads,
+        data_through="2026-08-17",
+        run_started_at=datetime(2026, 8, 17, 8, tzinfo=UTC),
+    )
+    _write_application_members(s3, stale)
+    with pytest.raises(StablePointerRegression, match="equal or newer"):
+        public_downloads.write_public_download_publication(
+            client,
+            stale,
+            expected_pointer=shared_start,
+        )
+
+    assert s3.objects[public_downloads.PUBLIC_DOWNLOAD_MANIFEST_KEY][0] == newer_pointer

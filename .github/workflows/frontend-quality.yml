@@ -4,35 +4,45 @@ on:
   pull_request:
     paths:
       - "frontend/**"
+      - "netlify.toml"
       - ".github/workflows/frontend-quality.yml"
   push:
     branches: [main]
     paths:
       - "frontend/**"
+      - "netlify.toml"
       - ".github/workflows/frontend-quality.yml"
+  # Phase 1 of the scheduler cutover keeps GitHub as the sole weekly owner.
+  # Transfer this cron only after the isolated Fly scheduler is live and proven.
   schedule:
     - cron: "30 9 * * 1"
+  workflow_dispatch:
 
 concurrency:
   group: frontend-quality-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   unit:
     name: Type, build, and unit coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.19.0
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm install --global npm@11.18.0
       - run: npm ci
+      - run: npm run audit:dependencies
+      - run: npm run test:lighthouse:policy
       - run: npm run type-check
       - run: npm run type-check:nuxt
       - run: npm run test:coverage
@@ -40,8 +50,11 @@ jobs:
       - run: npm run check:bundle
       - run: npm run build:nuxt
       - run: npm run test:nuxt:seo
-      - run: npm run build:nuxt:cloudflare
-      - uses: actions/upload-artifact@v5
+      - name: Build and validate staging Cloudflare artifact
+        run: npm run build:nuxt:cloudflare:staging
+      - name: Build and validate production Cloudflare artifact
+        run: npm run build:nuxt:cloudflare:production
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: frontend-coverage
@@ -51,9 +64,9 @@ jobs:
   browser-family:
     name: Browser family tests (${{ matrix.browser }})
     needs: unit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
-      image: mcr.microsoft.com/playwright:v1.62.0-noble
+      image: mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07
       options: --user 1001 --ipc=host
     timeout-minutes: 30
     # The version-matched Playwright image includes all browser and system
@@ -72,14 +85,14 @@ jobs:
             lighthouse: false
           - browser: webkit
             legacy_projects: "--project=webkit"
-            nuxt_projects: "--project=nuxt-webkit-core"
+            nuxt_projects: "--project=nuxt-webkit-core --project=nuxt-mobile-webkit"
             lighthouse: false
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.19.0
           cache: npm
@@ -97,7 +110,7 @@ jobs:
       - name: Run Lighthouse performance checks
         if: ${{ !cancelled() && steps.playwright.outcome == 'success' && matrix.lighthouse }}
         run: npm run test:lighthouse
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: browser-reports-${{ matrix.browser }}
@@ -105,7 +118,7 @@ jobs:
             frontend/playwright-report
             frontend/test-results
           if-no-files-found: ignore
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() && matrix.lighthouse }}
         with:
           name: lighthouse-report

@@ -1,14 +1,18 @@
 """Orchestration for shootings ETL."""
 
+from datetime import UTC, datetime
+
 import geopandas as gpd
 import pandas as pd
 from loguru import logger
 from mypy_boto3_s3.client import S3Client
 
+from etl.public_downloads import read_public_download_pointer
 from etl.shootings.extract import fetch_shootings
 from etl.shootings.load import write_shootings_dataset
 from etl.shootings.transform import clean_shootings
-from etl.utils.storage import load_shootings_database, write_meta
+from etl.utils.release_pointer import StablePointerSnapshot
+from etl.utils.storage import build_meta, load_shootings_database
 from etl.utils.validation import require_columns, require_non_empty, require_not_older
 
 __all__ = ["update_shootings"]
@@ -50,6 +54,10 @@ def update_shootings(
     geopandas.GeoDataFrame
         The cleaned shootings dataset.
     """
+    run_started_at = datetime.now(UTC)
+    expected_pointer = (
+        StablePointerSnapshot.missing() if dry_run else read_public_download_pointer(s3)
+    )
     raw = fetch_shootings()
     require_non_empty(raw, "raw shootings extract")
     require_columns(raw, RAW_SHOOTINGS_COLUMNS, "raw shootings extract")
@@ -83,20 +91,24 @@ def update_shootings(
         logger.info("Dry run complete; cleaned shootings not written.")
         return cleaned
 
-    # Write the cleaned shootings dataset
-    write_shootings_dataset(s3, cleaned)
-
-    # Save metadata about the update
-    write_meta(
-        subfolder="shootings",
+    metadata = build_meta(
+        now=run_started_at,
         data_through=latest_date,
-        s3=s3,
         pipeline="shootings",
         source="opendataphilly_shootings",
         row_count=len(cleaned),
         max_event_date=latest_date,
         previous_row_count=previous_row_count,
         previous_data_through=previous_latest_date,
+    )
+    # The metadata and data are published as one release behind a single
+    # stable pointer; neither can become visible without the other.
+    write_shootings_dataset(
+        s3,
+        cleaned,
+        metadata,
+        expected_pointer=expected_pointer,
+        run_started_at=run_started_at,
     )
     logger.info(f"Updated shootings dataset with {len(cleaned):,d} records")
 

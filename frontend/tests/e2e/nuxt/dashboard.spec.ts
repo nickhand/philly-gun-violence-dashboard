@@ -188,9 +188,10 @@ test("keeps phone-width map controls compact and readable @maplibre", async ({
   await page.setViewportSize({ height: 844, width: 390 });
   await openDashboard(page);
 
-  const attribution = page.locator(
-    ".maplibregl-ctrl-attrib.maplibregl-compact",
-  );
+  expect(
+    await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
+  ).toBe(false);
+  const attribution = page.locator(".maplibregl-ctrl-attrib");
   const attributionButton = attribution.locator(
     ".maplibregl-ctrl-attrib-button",
   );
@@ -198,6 +199,7 @@ test("keeps phone-width map controls compact and readable @maplibre", async ({
     ".maplibregl-ctrl-attrib-inner",
   );
   await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  await expect(attribution).toHaveClass(/maplibregl-compact/);
   await expect(attribution).not.toHaveAttribute("open", "");
   await expect(attributionText).not.toBeVisible();
 
@@ -205,6 +207,19 @@ test("keeps phone-width map controls compact and readable @maplibre", async ({
   await expect(attributionText).toBeVisible();
   await expect(attribution).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(attribution).toHaveCSS("color", "rgb(23, 33, 38)");
+
+  await page.setViewportSize({ height: 390, width: 844 });
+  await expect(attribution).toHaveCount(1);
+  await expect(attribution).not.toHaveClass(/maplibregl-compact/);
+  await expect(attribution).toHaveAttribute("open", "");
+  await expect(attributionText).toBeVisible();
+
+  await page.setViewportSize({ height: 844, width: 390 });
+  await expect(attribution).toHaveCount(1);
+  await expect(attribution).toHaveClass(/maplibregl-compact/);
+  await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  await expect(attribution).not.toHaveAttribute("open", "");
+  await expect(attributionText).not.toBeVisible();
 
   const mapAction = page.getByRole("button", { name: "Print map" });
   const mapActionBox = await mapAction.boundingBox();
@@ -695,6 +710,35 @@ test("shows chart definitions without changing desktop chart geometry @maplibre"
     name: "Mapping Philadelphia's Gun Violence",
   }).click();
   await expect(tooltip).not.toBeVisible();
+});
+
+test("shows inconclusive court searches as Unknown @maplibre", async ({
+  page,
+}) => {
+  await openDashboard(page);
+
+  const courtTable = page.getByRole("table", {
+    name: "Court Search Result distribution breakdown",
+  });
+  await expect(
+    courtTable.getByRole("row", { name: "Yes 2 50%", exact: true }),
+  ).toBeAttached();
+  await expect(
+    courtTable.getByRole("row", { name: "No 1 25%", exact: true }),
+  ).toBeAttached();
+  await expect(
+    courtTable.getByRole("row", { name: "Unknown 1 25%", exact: true }),
+  ).toBeAttached();
+
+  await page.getByRole("button", { name: "About Court Search Result" }).click();
+  const definition = page.locator("#chart-definition-court");
+  await expect(definition).toContainText("explicit no-results response");
+  await expect(definition).toContainText(
+    "unavailable, incomplete, or inconclusive",
+  );
+  await expect(definition).toContainText(
+    "does not establish how a record relates to a victim",
+  );
 });
 
 test("hydrates the Nuxt explorer and shares filters with its map, histogram, charts, and download @maplibre", async ({

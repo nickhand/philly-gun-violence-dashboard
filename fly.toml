@@ -16,7 +16,10 @@ processes = ["app"]
 
 [[vm]]
 size = "shared-cpu-1x"
-memory = "512mb"
+# Atomic rollover briefly retains the serving snapshot while validating a new
+# current/N-1 candidate. Keep explicit headroom for geospatial indexes, S3
+# clients, and response serialization; measure production RSS before reducing.
+memory = "1gb"
 
 [[http_service.checks]]
 grace_period = "30s"
@@ -27,4 +30,3 @@ timeout = "5s"
 
 [processes]
 app = "uvicorn app.main:app --host 0.0.0.0 --port 8080"
-cron = "supercronic /app/api/crontab"

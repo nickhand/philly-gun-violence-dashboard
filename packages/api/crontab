@@ -1,9 +1,14 @@
-30 11 * * * curl -s -X POST -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.github+json" https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-shootings-sync.yml/dispatches -d '{"ref":"main"}'
+30 11 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml
 
-30 15 * * * curl -s -X POST -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.github+json" https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-shootings-sync.yml/dispatches -d '{"ref":"main"}'
+30 15 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml
 
-30 17 * * * curl -s -X POST -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.github+json" https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-shootings-sync.yml/dispatches -d '{"ref":"main"}'
+30 17 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml
 
-15 15 * * * curl -s -X POST -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.github+json" https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/daily-homicide-sync.yml/dispatches -d '{"ref":"main"}'
+15 15 * * * python scripts/dispatch_workflow.py daily-homicide-sync.yml
 
-15 2 * * 5 curl -s -X POST -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.github+json" https://api.github.com/repos/nickhand/philly-gun-violence-dashboard/actions/workflows/courts-scrape.yml/dispatches -d '{"ref":"main"}'
+15 2 * * 5 python scripts/dispatch_workflow.py courts-scrape.yml
+
+0 19 * * * python scripts/dispatch_workflow.py production-smoke.yml
+
+# Phase 1: frontend-quality.yml remains owned by its native weekly schedule.
+# Add it here only during the documented phase-2 handoff.

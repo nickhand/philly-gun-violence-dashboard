@@ -7,6 +7,10 @@ AttributeErrors on settings fields, broken route registrations, and bad
 state access in handlers.
 """
 
+from dataclasses import replace
+
+import pytest
+
 
 class TestImports:
     """Verify the app module tree imports without errors."""
@@ -87,6 +91,67 @@ class TestHealth:
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
+    def test_readiness_exposes_loaded_snapshot_freshness(self, client, monkeypatch):
+        from app.routers import health
+
+        monkeypatch.setattr(health.settings, "api_readiness_max_data_age_days", 10_000)
+        resp = client.get("/ready")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ready"
+        assert body["datasets"]["shootings"] == {
+            "data_through": "2023-01-15",
+            "age_days": body["datasets"]["shootings"]["age_days"],
+            "source": "legacy",
+            "current": True,
+        }
+        assert body["datasets"]["homicides"]["source"] == "legacy"
+        assert body["datasets"]["boundaries"] == {
+            "source": "release",
+            "current": True,
+        }
+        assert body["datasets"]["streets"] == {
+            "source": "legacy",
+            "current": True,
+        }
+
+    def test_readiness_fails_when_loaded_data_is_too_old(self, client, monkeypatch):
+        from app.routers import health
+
+        monkeypatch.setattr(health.settings, "api_readiness_max_data_age_days", 1)
+        resp = client.get("/ready")
+
+        assert resp.status_code == 503
+        assert resp.json()["status"] == "stale"
+
+    def test_readiness_reports_a_failed_upstream_refresh(self, client, monkeypatch):
+        import time
+
+        from app.routers import health
+
+        monkeypatch.setattr(health.settings, "api_readiness_max_data_age_days", 10_000)
+        client.app.state.dataset_last_failed["shootings"] = time.monotonic()
+
+        resp = client.get("/ready")
+
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["status"] == "degraded"
+        assert body["refresh_failures"] == ["shootings"]
+
+    def test_readiness_clears_a_failure_after_a_successful_recheck(self, client, monkeypatch):
+        from app.routers import health
+
+        monkeypatch.setattr(health.settings, "api_readiness_max_data_age_days", 10_000)
+        client.app.state.dataset_last_failed = {"shootings": 0.0}
+        client.app.state.dataset_last_checked["shootings"] = 0.0
+
+        resp = client.get("/ready")
+
+        assert resp.status_code == 200
+        assert resp.json()["refresh_failures"] == []
+
 
 class TestShootings:
     def test_meta_200(self, client):
@@ -122,8 +187,22 @@ class TestShootings:
         assert second.headers["cache-control"] == "max-age=0, must-revalidate"
 
     def test_meta_etag_changes_when_generated_at_changes(self, client):
+        from app.data_loader import get_data_snapshot, require_shootings
+
         first = client.get("/shootings/meta")
-        client.app.state.shootings_meta["generated_at"] = "2026-08-17T23:00:00+00:00"
+        snapshot = get_data_snapshot(client.app)
+        shootings = require_shootings(snapshot)
+        changed_current = replace(
+            shootings.current,
+            meta={
+                **shootings.current.meta,
+                "generated_at": "2026-08-17T23:00:00+00:00",
+            },
+        )
+        client.app.state.data_snapshot = replace(
+            snapshot,
+            shootings=replace(shootings, current=changed_current),
+        )
         second = client.get("/shootings/meta")
 
         assert second.headers["etag"] != first.headers["etag"]
@@ -162,6 +241,21 @@ class TestStreets:
     def test_streets_200(self, client):
         resp = client.get("/streets")
         assert resp.status_code == 200
+
+    @pytest.mark.parametrize("limit", [0, 5001])
+    def test_streets_rejects_out_of_range_page_size(self, client, limit):
+        resp = client.get("/streets", params={"limit": limit})
+        assert resp.status_code == 422
+
+    def test_streets_deduplicates_requested_segment_ids(self, client):
+        resp = client.get("/streets", params={"segment_ids": "12345,12345"})
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 1
+
+    def test_streets_rejects_too_many_unique_segment_ids(self, client):
+        segment_ids = ",".join(str(value) for value in range(501))
+        resp = client.get("/streets", params={"segment_ids": segment_ids})
+        assert resp.status_code == 422
 
 
 class TestHomicides:

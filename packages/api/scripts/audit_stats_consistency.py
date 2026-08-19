@@ -11,6 +11,16 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 
+class AuditError(RuntimeError):
+    """A public statistics contract did not match its source data."""
+
+
+def _require(condition: object, message: str) -> None:
+    """Raise an optimization-safe audit failure when a contract is false."""
+    if not condition:
+        raise AuditError(message)
+
+
 class StatsParser(HTMLParser):
     """Extract the visible figures, year table, metadata, and JSON-LD."""
 
@@ -151,30 +161,41 @@ def audit(
     text = " ".join(parser.visible_text)
 
     expected_canonical = "https://www.nickhand.dev/philly-gun-violence-map/stats"
-    assert parser.canonical == expected_canonical
+    _require(parser.canonical == expected_canonical, "Stats canonical URL is incorrect")
     cache_directives = {
         directive.strip().lower()
         for directive in headers.get("cache-control", "").split(",")
         if directive.strip()
     }
-    assert {"public", "max-age=0", "must-revalidate"} <= cache_directives
-    assert "etag" in headers
-    revalidation_status, _, _ = _request(public_stats_url, etag=headers["etag"])
-    assert revalidation_status == 304
-
-    assert int(shootings["rows"]) == int(meta["shootings"]["row_count"])
-    assert sum(int(shootings["years_meta"][str(year)]["rows"]) for year in years) == int(
-        shootings["rows"]
+    _require(
+        {"public", "max-age=0", "must-revalidate"} <= cache_directives,
+        "Stats cache-control directives are incomplete",
     )
-    assert len(current_rows) == int(current_meta["rows"])
-    assert len(parser.figures) == 3
-    assert _number(parser.figures[0]) == len(current_rows)
-    assert _number(parser.figures[2]) == int(shootings["rows"])
-    assert f"{fatal:,} fatal" in text
-    assert f"{nonfatal:,} nonfatal" in text
+    _require("etag" in headers, "Stats response is missing an ETag")
+    revalidation_status, _, _ = _request(public_stats_url, etag=headers["etag"])
+    _require(revalidation_status == 304, "Stats ETag did not revalidate with HTTP 304")
+
+    _require(
+        int(shootings["rows"]) == int(meta["shootings"]["row_count"]),
+        "Shootings row count disagrees with API metadata",
+    )
+    _require(
+        sum(int(shootings["years_meta"][str(year)]["rows"]) for year in years)
+        == int(shootings["rows"]),
+        "Per-year shooting rows do not sum to the all-years count",
+    )
+    _require(len(current_rows) == int(current_meta["rows"]), "Current-year row count is wrong")
+    _require(len(parser.figures) == 3, "Stats page must expose exactly three headline figures")
+    _require(_number(parser.figures[0]) == len(current_rows), "Current-year figure is wrong")
+    _require(_number(parser.figures[2]) == int(shootings["rows"]), "All-years figure is wrong")
+    _require(f"{fatal:,} fatal" in text, "Fatal shooting count is missing")
+    _require(f"{nonfatal:,} nonfatal" in text, "Nonfatal shooting count is missing")
 
     current_homicides = _json(urljoin(base, f"homicides/{current_year}"))
-    assert _number(parser.figures[1]) == int(current_homicides["ytd"])
+    _require(
+        _number(parser.figures[1]) == int(current_homicides["ytd"]),
+        "Current homicide figure is wrong",
+    )
     previous_homicides = _json(urljoin(base, f"homicides/{current_year - 1}"))
     if previous_homicides["ytd"]:
         change = round(
@@ -185,8 +206,9 @@ def audit(
             * 100
         )
         direction = "up" if change > 0 else "down"
-        assert (
-            f"{direction} {abs(change)}% from {int(previous_homicides['ytd']):,} homicides" in text
+        _require(
+            f"{direction} {abs(change)}% from {int(previous_homicides['ytd']):,} homicides" in text,
+            "Homicide year-over-year comparison is wrong",
         )
 
     table = {}
@@ -198,40 +220,65 @@ def audit(
             raise AssertionError(f"Missing year in stats table row: {row}")
         table[int(year_match.group(1))] = (_number(row[1]), _number(row[3]))
 
-    assert sorted(table) == years
+    _require(sorted(table) == years, "Stats year table does not match available years")
     for year in years:
         expected_victims = int(shootings["years_meta"][str(year)]["rows"])
         homicide_record = _json(urljoin(base, f"homicides/{year}"))
         expected_homicides = (
             homicide_record["ytd"] if year == current_year else homicide_record["annual"]
         )
-        assert table[year][0] == expected_victims
-        assert table[year][1] == expected_homicides
+        _require(table[year][0] == expected_victims, f"Shooting count is wrong for {year}")
+        _require(table[year][1] == expected_homicides, f"Homicide count is wrong for {year}")
 
     peak_year = max(
         years[:-1] or years,
         key=lambda year: int(shootings["years_meta"][str(year)]["rows"]),
     )
     peak_victims = int(shootings["years_meta"][str(peak_year)]["rows"])
-    assert f"highest year {peak_year} · {peak_victims:,}" in text
+    _require(
+        f"highest year {peak_year} · {peak_victims:,}" in text,
+        "Peak shooting-victim annotation is wrong",
+    )
 
     shooting_date = str(meta["shootings"]["data_through"])
     homicide_date = str(meta["homicides"]["data_through"])
-    assert f"As of {_pretty_date(shooting_date)}, there have been" in text
-    assert f"As of {_pretty_date(homicide_date)}, Philadelphia has recorded" in text
-    assert parser.description and f"{len(current_rows):,} shooting victims" in parser.description
-    assert f"{int(current_homicides['ytd']):,} homicides" in parser.description
+    _require(
+        f"As of {_pretty_date(shooting_date)}, there have been" in text,
+        "Shootings freshness copy is wrong",
+    )
+    _require(
+        f"As of {_pretty_date(homicide_date)}, Philadelphia has recorded" in text,
+        "Homicide freshness copy is wrong",
+    )
+    _require(
+        bool(parser.description)
+        and f"{len(current_rows):,} shooting victims" in str(parser.description),
+        "Meta description is missing the current shooting count",
+    )
+    _require(
+        f"{int(current_homicides['ytd']):,} homicides" in str(parser.description),
+        "Meta description is missing the current homicide count",
+    )
 
     faq = next(item for item in parser.json_ld if item.get("@type") == "FAQPage")
     faq_text = json.dumps(faq)
-    assert f"{len(current_rows):,} shooting victims" in faq_text
-    assert f"{int(current_homicides['ytd']):,} homicides" in faq_text
-    assert f"highest victim count in this dataset is {peak_year}" in faq_text
+    _require(f"{len(current_rows):,} shooting victims" in faq_text, "FAQ shooting count is wrong")
+    _require(
+        f"{int(current_homicides['ytd']):,} homicides" in faq_text,
+        "FAQ homicide count is wrong",
+    )
+    _require(
+        f"highest victim count in this dataset is {peak_year}" in faq_text,
+        "FAQ peak-year statement is wrong",
+    )
 
     sitemap_status, _, sitemap = _request(public_sitemap_url)
-    assert sitemap_status == 200
-    assert expected_canonical in sitemap
-    assert f"<lastmod>{max(shooting_date, homicide_date)}</lastmod>" in sitemap
+    _require(sitemap_status == 200, "Sitemap did not return HTTP 200")
+    _require(expected_canonical in sitemap, "Sitemap is missing the stats canonical URL")
+    _require(
+        f"<lastmod>{max(shooting_date, homicide_date)}</lastmod>" in sitemap,
+        "Sitemap last-modified date is stale",
+    )
 
     return {
         "current_year": current_year,

@@ -3,6 +3,7 @@
 import hashlib
 import json
 from calendar import monthrange
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from html import escape
@@ -11,6 +12,12 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from app.data_loader import (
+    AppDataSnapshot,
+    get_data_snapshot,
+    require_homicides,
+    require_shootings,
+)
 from dashboard_utils.constants import DATE_FORMAT
 
 CANONICAL_BASE = "https://www.nickhand.dev/philly-gun-violence-map"
@@ -74,7 +81,10 @@ def _is_fatal(value: object) -> bool:
     return bool(value)
 
 
-def _derive_data_through(rows_by_year: dict[int, list[dict[str, Any]]]) -> str:
+RowsByYear = Mapping[int, Sequence[dict[str, Any]]]
+
+
+def _derive_data_through(rows_by_year: RowsByYear) -> str:
     dates = [
         str(row["date"])[:10] for rows in rows_by_year.values() for row in rows if row.get("date")
     ]
@@ -112,7 +122,7 @@ def _same_calendar_cutoff(current: date, year: int) -> date:
 
 
 def _shooting_comparison(
-    rows_by_year: dict[int, list[dict[str, Any]]],
+    rows_by_year: RowsByYear,
     *,
     current_year: int,
     previous_year: int,
@@ -171,9 +181,32 @@ def _yearly_homicide_value(
     return _as_number(record.get(field))
 
 
-def build_stats_snapshot(app: FastAPI) -> StatsSnapshot:
+def build_stats_snapshot(
+    app: FastAPI,
+    data_snapshot: AppDataSnapshot | None = None,
+) -> StatsSnapshot:
     """Aggregate an immutable page snapshot from already-loaded application state."""
-    rows_by_year = app.state.shootings_rows_by_year
+    if data_snapshot is None:
+        try:
+            data_snapshot = get_data_snapshot(app)
+        except RuntimeError:
+            # Small unit-test applications created without the production
+            # lifespan retain the legacy field-based fixture contract.
+            data_snapshot = None
+    if data_snapshot is None:
+        rows_by_year = app.state.shootings_rows_by_year
+        shootings_meta = getattr(app.state, "shootings_meta", {})
+        homicides_totals = app.state.homicides_totals
+        shootings_freshness = getattr(app.state, "shootings_freshness", None)
+        homicides_freshness = getattr(app.state, "homicides_freshness", None)
+    else:
+        shootings = require_shootings(data_snapshot)
+        homicides = require_homicides(data_snapshot)
+        rows_by_year = shootings.current.rows_by_year
+        shootings_meta = shootings.current.meta
+        homicides_totals = homicides.totals
+        shootings_freshness = shootings.freshness
+        homicides_freshness = homicides.freshness
     years = sorted(rows_by_year)
     if not years:
         raise ValueError("Cannot render the statistics page without shooting records.")
@@ -183,14 +216,11 @@ def build_stats_snapshot(app: FastAPI) -> StatsSnapshot:
     current_rows = rows_by_year[current_year]
     current_fatal = sum(_is_fatal(row.get("fatal")) for row in current_rows)
     dated_victims = sum(len(rows_by_year[year]) for year in years)
-    shootings_meta = getattr(app.state, "shootings_meta", {})
     total_victims = (
         shootings_meta.get("rows", dated_victims)
         if isinstance(shootings_meta, dict)
         else dated_victims
     )
-    homicides_totals = app.state.homicides_totals
-
     yearly = tuple(
         YearStats(
             year=year,
@@ -222,13 +252,12 @@ def build_stats_snapshot(app: FastAPI) -> StatsSnapshot:
         )
 
     fallback_date = _derive_data_through(rows_by_year)
-    shootings_freshness = getattr(app.state, "shootings_freshness", None)
     shootings_date = _freshness_date(
         shootings_freshness,
         fallback_date,
     )
     homicides_date = _freshness_date(
-        getattr(app.state, "homicides_freshness", None),
+        homicides_freshness,
         shootings_date,
     )
     shootings_previous_ytd, shooting_percent_change = _shooting_comparison(
@@ -352,8 +381,10 @@ def _faq(snapshot: StatsSnapshot) -> list[dict[str, str]]:
             "a": (
                 "Shooting victim data comes from the Philadelphia Police Department through "
                 "OpenDataPhilly and is updated daily. Homicide totals come from the PPD "
-                "Statistics Unit. Court records come from Pennsylvania's Unified Judicial "
-                "System portal. All data is preliminary and may differ from other official sources."
+                "Statistics Unit. The court field reports automated incident-number search "
+                "results from Pennsylvania's Unified Judicial System public portal; it does not "
+                "describe a case outcome. All data is preliminary and may differ from other "
+                "official sources."
             ),
         },
         {
@@ -532,8 +563,27 @@ def render_sitemap(snapshot: StatsSnapshot) -> str:
 """
 
 
-def stats_source_key(app: FastAPI) -> tuple[str, ...]:
+def stats_source_key(
+    app: FastAPI,
+    data_snapshot: AppDataSnapshot | None = None,
+) -> tuple[str, ...]:
     """Return the state signature that controls rendered-page invalidation."""
+    if data_snapshot is None:
+        try:
+            data_snapshot = get_data_snapshot(app)
+        except RuntimeError:
+            data_snapshot = None
+    if data_snapshot is not None:
+        shootings = require_shootings(data_snapshot)
+        homicides = require_homicides(data_snapshot)
+        return (
+            shootings.current.version,
+            *shootings.source_token,
+            *homicides.source_token,
+            str(shootings.freshness.get("data_through", "")),
+            str(homicides.freshness.get("data_through", "")),
+        )
+
     etags = app.state.dataset_etags
     shootings_freshness = getattr(app.state, "shootings_freshness", {})
     homicides_freshness = getattr(app.state, "homicides_freshness", {})
@@ -552,8 +602,12 @@ def stats_source_key(app: FastAPI) -> tuple[str, ...]:
 
 def render_and_cache_stats_page(app: FastAPI) -> StatsPageCache:
     """Render both SEO responses and place them in application state."""
-    source_key = stats_source_key(app)
-    snapshot = build_stats_snapshot(app)
+    try:
+        data_snapshot = get_data_snapshot(app)
+    except RuntimeError:
+        data_snapshot = None
+    source_key = stats_source_key(app, data_snapshot)
+    snapshot = build_stats_snapshot(app, data_snapshot)
     html = render_stats_page(snapshot)
     sitemap = render_sitemap(snapshot)
     snapshot_json = json.dumps(asdict(snapshot), sort_keys=True, separators=(",", ":"))
@@ -571,7 +625,28 @@ def render_and_cache_stats_page(app: FastAPI) -> StatsPageCache:
 
 def get_stats_page_cache(app: FastAPI) -> StatsPageCache:
     """Reuse the cached documents unless either loaded dataset has changed."""
+    try:
+        data_snapshot = get_data_snapshot(app)
+    except RuntimeError:
+        data_snapshot = None
     cached = getattr(app.state, "stats_page_cache", None)
-    if isinstance(cached, StatsPageCache) and cached.source_key == stats_source_key(app):
+    if isinstance(cached, StatsPageCache) and cached.source_key == stats_source_key(
+        app,
+        data_snapshot,
+    ):
         return cached
-    return render_and_cache_stats_page(app)
+    source_key = stats_source_key(app, data_snapshot)
+    snapshot = build_stats_snapshot(app, data_snapshot)
+    html = render_stats_page(snapshot)
+    sitemap = render_sitemap(snapshot)
+    snapshot_json = json.dumps(asdict(snapshot), sort_keys=True, separators=(",", ":"))
+    etag = hashlib.sha256(f"{snapshot_json}\n{html}\n{sitemap}".encode()).hexdigest()[:16]
+    fresh = StatsPageCache(
+        source_key=source_key,
+        snapshot=snapshot,
+        html=html,
+        sitemap=sitemap,
+        etag=etag,
+    )
+    app.state.stats_page_cache = fresh
+    return fresh

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -17,6 +17,17 @@ const installedVueRouter = JSON.parse(
 );
 const environmentName = process.argv[2];
 const environment = config.env?.[environmentName];
+const hstsHeader = /Strict-Transport-Security/i;
+
+function readJavaScriptTree(directory) {
+  return readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return readJavaScriptTree(path);
+      return entry.name.endsWith(".mjs") ? [readFileSync(path, "utf8")] : [];
+    })
+    .join("\n");
+}
 
 assert.ok(
   environmentName === "staging" || environmentName === "production",
@@ -82,6 +93,7 @@ assert.ok(
 );
 
 const cloudflareHeaders = readFileSync(join(publicDirectory, "_headers"), "utf8");
+const workerJavaScript = readJavaScriptTree(join(output, "server"));
 assert.match(cloudflareHeaders, /philly-gun-violence-map\/_nuxt/);
 if (environmentName === "staging") {
   assert.match(
@@ -89,11 +101,26 @@ if (environmentName === "staging") {
     /X-Robots-Tag: noindex, nofollow/,
     "The staging assets were built without the crawler noindex policy.",
   );
+  assert.doesNotMatch(
+    `${cloudflareHeaders}\n${workerJavaScript}`,
+    hstsHeader,
+    "The workers.dev staging build must not publish an HSTS policy.",
+  );
 } else {
   assert.doesNotMatch(
     cloudflareHeaders,
     /X-Robots-Tag: noindex, nofollow/,
     "The production assets still contain the staging noindex policy.",
+  );
+  assert.match(
+    cloudflareHeaders,
+    hstsHeader,
+    "The production static-asset headers are missing the HSTS policy.",
+  );
+  assert.match(
+    workerJavaScript,
+    hstsHeader,
+    "The production Worker routes are missing the HSTS policy.",
   );
 }
 

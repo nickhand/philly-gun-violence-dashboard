@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createPointsLayerTooltip } from "@/features/explorer/config/tooltips";
 import { msToTimeString, timestampToTimeString } from "@/shared/utils/datetime";
 import { fetchAllPages } from "@/shared/utils/pagination";
 import { rowsToGeoJSON } from "@/shared/utils/rowsToGeoJSON";
@@ -55,5 +56,31 @@ describe("rowsToGeoJSON", () => {
     expect(collection.features).toHaveLength(3);
     expect(collection.features.map((feature) => feature.properties.unique_id))
       .toEqual([1, 2, 4]);
+  });
+});
+
+describe("legacy shooting tooltip", () => {
+  it("renders an inconclusive court search as Unknown rather than No", () => {
+    const html = createPointsLayerTooltip({ ...shootingRows[1] });
+
+    expect(html).toMatch(
+      /tooltip-label">Court search result<\/span>\s*<span class="tooltip-value">Unknown<\/span>/,
+    );
+    expect(html).not.toMatch(
+      /tooltip-label">Court search result<\/span>\s*<span class="tooltip-value">No<\/span>/,
+    );
+  });
+
+  it("treats a missing legacy court-search field as Unknown", () => {
+    const row = { ...shootingRows[0] } as Partial<(typeof shootingRows)[number]>;
+    delete row.has_court_case;
+
+    const html = createPointsLayerTooltip(
+      row as Record<string, unknown>,
+    );
+
+    expect(html).toMatch(
+      /tooltip-label">Court search result<\/span>\s*<span class="tooltip-value">Unknown<\/span>/,
+    );
   });
 });

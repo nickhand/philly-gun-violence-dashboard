@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
   id-token: write
 
 concurrency:
@@ -15,20 +16,22 @@ concurrency:
 jobs:
   daily-sync-shootings:
     name: Daily Shootings Data Sync
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: aws-actions/configure-aws-credentials@v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
           aws-region: us-east-1
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.12.0"
-      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
+        with:
+          tool: just
       - name: Verify identity
         run: aws sts get-caller-identity
       - name: Run shootings ETL
@@ -39,7 +42,9 @@ jobs:
           S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
           S3_PROCESSED_PREFIX: ${{ vars.S3_PROCESSED_PREFIX }}
           S3_REFERENCE_PREFIX: ${{ vars.S3_REFERENCE_PREFIX }}
-      - name: Restart Fly API
+      # Transitional compatibility only. Remove after the pointer-aware API is
+      # deployed and has successfully refreshed from a committed release.
+      - name: Restart legacy Fly API
         uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
       - run: just fly-restart
         env:

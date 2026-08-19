@@ -22,14 +22,26 @@ Your container image must:
   my-scraper scraper monitor --run-id <run_id>
   ```
 
+  The framework invokes this installed console script directly. `uv` is a
+  build/development tool and is not part of the runtime container contract.
+
 - read runtime config from environment variables injected by ECS
 - rely on the ECS task role for AWS credentials
 - never bake AWS keys or tokens into the image
 
+The worker and monitor task definitions must explicitly declare a non-root
+runtime user and `readonlyRootFilesystem: true`; submitter preflight rejects
+either omission. Keep installed code owned by the image build user and mount an
+explicit writable temporary volume for the paths required by the scraper.
+Browser containers commonly need `/tmp`; route `HOME`, `TMPDIR`, and XDG
+cache/config state to that mount and test the image before registration.
+
 ## Runtime Environment
 
-Inject runtime configuration through your ECS task definition or deployment
-system. Common variables are:
+Provide runtime configuration to the submitter through its environment or
+deployment system. It passes nonsecret values into worker and monitor tasks as
+ECS overrides, so the monitor definition does not need to hard-code its own
+revision. Common variables are:
 
 ```text
 ENV=prod
@@ -40,35 +52,62 @@ S3_SCRAPER_PREFIX=my-scraper
 SQS_QUEUE_NAME=my-scraper
 SQS_DLQ_NAME=my-scraper-dlq
 ECS_CLUSTER_NAME=my-scraper
-ECS_TASK_DEFINITION=my-scraper
+ECS_TASK_DEFINITION=my-scraper:42
+ECS_MONITOR_TASK_DEFINITION=my-scraper-monitor:17
 ECS_CONTAINER_NAME=my-scraper
 ECS_SUBNET_IDS=subnet-a,subnet-b
 ECS_SECURITY_GROUP_IDS=sg-a
+GITHUB_REPOSITORY=owner/repository
+GITHUB_WORKFLOW_FILE=process-results.yml
 ```
 
 `RUN_ID` is set by the submitter when launching worker and monitor tasks.
+Keep `GITHUB_DISPATCH_TOKEN` out of this environment and only in the monitor
+definition's ECS `secrets` list. Use a repository-scoped fine-grained token
+with **Actions: read and write**; workflow dispatch does not require
+**Contents: write**.
 
 ## Build And Push To ECR
 
 After your ECR repository exists:
 
 ```bash
-ECR_URL=123456789012.dkr.ecr.us-east-1.amazonaws.com/my-scraper
-AWS_REGION=us-east-1
-AWS_ACCOUNT_ID=123456789012
-
-aws ecr get-login-password --region "$AWS_REGION" \
-  | docker login --username AWS --password-stdin \
-    "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
-
-docker buildx build --platform=linux/amd64 -t my-scraper:latest -f Dockerfile .
-docker tag my-scraper:latest "$ECR_URL:latest"
-docker push "$ECR_URL:latest"
+export AWS_ACCOUNT_ID=123456789012
+export AWS_REGION=us-east-1
+export ECR_REPOSITORY_NAME=my-scraper
+export SCRAPER_IMAGE_TAG="$(git rev-parse HEAD)"
+just scraper-build-and-push-container
 ```
 
-Point your ECS task definition at the image URI you pushed.
+Before the push, configure the ECR repository with immutable tags and automatic
+scanning. Tag immutability is an external release gate: the local absence check
+cannot eliminate a race with another publisher. The guarded recipe binds every
+inspection and scan to `AWS_ACCOUNT_ID`, verifies the returned repository URI,
+requires scan-on-push, and prints a digest only after the exact pushed image has
+no Critical or High findings. Do not replace it with an unguarded manual
+`docker push` sequence.
 
-## Optional Just Recipes
+Register separate worker and monitor ECS task-definition revisions using the
+printed digest URI. Do not point either definition at `:latest`: a mutable tag
+cannot prove which worker protocol a run used. Each task definition must still
+use `repository@sha256:...` even when ECR tag immutability is enabled.
+
+Set `ECS_TASK_DEFINITION` to the exact worker `family:revision` (or full
+revisioned ARN) and `ECS_MONITOR_TASK_DEFINITION` to a different exact monitor
+revision. Bare family names and a shared worker/monitor revision are rejected at
+configuration and launch boundaries. Only the monitor definition may inject
+`GITHUB_DISPATCH_TOKEN`. Prefer a separate worker execution role that cannot
+read that secret.
+
+The submitter resolves both definitions before the first durable mutation and
+again at each launch boundary. It requires ACTIVE Fargate definitions, the
+configured container name in both, digest-pinned images with the same primary
+digest, no dispatch token in any worker container, and the monitor token in the
+primary monitor container's ECS `secrets` list (never plaintext environment).
+The submitter role needs `ecs:DescribeTaskDefinition` with `Resource: "*"` in a
+statement without the `ecs:cluster` condition used to scope `ecs:RunTask`.
+
+## Just Recipes
 
 Projects that use `just` can import reusable container and scraper CLI recipes:
 
@@ -78,18 +117,31 @@ aws_batch_scraper_cli := "gv-dashboard-etl"
 aws_batch_scraper_cli_group := "courts"
 aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
 aws_batch_scraper_docker_context := "."
-aws_batch_scraper_ecr_repository_name := env_var_or_default("ECR_REPOSITORY_NAME", "ujs-scraper")
-aws_batch_scraper_aws_region := env_var_or_default("AWS_REGION", "us-east-1")
-aws_batch_scraper_aws_account_id := env_var_or_default("AWS_ACCOUNT_ID", "")
-aws_batch_scraper_aws_profile := env_var_or_default("AWS_PROFILE", "")
 
 import "packages/aws-batch-scraper/just/aws-batch-scraper.just"
 ```
+
+The release recipes read `AWS_ACCOUNT_ID`, `AWS_REGION`,
+`ECR_REPOSITORY_NAME`, `SCRAPER_IMAGE_TAG`, and optional `AWS_PROFILE`
+directly from the environment. This keeps untrusted environment text out of
+Just's generated shell source.
 
 This adds generic recipes such as `scraper-build-container`,
 `scraper-push-container`, `scraper-submit`, `scraper-monitor`, and
 `scraper-bench`. Your project Justfile can wrap them with domain-specific names
 such as `courts-submit` or `build-container`.
+
+The build and push recipes require a completely clean checkout and
+`SCRAPER_IMAGE_TAG` equal to the full current commit SHA. They reject an ECR tag
+that already exists, label and re-check the local image revision, resolve the
+exact pushed digest, wait for its ECR scan, and fail on any Critical or High
+finding. After those checks pass, the recipe prints the digest URI to use in the
+ECS task definition. The repository must separately enforce immutable ECR tags
+and scan-on-push:
+
+```bash
+SCRAPER_IMAGE_TAG=$(git rev-parse HEAD) just scraper-build-and-push-container
+```
 
 ## Templates
 

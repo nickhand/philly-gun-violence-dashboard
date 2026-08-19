@@ -1,8 +1,8 @@
 # Architecture
 
 This project is a full-stack data product: scheduled ETL jobs transform public
-source data, S3 stores processed datasets, FastAPI serves cacheable endpoints, and
-the Vue frontend renders maps and charts.
+source data, S3 stores immutable releases, FastAPI serves cacheable endpoints, and
+the Nuxt frontend renders server content plus client-side maps and charts.
 
 ## Components
 
@@ -21,7 +21,7 @@ packages/aws-batch-scraper
   Reusable ECS/SQS scraper framework for high-volume independent scrape tasks.
 
 frontend
-  Vue 3 application with MapLibre maps, D3 charts, Vuetify UI, and Pinia state.
+  Nuxt application with MapLibre maps, D3 charts, a civic UI layer, and Pinia state.
 ```
 
 ## Data Flow
@@ -30,10 +30,11 @@ frontend
 OpenDataPhilly / PPD / reference sources
   -> ETL extract modules
   -> transform and validation modules
-  -> S3 processed datasets + metadata
-  -> FastAPI startup/lazy refresh cache
-  -> versioned data endpoints + cached statistics HTML
-  -> browser-side maps/charts or Netlify SEO-route proxy
+  -> checksummed immutable S3 objects
+  -> one atomic release pointer per core dataset
+  -> FastAPI startup/lazy refresh snapshot
+  -> versioned data endpoints + typed statistics JSON
+  -> Nuxt SSR content and browser-side maps/charts on Cloudflare Workers
 ```
 
 The courts pipeline has a separate batch path:
@@ -58,11 +59,17 @@ The shootings API uses content-addressed URLs:
 This avoids repeatedly transferring a single large GeoJSON file and lets browsers
 cache stable year/version URLs aggressively.
 
-The same loaded shooting and homicide datasets also produce `/stats` and
-`/sitemap.xml`. Their rendered responses are cached by dataset version and ETag,
-then re-rendered after startup or a lazy S3 refresh. Netlify proxies the canonical
-`/philly-gun-violence-map/stats` and sitemap URLs to these endpoints. Shooting and
-homicide freshness dates remain separate so each figure is labeled accurately.
+Every handler captures one frozen application snapshot. A refresh is serialized,
+fully reads, checksums, and validates a candidate off-state, then replaces one
+pointer. Failed source checks keep serving the prior valid snapshot and remain
+eligible for retry. The API retains the immediately previous shootings version so
+clients holding an old manifest can complete an immutable year request during a
+rollover.
+
+The same shooting and homicide snapshot produces `/stats.json`. Nuxt uses it for
+server-rendered statistics while owning the canonical HTML, robots, and sitemap.
+Shooting and homicide freshness dates remain separate so each figure is labeled
+accurately.
 
 ## Runtime Configuration
 
@@ -79,9 +86,22 @@ container commands documented in the package READMEs.
 
 ## Operational Workflow
 
-- GitHub Actions run scheduled or manually triggered ETL jobs.
-- ETL jobs write processed data and `meta.json` files to S3.
-- The API refreshes its S3-backed caches on startup and on a TTL.
-- Netlify deploys only for frontend/config changes and proxies dynamic SEO routes.
+- A continuously running, scheduler-only Fly app dispatches GitHub Actions ETL
+  workflows. Scheduling remains outside GitHub so repository inactivity cannot
+  disable refreshes. It holds only the fine-grained Actions token; the public
+  API app holds only its read-only S3 credentials.
+- The same external scheduler dispatches a daily production smoke workflow;
+  failures make stale readiness, broken pages, or unavailable immutable
+  downloads visible in GitHub Actions instead of relying on a liveness check.
+- During the scheduler split-app rollout, the weekly frontend-quality check
+  remains on its native GitHub schedule and is absent from the Fly crontab. Its
+  ownership moves only in a separate quiet-window handoff after the isolated
+  scheduler has demonstrated the expected cadence.
+- ETL jobs upload complete immutable data/metadata objects and move a single
+  stable pointer only after validation.
+- The API refreshes its atomic S3-backed snapshot on startup and on a TTL; `/ready`
+  reports missing or stale core data independently from `/health` liveness.
+- Cloudflare Workers serves the Nuxt application at the canonical subpath.
 - Fly.io serves the API.
-- Courts scraping runs through ECS/SQS so individual scrape failures are isolated.
+- Courts scraping runs through ECS/SQS with validated queue envelopes and an S3
+  run lease so individual failures are isolated and overlapping runs are refused.

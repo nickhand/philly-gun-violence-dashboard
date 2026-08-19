@@ -16,12 +16,38 @@ from dashboard_utils.processed import (
 )
 
 __all__ = [
+    "build_meta",
     "write_meta",
     "load_shootings_database",
     "load_street_blocks",
     "load_homicide_database",
     "load_courts_flags",
 ]
+
+
+def build_meta(
+    *,
+    data_through: Any = None,
+    status: str = "success",
+    now: datetime | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build one validated, JSON-safe processed metadata object."""
+    timestamp = now or datetime.now(UTC)
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError("Metadata timestamp must include a timezone")
+    data_through_iso = (
+        pd.to_datetime(data_through).date().isoformat()
+        if data_through is not None
+        else pd.Timestamp(timestamp).date().isoformat()
+    )
+    return {
+        "status": status,
+        "last_updated": timestamp.astimezone(UTC).isoformat(),
+        "data_through": data_through_iso,
+        "schema_version": 1,
+        **{key: _meta_value(value) for key, value in extra.items() if value is not None},
+    }
 
 
 def write_meta(
@@ -32,20 +58,8 @@ def write_meta(
     status: str = "success",
     **extra: Any,
 ) -> None:
-    """Write processed metadata for a dataset."""
-    now = datetime.now(UTC)
-    data_through_iso = (
-        pd.to_datetime(data_through).date().isoformat()
-        if data_through is not None
-        else pd.Timestamp(now).date().isoformat()
-    )
-    meta = {
-        "status": status,
-        "last_updated": now.isoformat(),
-        "data_through": data_through_iso,
-        "schema_version": 1,
-        **{key: _meta_value(value) for key, value in extra.items() if value is not None},
-    }
+    """Build and write processed metadata for a legacy stable object."""
+    meta = build_meta(data_through=data_through, status=status, **extra)
 
     write_json(
         _client(s3),

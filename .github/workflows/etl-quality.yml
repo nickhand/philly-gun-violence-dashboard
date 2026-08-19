@@ -6,9 +6,15 @@ on:
       - "packages/etl/**"
       - "packages/dashboard-utils/**"
       - "packages/aws-batch-scraper/**"
-      - "justfile"
+      - ".dockerignore"
+      - "Justfile"
       - "ty.toml"
+      - "uv.toml"
       - "just/python.just"
+      - ".github/workflows/courts-scrape.yml"
+      - ".github/workflows/courts-process.yml"
+      - ".github/workflows/daily-homicide-sync.yml"
+      - ".github/workflows/daily-shootings-sync.yml"
       - ".github/workflows/etl-quality.yml"
   push:
     branches: [main]
@@ -16,53 +22,94 @@ on:
       - "packages/etl/**"
       - "packages/dashboard-utils/**"
       - "packages/aws-batch-scraper/**"
-      - "justfile"
+      - ".dockerignore"
+      - "Justfile"
       - "ty.toml"
+      - "uv.toml"
       - "just/python.just"
+      - ".github/workflows/courts-scrape.yml"
+      - ".github/workflows/courts-process.yml"
+      - ".github/workflows/daily-homicide-sync.yml"
+      - ".github/workflows/daily-shootings-sync.yml"
       - ".github/workflows/etl-quality.yml"
 
 concurrency:
   group: etl-quality-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: ETL tests and static checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: packages/etl
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.12.0"
+      - name: Audit ETL production dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/etl-requirements.txt"
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/etl-requirements.txt" --disable-pip --progress-spinner off --strict
+      - name: Audit dashboard utilities production dependencies
+        working-directory: packages/dashboard-utils
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/dashboard-utils-requirements.txt"
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/dashboard-utils-requirements.txt" --disable-pip --progress-spinner off --strict
+      - name: Audit AWS Batch scraper production dependencies
+        working-directory: packages/aws-batch-scraper
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/aws-batch-scraper-requirements.txt"
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/aws-batch-scraper-requirements.txt" --disable-pip --progress-spinner off --strict
       - name: ETL Ruff lint
-        run: uv run --group dev ruff check src
+        run: uv run --group dev ruff check src tests
       - name: ETL Ruff format
-        run: uv run --group dev ruff format --check src
+        run: uv run --group dev ruff format --check src tests
       - name: ETL ty
         run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
       - name: ETL tests
         run: uv run --group dev pytest tests
       - name: Dashboard utilities Ruff lint
         working-directory: packages/dashboard-utils
-        run: uv run --group dev ruff check src
+        run: uv run --group dev ruff check src tests
       - name: Dashboard utilities Ruff format
         working-directory: packages/dashboard-utils
-        run: uv run --group dev ruff format --check src
+        run: uv run --group dev ruff format --check src tests
       - name: Dashboard utilities ty
         working-directory: packages/dashboard-utils
         run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
+      - name: Dashboard utilities tests
+        working-directory: packages/dashboard-utils
+        run: uv run --group dev pytest tests
       - name: AWS Batch scraper Ruff lint
         working-directory: packages/aws-batch-scraper
-        run: uv run --group dev ruff check src
+        run: uv run --group dev ruff check src tests
       - name: AWS Batch scraper Ruff format
         working-directory: packages/aws-batch-scraper
-        run: uv run --group dev ruff format --check src
+        run: uv run --group dev ruff format --check src tests
       - name: AWS Batch scraper ty
         working-directory: packages/aws-batch-scraper
         run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
+      - name: AWS Batch scraper tests
+        working-directory: packages/aws-batch-scraper
+        run: uv run --group dev pytest tests
+      - name: Build production scraper image
+        working-directory: .
+        run: docker build --file packages/etl/Dockerfile --tag philly-courts-scraper:ci .
+      - name: Smoke-test production scraper image
+        working-directory: .
+        run: |
+          test "$(docker inspect --format '{{.Config.User}}' philly-courts-scraper:ci)" = "app"
+          test "$(docker inspect --format '{{json .Config.Cmd}}' philly-courts-scraper:ci)" = '["gv-dashboard-etl","courts","worker"]'
+          runtime_flags=(--rm --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,size=512m)
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl --help
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl courts monitor --help
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True); browser.close(); context.stop()"

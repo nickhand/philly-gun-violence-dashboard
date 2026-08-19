@@ -140,4 +140,48 @@ describe("HistogramChart", () => {
     expect(table.text()).toContain("Nonfatal250%");
     expect(wrapper.get("svg").attributes("aria-hidden")).toBe("true");
   });
+
+  it("includes Unknown court searches in the legacy chart table", () => {
+    const wrapper = mount(HistogramChart, {
+      ...mountOptions,
+      props: {
+        rows: shootingRows,
+        title: "Court Search Result",
+        accessor: "has_court_case",
+        color: "#607080",
+        categories: [true, false, null],
+        aliases: { true: "Yes", false: "No", null: "Unknown" },
+      },
+    });
+
+    const table = wrapper.get(
+      'table[aria-label="Court Search Result distribution breakdown"]',
+    );
+    expect(table.text()).toContain("Yes250%");
+    expect(table.text()).toContain("No125%");
+    expect(table.text()).toContain("Unknown125%");
+  });
+
+  it("groups a missing legacy court-search field under Unknown", () => {
+    const rows = shootingRows.map((row) => ({ ...row }));
+    delete (rows[0] as Partial<(typeof rows)[number]>).has_court_case;
+    const wrapper = mount(HistogramChart, {
+      ...mountOptions,
+      props: {
+        rows,
+        title: "Court Search Result",
+        accessor: "has_court_case",
+        color: "#607080",
+        categories: [true, false, null],
+        aliases: { true: "Yes", false: "No", null: "Unknown" },
+      },
+    });
+
+    const table = wrapper.get(
+      'table[aria-label="Court Search Result distribution breakdown"]',
+    );
+    expect(table.text()).toContain("Yes125%");
+    expect(table.text()).toContain("No125%");
+    expect(table.text()).toContain("Unknown250%");
+  });
 });

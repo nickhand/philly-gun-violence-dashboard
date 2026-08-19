@@ -10,10 +10,13 @@ dependencies = [
     "boto3-stubs[ecs,sqs,s3]>=1.42.19",
     "loguru>=0.7.3",
     "pydantic>=2.12.5",
-    "pydantic-settings>=2.12.0",
+    "pydantic-settings>=2.14.2",
     "tenacity>=8.2.3",
     "typer>=0.20.0",
 ]
+
+[project.scripts]
+aws-batch-scraper-release-image = "aws_batch_scraper.release_image:main"
 
 [tool.uv]
 exclude-newer = "1 week"

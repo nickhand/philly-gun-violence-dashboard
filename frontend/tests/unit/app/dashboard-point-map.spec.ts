@@ -53,13 +53,17 @@ const maplibre = vi.hoisted(() => {
     >();
     const sources = new globalThis.Map<string, Record<string, any>>();
     const layers = new globalThis.Map<string, Record<string, any>>();
+    const controls = new Set<Record<string, any>>();
     let center = options.center as [number, number];
     let zoom = options.zoom as number;
     const canvas = document.createElement("canvas");
     canvas.setAttribute("aria-label", "Map");
     const instance: Record<string, any> = {
       options,
-      addControl: vi.fn(),
+      activeControls: () => [...controls],
+      addControl: vi.fn((control: Record<string, any>) => {
+        controls.add(control);
+      }),
       addLayer: vi.fn((layer: Record<string, any>) => {
         layers.set(layer.id, layer);
       }),
@@ -123,7 +127,10 @@ const maplibre = vi.hoisted(() => {
       once: vi.fn((event: string, listener: () => void) => {
         if (event === "load") loadListener = listener;
       }),
-      remove: vi.fn(),
+      remove: vi.fn(() => controls.clear()),
+      removeControl: vi.fn((control: Record<string, any>) => {
+        controls.delete(control);
+      }),
       removeLayer: vi.fn((id: string) => layers.delete(id)),
       removeSource: vi.fn((id: string) => sources.delete(id)),
       setLayoutProperty: vi.fn((id: string, property: string, value: unknown) => {
@@ -420,9 +427,14 @@ describe("shooting record helpers", () => {
     );
     const points = rowsToShootingPoints([
       ...parsed,
-      { fatal: true, lat: Number.POSITIVE_INFINITY, lon: -75 },
-      { fatal: false, lat: 91, lon: -75 },
-      { fatal: false, lat: 40, lon: -181 },
+      {
+        fatal: true,
+        has_court_case: null,
+        lat: Number.POSITIVE_INFINITY,
+        lon: -75,
+      },
+      { fatal: false, has_court_case: null, lat: 91, lon: -75 },
+      { fatal: false, has_court_case: null, lat: 40, lon: -181 },
     ] satisfies ShootingRow[]);
 
     expect(parsed).toHaveLength(4);
@@ -449,7 +461,7 @@ describe("shooting record helpers", () => {
         date: "2026-02-10",
         dcKey: "2026-02",
         fatal: false,
-        hasCourtCase: false,
+        hasCourtCase: null,
         race: "W",
         sex: "F",
         streetBlock: "500 block of BROAD ST",
@@ -475,6 +487,7 @@ describe("shooting record helpers", () => {
         block_number: "1200",
         date: "2026-02-30",
         fatal: false,
+        has_court_case: null,
         lat: 39.95,
         lon: -75.16,
         street_name: "MARKET ST",
@@ -495,14 +508,39 @@ describe("shooting record helpers", () => {
   });
 
   it("rejects malformed JSON and invalid row shapes with line context", () => {
-    const valid = JSON.stringify({ fatal: true, lat: 40, lon: -75 });
+    const valid = JSON.stringify({
+      fatal: true,
+      has_court_case: null,
+      lat: 40,
+      lon: -75,
+    });
 
     expect(() => parseShootingRows(`${valid}\nnot-json`)).toThrow(
       "Invalid shooting record on line 2.",
     );
     expect(() =>
-      parseShootingRows('{"fatal":true,"lat":"40","lon":-75}'),
+      parseShootingRows(
+        '{"fatal":true,"has_court_case":null,"lat":"40","lon":-75}',
+      ),
     ).toThrow("Invalid shooting record on line 1.");
+  });
+
+  it("accepts only boolean or null court-search values", () => {
+    expect(
+      parseShootingRows(
+        '{"fatal":true,"has_court_case":null,"lat":40,"lon":-75}',
+      )[0]?.has_court_case,
+    ).toBeNull();
+
+    for (const record of [
+      { fatal: true, lat: 40, lon: -75 },
+      { fatal: true, has_court_case: "false", lat: 40, lon: -75 },
+      { fatal: true, has_court_case: 0, lat: 40, lon: -75 },
+    ]) {
+      expect(() => parseShootingRows(JSON.stringify(record))).toThrow(
+        "Invalid shooting record on line 1.",
+      );
+    }
   });
 
   it("loads the selected year from the manifest-provided URL", async () => {
@@ -804,6 +842,10 @@ describe("DashboardPointMap", () => {
     vi.stubGlobal("useRoute", () => mockedRoute);
     vi.stubGlobal("useRouter", () => ({ replace: routerReplace }));
     vi.stubGlobal(
+      "matchMedia",
+      vi.fn((media: string) => ({ matches: false, media })),
+    );
+    vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         new Response(
@@ -850,6 +892,112 @@ describe("DashboardPointMap", () => {
     expect(instance.getCanvas().getAttribute("aria-label")).toBe(
       "Map showing 1 shooting-victim location in Philadelphia for 2026",
     );
+
+    wrapper.unmount();
+  });
+
+  it("keeps exactly one fine-pointer attribution control across the width breakpoint and removes its resize listener", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    const removeEventListener = vi.spyOn(window, "removeEventListener");
+    const wrapper = mount(DashboardPointMap, {
+      props: {
+        apiBaseUrl: "https://api.example.test",
+        boundaryOpacity: 0.5,
+        fatalOnly: false,
+        initialView: DEFAULT_MAP_VIEW,
+        layers: DEFAULT_MAP_LAYERS,
+        records: recordResult(),
+        searchLocation: null,
+        year: 2026,
+      },
+    });
+
+    await vi.waitFor(() => expect(maplibre.Map).toHaveBeenCalledTimes(1));
+    const instance = maplibre.instances[0];
+    await vi.waitFor(() => expect(instance.addControl).toHaveBeenCalledTimes(4));
+    const attributionControls = () =>
+      instance
+        .activeControls()
+        .filter((control: Record<string, unknown>) =>
+          control.kind === "attribution",
+        );
+
+    expect(maplibre.AttributionControl).toHaveBeenLastCalledWith({
+      compact: true,
+    });
+    expect(attributionControls()).toHaveLength(1);
+
+    vi.stubGlobal("innerWidth", 844);
+    window.dispatchEvent(new Event("resize"));
+    expect(instance.removeControl).toHaveBeenCalledTimes(1);
+    expect(maplibre.AttributionControl).toHaveBeenLastCalledWith({
+      compact: false,
+    });
+    expect(attributionControls()).toHaveLength(1);
+
+    vi.stubGlobal("innerWidth", 820);
+    window.dispatchEvent(new Event("resize"));
+    expect(instance.removeControl).toHaveBeenCalledTimes(1);
+    expect(maplibre.AttributionControl).toHaveBeenCalledTimes(2);
+
+    vi.stubGlobal("innerWidth", 390);
+    window.dispatchEvent(new Event("resize"));
+    expect(instance.removeControl).toHaveBeenCalledTimes(2);
+    expect(maplibre.AttributionControl).toHaveBeenLastCalledWith({
+      compact: true,
+    });
+    expect(attributionControls()).toHaveLength(1);
+
+    wrapper.unmount();
+    expect(instance.activeControls()).toHaveLength(0);
+    expect(
+      removeEventListener.mock.calls.filter(([event]) => event === "resize"),
+    ).toHaveLength(1);
+    removeEventListener.mockRestore();
+  });
+
+  it("keeps a coarse-pointer phone attribution compact across orientation changes", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((media: string) => ({
+        matches: media === "(pointer: coarse)",
+        media,
+      })),
+    );
+    const wrapper = mount(DashboardPointMap, {
+      props: {
+        apiBaseUrl: "https://api.example.test",
+        boundaryOpacity: 0.5,
+        fatalOnly: false,
+        initialView: DEFAULT_MAP_VIEW,
+        layers: DEFAULT_MAP_LAYERS,
+        records: recordResult(),
+        searchLocation: null,
+        year: 2026,
+      },
+    });
+
+    await vi.waitFor(() => expect(maplibre.Map).toHaveBeenCalledTimes(1));
+    const instance = maplibre.instances[0];
+    await vi.waitFor(() => expect(instance.addControl).toHaveBeenCalledTimes(4));
+    expect(maplibre.AttributionControl).toHaveBeenLastCalledWith({
+      compact: true,
+    });
+
+    vi.stubGlobal("innerWidth", 844);
+    window.dispatchEvent(new Event("resize"));
+
+    expect(instance.removeControl).not.toHaveBeenCalled();
+    expect(maplibre.AttributionControl).toHaveBeenCalledTimes(1);
+    expect(
+      instance
+        .activeControls()
+        .filter(
+          (control: Record<string, unknown>) =>
+            control.kind === "attribution",
+        ),
+    ).toHaveLength(1);
 
     wrapper.unmount();
   });
@@ -1638,7 +1786,7 @@ describe("DashboardPointMap", () => {
             date: "2026-01-05",
             dcKey: "2026-01",
             fatal: true,
-            hasCourtCase: true,
+            hasCourtCase: null,
             race: "B",
             sex: "M",
             streetBlock: '1200 block of <img src="x" onerror="alert(1)">',
@@ -1680,6 +1828,7 @@ describe("DashboardPointMap", () => {
     expect(content.textContent).not.toContain("block of");
     expect(content.textContent).toContain("Victim Information");
     expect(content.textContent).toContain("Case Information");
+    expect(content.textContent).toContain("Court search resultUnknown");
     expect(content.textContent).not.toContain(
       "Nearest-street context; not an exact address.",
     );

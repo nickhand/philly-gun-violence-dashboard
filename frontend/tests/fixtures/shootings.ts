@@ -35,7 +35,7 @@ export const shootingRows: ShootingRow[] = [
     fatal: false,
     date: "2026-02-10",
     age_group: "31 to 45",
-    has_court_case: false,
+    has_court_case: null,
     age: 36,
     street_name: "BROAD ST",
     block_number: 500,

@@ -28,7 +28,7 @@ export interface ShootingProperties {
   race: "W" | "B" | "H" | "A" | "Other/Unknown";
   sex: "M" | "F";
   fatal: boolean;
-  has_court_case: boolean;
+  has_court_case: boolean | null;
 }
 
 /**
@@ -238,7 +238,14 @@ export function createPointsLayerTooltip(
 
   // Case info
   builder.row("DC Number", props.dc_key);
-  builder.row("Court Case", props.has_court_case ? "Yes" : "No");
+  builder.row(
+    "Court search result",
+    typeof props.has_court_case !== "boolean"
+      ? "Unknown"
+      : props.has_court_case
+        ? "Yes"
+        : "No",
+  );
 
   return builder.build();
 }

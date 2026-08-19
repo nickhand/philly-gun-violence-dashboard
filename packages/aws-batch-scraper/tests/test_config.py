@@ -1,0 +1,164 @@
+"""Tests for immutable AWS runtime identifiers."""
+
+import pytest
+from aws_batch_scraper.config import (
+    SubmitterConfig,
+    require_exact_task_definition,
+    require_github_repository,
+    require_github_workflow_file,
+    require_split_task_definitions,
+)
+from pydantic import ValidationError
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ujs-scraper:42",
+        "arn:aws:ecs:us-east-1:123456789012:task-definition/ujs-scraper:42",
+        "arn:aws-us-gov:ecs:us-gov-west-1:123456789012:task-definition/scraper:1",
+    ],
+)
+def test_exact_task_definition_identifiers_are_accepted(value: str) -> None:
+    assert require_exact_task_definition(value) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "ujs-scraper",
+        "ujs-scraper:latest",
+        "ujs-scraper:0",
+        "ujs-scraper:1:2",
+        "arn:aws:ecs:us-east-1:123456789012:task-definition/ujs-scraper",
+    ],
+)
+def test_mutable_or_malformed_task_definition_identifiers_are_rejected(value: str) -> None:
+    with pytest.raises(ValueError, match="exact family:revision"):
+        require_exact_task_definition(value)
+
+
+def test_submitter_config_rejects_bare_task_definition_family() -> None:
+    with pytest.raises(ValidationError, match="exact family:revision"):
+        SubmitterConfig(
+            _env_file=None,
+            s3_bucket="bucket",
+            s3_scraper_prefix="scraper",
+            aws_account_id="123456789012",
+            sqs_queue_name="queue",
+            sqs_dlq_name="queue-dlq",
+            ecs_cluster_name="cluster",
+            ecs_task_definition="ujs-scraper",
+            ecs_monitor_task_definition="ujs-scraper-monitor:1",
+            ecs_container_name="worker",
+            ecs_subnet_ids=["subnet-1"],
+            ecs_security_group_ids=["sg-1"],
+        )
+
+
+def _submitter_kwargs() -> dict[str, object]:
+    return {
+        "_env_file": None,
+        "s3_bucket": "bucket",
+        "s3_scraper_prefix": "scraper",
+        "aws_account_id": "123456789012",
+        "sqs_queue_name": "queue",
+        "sqs_dlq_name": "queue-dlq",
+        "ecs_cluster_name": "cluster",
+        "ecs_task_definition": "ujs-scraper:42",
+        "ecs_monitor_task_definition": "ujs-scraper-monitor:17",
+        "ecs_container_name": "worker",
+        "ecs_subnet_ids": ["subnet-1"],
+        "ecs_security_group_ids": ["sg-1"],
+    }
+
+
+def test_submitter_config_requires_monitor_task_definition() -> None:
+    values = _submitter_kwargs()
+    del values["ecs_monitor_task_definition"]
+
+    with pytest.raises(ValidationError, match="ecs_monitor_task_definition"):
+        SubmitterConfig(**values)
+
+
+def test_submitter_config_rejects_bare_monitor_task_definition_family() -> None:
+    values = _submitter_kwargs()
+    values["ecs_monitor_task_definition"] = "ujs-scraper-monitor"
+
+    with pytest.raises(ValidationError, match="ECS_MONITOR_TASK_DEFINITION"):
+        SubmitterConfig(**values)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("ecs_subnet_ids", "", "between 1 and 16"),
+        ("ecs_subnet_ids", [], "between 1 and 16"),
+        ("ecs_subnet_ids", ["subnet-1", "subnet-1"], "unique subnet"),
+        ("ecs_subnet_ids", ["not-a-subnet"], "unique subnet"),
+        ("ecs_security_group_ids", "", "between 1 and 5"),
+        ("ecs_security_group_ids", ["sg-1", "sg-1"], "unique sg-"),
+    ],
+)
+def test_submitter_config_rejects_unsafe_network_lists(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    values = _submitter_kwargs()
+    values[field] = value
+
+    with pytest.raises(ValidationError, match=message):
+        SubmitterConfig(**values)
+
+
+@pytest.mark.parametrize(
+    ("worker", "monitor"),
+    [
+        ("ujs-scraper:42", "ujs-scraper:42"),
+        (
+            "ujs-scraper:42",
+            "arn:aws:ecs:us-east-1:123456789012:task-definition/ujs-scraper:42",
+        ),
+    ],
+)
+def test_shared_worker_and_monitor_definition_is_rejected(worker: str, monitor: str) -> None:
+    with pytest.raises(ValueError, match="different task-definition revisions"):
+        require_split_task_definitions(worker, monitor)
+
+
+def test_submitter_config_rejects_shared_worker_and_monitor_definition() -> None:
+    values = _submitter_kwargs()
+    values["ecs_monitor_task_definition"] = "ujs-scraper:42"
+
+    with pytest.raises(ValidationError, match="different task-definition revisions"):
+        SubmitterConfig(**values)
+
+
+def test_distinct_worker_and_monitor_definitions_are_accepted() -> None:
+    assert require_split_task_definitions("ujs-scraper:42", "ujs-scraper-monitor:17") == (
+        "ujs-scraper:42",
+        "ujs-scraper-monitor:17",
+    )
+
+
+@pytest.mark.parametrize("value", [None, "", "owner", "/repo", "owner/", "owner/.."])
+def test_github_repository_target_is_required_and_structured(value: str | None) -> None:
+    with pytest.raises(ValueError, match="owner/repository"):
+        require_github_repository(value)
+
+
+def test_github_repository_target_is_accepted() -> None:
+    assert require_github_repository("owner/repository.name") == "owner/repository.name"
+
+
+@pytest.mark.parametrize("value", [None, "", "workflow", "../workflow.yml", "dir/job.yml"])
+def test_github_workflow_target_is_required_and_structured(value: str | None) -> None:
+    with pytest.raises(ValueError, match="workflow filename"):
+        require_github_workflow_file(value)
+
+
+@pytest.mark.parametrize("value", ["courts-process.yml", "release_2.yaml"])
+def test_github_workflow_target_is_accepted(value: str) -> None:
+    assert require_github_workflow_file(value) == value
