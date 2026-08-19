@@ -29,9 +29,9 @@ Your container image must:
 - rely on the ECS task role for AWS credentials
 - never bake AWS keys or tokens into the image
 
-The worker and monitor task definitions must explicitly declare a non-root
-runtime user and `readonlyRootFilesystem: true`; submitter preflight rejects
-either omission. Keep installed code owned by the image build user and mount an
+The worker and monitor task definitions must explicitly run the image's `app`
+user and set `readonlyRootFilesystem: true`; submitter preflight rejects either
+omission. Keep installed code owned by the image build user and mount an
 explicit writable temporary volume for the paths required by the scraper.
 Browser containers commonly need `/tmp`; route `HOME`, `TMPDIR`, and XDG
 cache/config state to that mount and test the image before registration. For a
@@ -57,6 +57,7 @@ SQS_DLQ_NAME=my-scraper-dlq
 ECS_CLUSTER_NAME=my-scraper
 ECS_TASK_DEFINITION=my-scraper:42
 ECS_MONITOR_TASK_DEFINITION=my-scraper-monitor:17
+ECS_EXPECTED_IMAGE_URI=123456789012.dkr.ecr.us-east-1.amazonaws.com/my-scraper@sha256:<64-lowercase-hex>
 ECS_CONTAINER_NAME=my-scraper
 ECS_SUBNET_IDS=subnet-a,subnet-b
 ECS_SECURITY_GROUP_IDS=sg-a
@@ -83,20 +84,49 @@ just scraper-build-and-push-container
 ```
 
 Before the push, configure the ECR repository with immutable tags and automatic
-scanning. Tag immutability is an external release gate: the local absence check
-cannot eliminate a race with another publisher. The guarded recipe binds every
-inspection and scan to `AWS_ACCOUNT_ID`, verifies the returned repository URI,
-requires scan-on-push, and makes up to 180 scan checks spaced 10 seconds apart
-(about 30 minutes of wait time, plus AWS CLI request time). It prints the complete
-`repository@sha256:...` URI only after the exact pushed image has no Critical or
-High findings. Terminal, malformed, unauthorized, and timeout outcomes exit
-nonzero without printing a URI. Do not replace it with an unguarded manual
+scanning. The guarded recipe first downloads a fresh Grype database in a
+container that cannot see the target, saves the exact local image as an archive,
+and runs digest-pinned Syft and Grype containers with networking disabled.
+Neither scanner receives the Docker socket or registry credentials. The gate
+validates tool/schema identity, database hash and age, provider timestamps,
+image identity, and repo-controlled package/file contracts. It rejects every
+Critical, High, or Unknown local result, including unfixed findings, and rejects
+ignore rules, VEX, path exclusions, malformed reports, and stale databases.
+
+Successful optional `--output-directory` evidence contains Syft and CycloneDX
+SBOMs, Grype reports, and `receipt.json`. The receipt binds their SHA-256 digests
+to the exact image, scanner images, database, and package versions. A failed scan
+never emits a receipt; diagnostic files are prefixed `UNVERIFIED-` and accompanied
+by `FAILED.json`. See Anchore's [supported OS matrix](https://oss.anchore.com/docs/capabilities/all-os/),
+[SBOM format guide](https://oss.anchore.com/docs/guides/sbom/formats/), and
+[filtering guide](https://oss.anchore.com/docs/guides/vulnerability/filter-results/).
+
+Tag immutability is an external release gate: the local absence check cannot
+eliminate a race with another publisher. The recipe tags the exact scanned image
+ID, confirms the pushed manifest's config digest is that image ID, binds every
+ECR call to `AWS_ACCOUNT_ID`, requires scan-on-push, and polls the remote scan for
+about 30 minutes. It also hashes the exact returned manifest bytes, requires a
+fresh push-bound `COMPLETE` scan and vulnerability-source update, and rejects
+Undefined remote findings. `ACTIVE` enhanced-scanning state is deliberately not
+treated as a completed snapshot. It prints `repository@sha256:...` only after
+both gates pass. Terminal, stale, malformed, unauthorized, and timeout outcomes
+exit nonzero without printing a URI. Do not replace it with an unguarded manual
 `docker push` sequence.
 
+The guarded push preserves the exact release scan under
+`.artifacts/aws-batch-scraper/releases/<commit>/`. After the remote gate passes,
+`release.json` binds the ECR digest and URI to the local image ID, manifest,
+receipt hash, and every re-hashed SBOM/report artifact. The verified URI is not
+printed unless that release receipt is written successfully. Archive this
+directory with the release records; the leading-dot directory is intentionally
+outside the immutable `git archive HEAD` build context.
+
 Register separate worker and monitor ECS task-definition revisions using the
-printed digest URI. Do not point either definition at `:latest`: a mutable tag
-cannot prove which worker protocol a run used. Each task definition must still
-use `repository@sha256:...` even when ECR tag immutability is enabled.
+printed digest URI. Set `ECS_EXPECTED_IMAGE_URI` to that exact same-account,
+same-region `repository@sha256:...` value. Do not point either definition at
+`:latest`: a mutable tag cannot prove which worker protocol a run used. Each
+task definition must still use `repository@sha256:...` even when ECR tag
+immutability is enabled.
 
 Set `ECS_TASK_DEFINITION` to the exact worker `family:revision` (or full
 revisioned ARN) and `ECS_MONITOR_TASK_DEFINITION` to a different exact monitor
@@ -106,10 +136,15 @@ configuration and launch boundaries. Only the monitor definition may inject
 read that secret.
 
 The submitter resolves both definitions before the first durable mutation and
-again at each launch boundary. It requires ACTIVE Fargate definitions, the
-configured container name in both, digest-pinned images with the same primary
-digest, no dispatch token in any worker container, and the monitor token in the
-primary monitor container's ECS `secrets` list (never plaintext environment).
+again at each launch boundary. It requires an ACTIVE cluster; ACTIVE Fargate
+definitions using `awsvpc` and `LINUX/X86_64`; exactly one container named
+by `ECS_CONTAINER_NAME`, running as the image's `app` user; the exact
+`ECS_EXPECTED_IMAGE_URI`; a read-only root filesystem; and one ephemeral volume
+mounted read-write only at `/tmp`. It rejects privileged containers, added
+capabilities, extra mounts or containers, kernel overrides, and entry-point
+overrides. No worker container may receive the dispatch token; the primary
+monitor container must receive it through ECS `secrets`, never a plaintext
+environment value.
 The submitter role needs `ecs:DescribeTaskDefinition` with `Resource: "*"` in a
 statement without the `ecs:cluster` condition used to scope `ecs:RunTask`.
 
@@ -122,7 +157,11 @@ aws_batch_scraper_cli_dir := "etl"
 aws_batch_scraper_cli := "gv-dashboard-etl"
 aws_batch_scraper_cli_group := "courts"
 aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
-aws_batch_scraper_docker_context := "."
+aws_batch_scraper_browser_freshness_pythonpath := "etl/src"
+aws_batch_scraper_required_sbom_packages := "python:playwright=1.62.0,deb:google-chrome-stable=151.0.7922.169-1,binary:node=24.18.1"
+aws_batch_scraper_chrome_executable_sha256 := "sha256:..."
+aws_batch_scraper_chrome_sandbox_sha256 := "sha256:..."
+aws_batch_scraper_release_evidence_root := ".artifacts/aws-batch-scraper/releases"
 
 import "packages/aws-batch-scraper/just/aws-batch-scraper.just"
 ```
@@ -133,17 +172,20 @@ directly from the environment. This keeps untrusted environment text out of
 Just's generated shell source.
 
 This adds generic recipes such as `scraper-build-container`,
-`scraper-push-container`, `scraper-submit`, `scraper-monitor`, and
+`scraper-scan-container`, `scraper-push-container`, `scraper-submit`, `scraper-monitor`, and
 `scraper-bench`. Your project Justfile can wrap them with domain-specific names
 such as `courts-submit` or `build-container`.
 
 The build and push recipes require a completely clean checkout and
 `SCRAPER_IMAGE_TAG` equal to the full current commit SHA. They reject an ECR tag
-that already exists, label and re-check the local image revision, resolve the
-exact pushed digest, make up to 180 scan checks spaced 10 seconds apart (about
-30 minutes of wait time, plus AWS CLI request time), and fail on any Critical or
-High finding. After those checks pass, the recipe prints the full digest URI to
-use in the ECS task definition. The repository must separately
+that already exists. The release build streams `git archive HEAD` directly into
+BuildKit, so ignored or other working-tree-only files cannot enter the image.
+It labels and re-checks the exact scanned image ID, runs the local
+SBOM/vulnerability gate, pushes that image ID, and verifies the remote scan.
+After those checks pass, the recipe prints the full digest URI to use in the ECS
+task definition. Pull-request CI intentionally builds the checked-out workspace
+instead: it must test the proposed patch and never publishes that CI image. The
+repository must separately
 enforce immutable ECR tags and scan-on-push:
 
 ```bash

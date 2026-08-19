@@ -23,6 +23,7 @@ from mypy_boto3_sqs.client import SQSClient
 from aws_batch_scraper.config import (
     SubmitterConfig,
     WorkerConfig,
+    require_exact_ecr_image_uri,
     require_github_repository,
     require_github_workflow_file,
     require_split_task_definitions,
@@ -218,6 +219,11 @@ def _base_env_vars(config: SubmitterConfig, run_id: str) -> list[KeyValuePairTyp
 
 def _monitor_env_vars(config: SubmitterConfig, run_id: str) -> list[KeyValuePairTypeDef]:
     """Build a complete submitter config for the clean monitor task definition."""
+    expected_image = require_exact_ecr_image_uri(
+        config.ecs_expected_image_uri,
+        account_id=config.aws_account_id,
+        region=config.aws_region,
+    )
     return [
         *_base_env_vars(config, run_id),
         {"name": "ECS_CLUSTER_NAME", "value": config.ecs_cluster_name},
@@ -226,6 +232,7 @@ def _monitor_env_vars(config: SubmitterConfig, run_id: str) -> list[KeyValuePair
             "name": "ECS_MONITOR_TASK_DEFINITION",
             "value": config.ecs_monitor_task_definition,
         },
+        {"name": "ECS_EXPECTED_IMAGE_URI", "value": expected_image},
         {"name": "ECS_CONTAINER_NAME", "value": config.ecs_container_name},
         {"name": "ECS_TASK_COUNT", "value": str(config.ecs_task_count)},
     ]
@@ -256,12 +263,13 @@ def _task_definition_container(
     *,
     container_name: str,
     role: str,
+    temporary_volume_name: str,
 ) -> dict[str, Any]:
     containers = definition.get("containerDefinitions", [])
     matches = [container for container in containers if container.get("name") == container_name]
-    if len(matches) != 1:
+    if len(containers) != 1 or len(matches) != 1:
         raise ValueError(
-            f"Resolved {role} task definition must contain exactly one {container_name!r} container"
+            f"Resolved {role} task definition must contain only one {container_name!r} container"
         )
     for container in containers:
         image = container.get("image")
@@ -270,16 +278,57 @@ def _task_definition_container(
                 f"Every {role} task-definition container image must use an immutable "
                 "repository@sha256 digest"
             )
-        runtime_user = container.get("user")
-        if not isinstance(runtime_user, str) or not runtime_user.strip():
-            raise ValueError(f"Every {role} task-definition container must declare a non-root user")
-        user_name = runtime_user.split(":", maxsplit=1)[0].strip().casefold()
-        if user_name in {"0", "root"}:
-            raise ValueError(f"Every {role} task-definition container must declare a non-root user")
+        if container.get("user") != "app":
+            raise ValueError(
+                f"Every {role} task-definition container must run as the image's app user"
+            )
         if container.get("readonlyRootFilesystem") is not True:
             raise ValueError(
                 f"Every {role} task-definition container must use a read-only root filesystem"
             )
+        if container.get("privileged") is True:
+            raise ValueError(f"Every {role} task-definition container must remain unprivileged")
+        if container.get("dockerSecurityOptions") not in (None, []):
+            raise ValueError(
+                f"Every {role} task-definition container must use "
+                "Fargate's default security profile"
+            )
+        if container.get("systemControls") not in (None, []):
+            raise ValueError(
+                f"Every {role} task-definition container must not override kernel parameters"
+            )
+        if container.get("volumesFrom") not in (None, []):
+            raise ValueError(
+                f"Every {role} task-definition container must not inherit opaque volumes"
+            )
+        mount_points = container.get("mountPoints")
+        if (
+            not isinstance(mount_points, list)
+            or len(mount_points) != 1
+            or not isinstance(mount_points[0], dict)
+            or mount_points[0].get("sourceVolume") != temporary_volume_name
+            or mount_points[0].get("containerPath") != "/tmp"
+            or mount_points[0].get("readOnly") is not False
+        ):
+            raise ValueError(
+                f"Every {role} task-definition container must mount only a writable /tmp volume"
+            )
+        linux_parameters = container.get("linuxParameters")
+        if linux_parameters is not None and not isinstance(linux_parameters, dict):
+            raise ValueError(f"Every {role} task-definition linuxParameters value must be a map")
+        if isinstance(linux_parameters, dict):
+            capabilities = linux_parameters.get("capabilities")
+            if capabilities is not None and not isinstance(capabilities, dict):
+                raise ValueError(f"Every {role} task-definition capabilities value must be a map")
+            if isinstance(capabilities, dict) and capabilities.get("add") not in (None, []):
+                raise ValueError(
+                    f"Every {role} task-definition container must not add Linux capabilities"
+                )
+            for unsupported in ("devices", "tmpfs"):
+                if linux_parameters.get(unsupported) not in (None, []):
+                    raise ValueError(
+                        f"Every {role} task-definition container must not configure {unsupported}"
+                    )
     selected = matches[0]
     if selected.get("entryPoint"):
         raise ValueError(f"Resolved {role} container must not override the image entry point")
@@ -288,6 +337,45 @@ def _task_definition_container(
     # TypedDict is a structural mapping at runtime; a plain dict keeps the
     # contract helper independent of boto-stub input/output union variants.
     return dict(selected)
+
+
+def _task_definition_temporary_volume(
+    definition: TaskDefinitionTypeDef,
+    *,
+    role: str,
+) -> str:
+    """Require one ephemeral volume that cannot replace scanned image content."""
+    if definition.get("networkMode") != "awsvpc":
+        raise ValueError(f"Resolved {role} task definition must use awsvpc networking")
+    runtime_platform = definition.get("runtimePlatform")
+    if (
+        not isinstance(runtime_platform, dict)
+        or runtime_platform.get("operatingSystemFamily") != "LINUX"
+        or runtime_platform.get("cpuArchitecture") != "X86_64"
+    ):
+        raise ValueError(
+            f"Resolved {role} task definition must target the reviewed LINUX/X86_64 platform"
+        )
+    volumes = definition.get("volumes")
+    if not isinstance(volumes, list) or len(volumes) != 1 or not isinstance(volumes[0], dict):
+        raise ValueError(f"Resolved {role} task definition must declare one temporary volume")
+    volume = volumes[0]
+    name = volume.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(f"Resolved {role} task definition temporary volume must have a name")
+    if volume.get("configuredAtLaunch") is True or any(
+        volume.get(setting) not in (None, {})
+        for setting in (
+            "dockerVolumeConfiguration",
+            "efsVolumeConfiguration",
+            "fsxWindowsFileServerVolumeConfiguration",
+            "host",
+        )
+    ):
+        raise ValueError(
+            f"Resolved {role} task definition /tmp volume must be ephemeral task storage"
+        )
+    return name
 
 
 def _validate_cluster(ecs: ECSClient, config: SubmitterConfig) -> None:
@@ -328,6 +416,11 @@ def resolve_split_task_definitions(
         config.ecs_task_definition,
         config.ecs_monitor_task_definition,
     )
+    expected_image = require_exact_ecr_image_uri(
+        config.ecs_expected_image_uri,
+        account_id=config.aws_account_id,
+        region=config.aws_region,
+    )
     _validate_cluster(ecs, config)
     worker_definition = ecs.describe_task_definition(taskDefinition=worker)["taskDefinition"]
     monitor_definition = ecs.describe_task_definition(taskDefinition=monitor)["taskDefinition"]
@@ -345,18 +438,30 @@ def resolve_split_task_definitions(
     if worker_arn == monitor_arn:
         raise ValueError("ECS resolved worker and monitor to the same task definition")
 
+    worker_temporary_volume = _task_definition_temporary_volume(
+        worker_definition,
+        role="worker",
+    )
+    monitor_temporary_volume = _task_definition_temporary_volume(
+        monitor_definition,
+        role="monitor",
+    )
     worker_container = _task_definition_container(
         worker_definition,
         container_name=config.ecs_container_name,
         role="worker",
+        temporary_volume_name=worker_temporary_volume,
     )
     monitor_container = _task_definition_container(
         monitor_definition,
         container_name=config.ecs_container_name,
         role="monitor",
+        temporary_volume_name=monitor_temporary_volume,
     )
     if worker_container["image"] != monitor_container["image"]:
         raise ValueError("Worker and monitor task definitions must use the same image digest")
+    if worker_container["image"] != expected_image:
+        raise ValueError("Worker and monitor task definitions must use ECS_EXPECTED_IMAGE_URI")
 
     worker_secrets = _container_setting_names(worker_definition, "secrets")
     worker_environment = _container_setting_names(worker_definition, "environment")

@@ -25,6 +25,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project /app/scraper --locked
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV HOME=/tmp/app-home
+ENV XDG_CACHE_HOME=/tmp/app-home/.cache
+ENV XDG_CONFIG_HOME=/tmp/app-home/.config
+ENV TMPDIR=/tmp
+ENV PYTHONDONTWRITEBYTECODE=1
+
+RUN chmod 1777 /tmp \
+    && groupadd --system app \
+    && useradd --system --gid app --home-dir /tmp/app-home --no-create-home \
+        --shell /usr/sbin/nologin app
+
+VOLUME ["/tmp"]
 ENTRYPOINT []
 WORKDIR /app/scraper
+USER app
 CMD ["my-scraper", "scraper", "worker"]

@@ -209,15 +209,30 @@ defaults.
 
 The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
-of Debian Sid, replaces its package source with a signed, dated Debian snapshot,
-and full-upgrades the base before installing an explicit set of Python runtime
-libraries. Python 3.13 comes from the `/usr/local` tree of a separate
-digest-pinned official Python image; that donor's Debian userspace is not copied.
-uv cannot download a different interpreter. CI verifies the native Python
-modules, SQLite, OpenSSL, and Playwright Chromium under the hardened runtime
+of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
+same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
+date. It full-upgrades that snapshot before installing Ubuntu's native Python
+(3.13 or newer) and a checksum-pinned Google Chrome 151.0.7922.169 package.
+The Playwright client is pinned to 1.62.0, launches the system `chrome` channel
+with Chromium's sandbox explicitly enabled, and never downloads a separate
+browser bundle. uv cannot download a different interpreter. CI verifies those
+versions and launches Chrome as the production user under the hardened runtime
 settings. The resulting release artifact is identified by its own immutable ECR
-digest, and its scan remains the fail-closed vulnerability gate. The image
-defaults to:
+digest, and its scan remains the fail-closed vulnerability gate.
+
+The minimal Ubuntu base does not initially contain CA roots. Before its first
+apt transaction, the build bootstraps `openssl` 3.5.5-1ubuntu3.3 (SHA-256
+`c1f53878bdada693da7fb64a28c06b7dd65a43b8452e6fcad670c0d09c77f293`)
+and `ca-certificates` 20260601~26.04.1 (SHA-256
+`6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90`)
+from exact Canonical snapshot URLs. Those artifacts and hashes come from the
+Ubuntu `resolute-security` Packages index whose InRelease is signed by the
+Ubuntu archive key. The build clears inherited package lists, treats any
+snapshot update warning as an error, and verifies indexes for every configured
+suite before upgrading or installing packages. This prevents apt from silently
+falling back to live indexes when the requested snapshot is unavailable.
+
+The image defaults to:
 
 ```bash
 gv-dashboard-etl courts worker
@@ -233,27 +248,47 @@ SCRAPER_IMAGE_TAG=$(git rev-parse HEAD) \
 ```
 
 The recipe requires a clean checkout and the full current commit SHA, refuses a
-tag that already exists, verifies the local revision label, resolves the pushed
-digest, and makes up to 180 scan checks spaced 10 seconds apart (about 30 minutes
-of wait time, plus AWS CLI request time). Any Critical or High finding blocks
-release. A pending or briefly unregistered scan is retried; authorization,
-terminal scan, malformed-response, and timeout failures exit nonzero without
-printing an image URI. Configure the ECR repository itself with immutable tags
-and scan-on-push before using the recipe; immutability remains an external
-rollout gate that closes the check-then-push race. Use the printed
+tag that already exists, verifies the local revision label, and runs pinned Syft
+and Grype containers before any push. The database download cannot see the image;
+SBOM generation and vulnerability matching have no network, Docker socket,
+registry credentials, ignore rules, or VEX. The gate requires exact Playwright,
+Chrome deb, Playwright Node, and Chrome executable identities. Because Syft
+records system Chrome as a deb, a separate exact Google Chrome CPE report covers
+NVD browser findings. A known-vulnerable Chrome control must produce Critical
+and High matches before the current Chrome CPE can pass. The executable digest
+is compared with the value derived from the checksum-pinned deb payload.
+
+The recipe then tags the exact scanned image ID, confirms ECR's pushed manifest
+uses that config digest, and polls the remote scan for about 30 minutes. Any
+Critical, High, or Unknown local finding and any Critical or High ECR finding
+blocks release, including findings without fixes. Authorization, terminal scan,
+malformed-response, stale-database, and timeout failures exit nonzero without
+printing an image URI. Configure ECR with immutable tags and scan-on-push before
+using the recipe. Use the printed
 `repository@sha256:...` URI in separate worker and monitor ECS task-definition
 revisions. Only the monitor definition may reference the GitHub dispatch-token
 secret.
 
 The image runs as the unprivileged `app` user and keeps application code,
-dependencies, and Chromium root-owned. Both task definitions must explicitly
-set `user: app`, set `readonlyRootFilesystem: true`, and mount a writable task
-volume at `/tmp`;
+dependencies, and Google Chrome root-owned. Both task definitions must explicitly
+target `LINUX/X86_64` with `awsvpc`, contain only the reviewed container, set
+`user: app`, set `readonlyRootFilesystem: true`, remain unprivileged, add no
+Linux capabilities or opaque mounts, and mount one ephemeral writable task
+volume only at `/tmp`;
 `HOME`, `TMPDIR`, and the XDG cache/config paths already point there. CI starts
-Chromium with a read-only root plus a temporary `/tmp` mount so this contract is
+Chrome with a read-only root plus a temporary `/tmp` mount so this contract is
 tested before release. The image declares `VOLUME ["/tmp"]` after preserving
 mode `1777`; the task volume must mount at that exact path so Fargate carries
 those writable sticky-directory permissions into the otherwise empty bind mount.
+
+The CI browser smoke relaxes only Docker's outer seccomp profile because its
+default profile blocks the namespace syscalls used by Chrome's enabled SUID
+sandbox. It still runs non-root with a read-only root, a no-exec temporary
+volume, no added capabilities, and `chromium_sandbox=True`. This proves the
+image's sandbox installation, not Fargate compatibility. Before registering or
+promoting worker/monitor revisions, run the exact digest as a one-shot Fargate
+browser launch with the production task isolation settings. If that launch
+fails, stop the rollout; do not disable Chrome's sandbox or promote the image.
 
 ### Courts worker protocol rollout gate
 
@@ -272,8 +307,10 @@ which wrote only global result objects. Before the first run after this change:
    follow-up least-privilege boundary. Set the GitHub Actions repository variable
    `ECS_TASK_DEFINITION` to the exact worker revision and
    `ECS_MONITOR_TASK_DEFINITION` to the distinct exact monitor revision (or
-   their full revisioned ARNs). Bare families and one shared revision are
-   intentionally rejected. The courts workflow runs a read-only semantic
+   their full revisioned ARNs), and set `ECS_EXPECTED_IMAGE_URI` to the exact
+   ECR `repository@sha256` URI printed by the completed release gate. Bare
+   families, one shared revision, and a task definition using any other image
+   are intentionally rejected. The courts workflow runs a read-only semantic
    preflight before submission; its OIDC role needs
    `ecs:DescribeTaskDefinition` in a separate `Resource: "*"` statement without
    an `ecs:cluster` condition.

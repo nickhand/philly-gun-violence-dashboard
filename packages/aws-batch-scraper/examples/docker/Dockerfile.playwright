@@ -6,6 +6,7 @@ WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 ENV UV_NO_DEV=1
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY pyproject.toml uv.lock README.md /app/
 COPY src/ /app/src/
@@ -16,5 +17,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN uv run playwright install chromium --with-deps
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV HOME=/tmp/app-home
+ENV XDG_CACHE_HOME=/tmp/app-home/.cache
+ENV XDG_CONFIG_HOME=/tmp/app-home/.config
+ENV TMPDIR=/tmp
+ENV PYTHONDONTWRITEBYTECODE=1
+
+RUN chmod -R a+rX /ms-playwright \
+    && chmod 1777 /tmp \
+    && groupadd --system app \
+    && useradd --system --gid app --home-dir /tmp/app-home --no-create-home \
+        --shell /usr/sbin/nologin app
+
+VOLUME ["/tmp"]
 ENTRYPOINT []
+USER app
 CMD ["my-scraper", "scraper", "worker"]

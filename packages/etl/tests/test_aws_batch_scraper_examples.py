@@ -5,55 +5,62 @@ from pathlib import Path
 
 from aws_batch_scraper.types import ScrapeStatus, WorkItem
 
+from etl.chrome_release import (
+    PINNED_CHROME_FILENAME,
+    PINNED_CHROME_SHA256,
+    PINNED_CHROME_VERSION,
+)
 
-def test_courts_image_pins_snapshot_runtime_and_python_donor() -> None:
-    """The release image must use immutable bases and one signed OS snapshot."""
+
+def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
+    """The release image must use one immutable, scanner-supported runtime."""
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
     source = dockerfile.read_text()
 
-    expected_donor = (
-        "FROM python:3.13-slim-trixie@"
-        "sha256:ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a "
-        "AS python-runtime"
+    expected_base = (
+        "FROM public.ecr.aws/ubuntu/ubuntu:26.04@"
+        "sha256:889d056d5c6c0bfb55789ff3710681d68e50713cb562d2196dc07110599c7a6f"
     )
-    expected_final = (
-        "FROM debian:sid-20260803-slim@"
-        "sha256:76b6251aaac0ebb6aca1afbc780717aab7e455038c07cb0cb23facb33d241c7d"
-    )
-    snapshot = "http://snapshot.debian.org/archive/debian/20260819T000000Z"
-    runtime_packages = (
-        "ca-certificates",
-        "libbz2-1.0",
-        "libc6",
-        "libdb5.3t64",
-        "libffi8",
-        "libgdbm6t64",
-        "liblzma5",
-        "libncursesw6",
-        "libreadline8t64",
-        "libsqlite3-0",
-        "libssl3t64",
-        "libtinfo6",
-        "libuuid1",
-        "libzstd1",
-        "netbase",
-        "tzdata",
-        "zlib1g",
-    )
+    expected_chrome = f"ADD --checksum=sha256:{PINNED_CHROME_SHA256}"
+    expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
-    assert expected_donor in source
-    assert expected_final in source
-    assert source.index(expected_donor) < source.index(expected_final)
-    assert snapshot in source
-    assert "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" in source
-    assert "Check-Valid-Until: no" in source
-    assert "apt-get full-upgrade --yes --no-install-recommends" in source
-    assert all(package in source for package in runtime_packages)
-    copy_python = "COPY --from=python-runtime /usr/local /usr/local"
-    assert source.index("apt-get full-upgrade") < source.index(copy_python)
-    assert "debian:forky-slim" not in source
-    assert "ENV UV_PYTHON=/usr/local/bin/python3" in source
+    assert expected_base in source
+    assert "ARG UBUNTU_SNAPSHOT=20260819T160000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20260819T160000Z"' in source
+    assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 3
+    assert 'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update' in source
+    assert "--yes --no-install-recommends full-upgrade" in source
+    assert source.index("rm -rf /var/lib/apt/lists/*") < source.index(
+        'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update'
+    )
+    assert "snapshot.ubuntu.com_ubuntu_${UBUNTU_SNAPSHOT}_dists_${suite}_InRelease" in source
+    assert source.count("|| exit 1;") >= 2
+    assert "apt-get update" not in source
+    assert "snapshot.debian.org" not in source
+    assert (
+        "ADD --checksum=sha256:c1f53878bdada693da7fb64a28c06b7dd65a43b8452e6fcad670c0d09c77f293"
+    ) in source
+    assert (
+        "ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90"
+    ) in source
+    assert "openssl_3.5.5-1ubuntu3.3_amd64.deb" in source
+    assert "ca-certificates_20260601~26.04.1_all.deb" in source
+    assert expected_chrome in source
+    assert PINNED_CHROME_FILENAME in source
+    assert f'= "{PINNED_CHROME_VERSION}"' in source
+    assert f'= "{expected_product_version}"' in source
+    assert "/etc/apt/sources.list.d/google-chrome.list" in source
+    assert "/etc/cron.daily/google-chrome" in source
+    assert "/etc/default/google-chrome" in source
+    assert "ENV UV_PYTHON=/usr/bin/python3" in source
     assert "ENV UV_PYTHON_DOWNLOADS=never" in source
+    assert "playwright install" not in source
+    assert "PLAYWRIGHT_BROWSERS_PATH" not in source
+    assert "test ! -e /ms-playwright" in source
+    assert "/usr/bin/pebble" in source
+    assert "ENV HOME=/tmp/app-home" in source
+    assert "ENV XDG_CACHE_HOME=/tmp/app-home/.cache" in source
+    assert "ENV XDG_CONFIG_HOME=/tmp/app-home/.config" in source
 
 
 def test_courts_image_declares_writable_tmp_volume() -> None:
@@ -66,6 +73,38 @@ def test_courts_image_declares_writable_tmp_volume() -> None:
     assert chmod in source
     assert volume in source
     assert source.index(chmod) < source.index(volume) < source.index("USER app")
+
+
+def test_daily_homicide_workflow_installs_the_same_exact_chrome() -> None:
+    """The host-run homicide job must not use a drifting runner browser."""
+    repo_root = Path(__file__).resolve().parents[3]
+    source = (repo_root / ".github/workflows/daily-homicide-sync.yml").read_text()
+    product_version = PINNED_CHROME_VERSION.removesuffix("-1")
+
+    assert PINNED_CHROME_FILENAME in source
+    assert PINNED_CHROME_SHA256 in source
+    assert f"'{PINNED_CHROME_VERSION}'" in source
+    assert f"'{product_version}'" in source
+    assert "PYTHONPATH=packages/etl/src python3 -m etl.chrome_release" in source
+    assert "--retry 3 --retry-all-errors --max-time 120" in source
+    assert "--allow-downgrades" in source
+    assert "playwright install" not in source
+    assert "/etc/apt/sources.list.d/google-chrome.list" in source
+    assert source.index("Verify pinned Chrome is still the signed stable release") < source.index(
+        "aws-actions/configure-aws-credentials"
+    )
+    assert source.index("Install exact Google Chrome release") < source.index(
+        "aws-actions/configure-aws-credentials"
+    )
+    assert source.index("aws-actions/configure-aws-credentials") < source.index("Run homicides ETL")
+
+
+def test_etl_quality_uses_the_signed_chrome_freshness_verifier() -> None:
+    """Container CI must reject a Chrome pin that is no longer stable."""
+    repo_root = Path(__file__).resolve().parents[3]
+    source = (repo_root / ".github/workflows/etl-quality.yml").read_text()
+
+    assert "uv run python -m etl.chrome_release" in source
 
 
 def test_simple_scraper_example_imports_and_scrapes() -> None:

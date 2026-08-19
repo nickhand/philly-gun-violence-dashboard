@@ -18,6 +18,8 @@ from typer.testing import CliRunner
 
 from etl.courts.config import CourtsSubmitterConfig
 
+IMAGE_URI = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+
 
 def _config() -> CourtsSubmitterConfig:
     return CourtsSubmitterConfig(
@@ -26,6 +28,7 @@ def _config() -> CourtsSubmitterConfig:
         aws_account_id="123456789012",
         ecs_task_definition="ujs-scraper:1",
         ecs_monitor_task_definition="ujs-scraper-monitor:2",
+        ecs_expected_image_uri=IMAGE_URI,
         github_repository="owner/repository",
         ecs_subnet_ids=["subnet-1"],
         ecs_security_group_ids=["sg-1"],
@@ -106,7 +109,7 @@ class FakeECS:
         )
         container = {
             "name": "ujs-scraper",
-            "image": "repository.example/ujs-scraper@sha256:" + "a" * 64,
+            "image": IMAGE_URI,
             "secrets": (
                 [
                     {
@@ -120,12 +123,26 @@ class FakeECS:
             "environment": [],
             "user": "app",
             "readonlyRootFilesystem": True,
+            "privileged": False,
+            "mountPoints": [
+                {
+                    "sourceVolume": "tmp",
+                    "containerPath": "/tmp",
+                    "readOnly": False,
+                }
+            ],
         }
         return {
             "taskDefinition": {
                 "taskDefinitionArn": arn,
                 "status": "ACTIVE",
                 "requiresCompatibilities": ["FARGATE"],
+                "networkMode": "awsvpc",
+                "runtimePlatform": {
+                    "operatingSystemFamily": "LINUX",
+                    "cpuArchitecture": "X86_64",
+                },
+                "volumes": [{"name": "tmp"}],
                 "containerDefinitions": [container],
             }
         }
@@ -331,6 +348,7 @@ def test_submit_persists_partial_launch_task_arns(
         aws_account_id: str = "123456789012"
         ecs_task_definition: str = "ujs-scraper:42"
         ecs_monitor_task_definition: str = "ujs-scraper-monitor:17"
+        ecs_expected_image_uri: str = IMAGE_URI
         github_repository: str = "owner/repository"
         ecs_subnet_ids: list[str] = ["subnet-1"]
         ecs_security_group_ids: list[str] = ["sg-1"]
@@ -385,6 +403,7 @@ def test_launch_monitor_overrides_worker_command(monkeypatch: pytest.MonkeyPatch
     assert monitor_environment["ECS_CLUSTER_NAME"] == "ujs-scraper"
     assert monitor_environment["ECS_TASK_DEFINITION"] == "ujs-scraper:1"
     assert monitor_environment["ECS_MONITOR_TASK_DEFINITION"] == "ujs-scraper-monitor:2"
+    assert monitor_environment["ECS_EXPECTED_IMAGE_URI"] == IMAGE_URI
     assert monitor_environment["ECS_CONTAINER_NAME"] == "ujs-scraper"
 
     for name, value in monitor_environment.items():
@@ -768,6 +787,9 @@ def test_boto_session_uses_resolved_config(monkeypatch: pytest.MonkeyPatch) -> N
         aws_region="us-west-2",
         ecs_task_definition="ujs-scraper:1",
         ecs_monitor_task_definition="ujs-scraper-monitor:2",
+        ecs_expected_image_uri=(
+            "123456789012.dkr.ecr.us-west-2.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+        ),
         ecs_subnet_ids=["subnet-1"],
         ecs_security_group_ids=["sg-1"],
     )

@@ -226,6 +226,9 @@ subclass defaults:
   `family:revision` values or full revisioned task-definition ARNs. They must
   identify different revisions; bare families and a shared definition are
   rejected before any ECS launch.
+- `ECS_EXPECTED_IMAGE_URI`, the exact same-account and same-region ECR
+  `repository@sha256` URI printed by the completed local-plus-ECR release gate.
+  Both selected task definitions must use this exact image.
 - `ECS_SUBNET_IDS`, `ECS_SECURITY_GROUP_IDS`; both must be explicit, nonempty,
   unique ID lists (the default security group is never selected implicitly)
 - `RUN_ID`, set by the submitter for worker and monitor tasks
@@ -237,10 +240,14 @@ subclass defaults:
 
 Before the first durable submission write, the framework resolves both task
 definitions through ECS and requires the exact ACTIVE cluster, ACTIVE Fargate
-definitions, the configured container in each, no task-definition entry-point
-override, the image's default worker command, digest-pinned images, the same
-primary image digest, no dispatch token anywhere in the worker definition, and
-a monitor token supplied through the primary container's ECS `secrets` list
+definitions, `awsvpc` networking, the reviewed `LINUX/X86_64` runtime, and one
+ephemeral task volume mounted read-write only at `/tmp`. Each definition must
+contain only the configured `app` container, with a read-only root filesystem,
+no privilege elevation, no added Linux capabilities, no opaque or additional
+mounts, no task-definition entry-point override, and the image's default worker
+command. Images must be digest-pinned and both definitions must use the same
+primary image digest. The worker definition cannot expose the dispatch token;
+the monitor token must come through the primary container's ECS `secrets` list
 rather than plaintext. Both launch helpers repeat this preflight. The submitter
 identity therefore needs `ecs:DescribeTaskDefinition`; AWS requires that action
 with `Resource: "*"`, so do not attach a cluster-resource condition to it.
@@ -304,7 +311,8 @@ Before changing task definitions to this protocol, stop old tasks and drain
 visible, in-flight, and delayed queue messages. Then register a revision with
 the immutable image digest for each role. Set `ECS_TASK_DEFINITION` to the exact
 worker revision and `ECS_MONITOR_TASK_DEFINITION` to a different exact monitor
-revision. Verify that only the monitor definition references the dispatch token,
+revision, and set `ECS_EXPECTED_IMAGE_URI` to the verified digest URI printed by
+the release command. Verify that only the monitor definition references the dispatch token,
 then verify a sampled run writes run-scoped objects before restoring production
 scheduling. Do not mix workers that only write global results with processors
 that require exact-run results.

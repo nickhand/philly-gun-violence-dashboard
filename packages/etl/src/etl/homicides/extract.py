@@ -76,7 +76,11 @@ def fetch_homicide_dom(url: str = DEFAULT_URL, debug: bool = False) -> JustHTML:
     """
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=not debug)
+            browser = p.chromium.launch(
+                headless=not debug,
+                channel="chrome",
+                chromium_sandbox=True,
+            )
             page = browser.new_page()
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=PLAYWRIGHT_TIMEOUT_MS)

@@ -3,6 +3,7 @@
 import pytest
 from aws_batch_scraper.config import (
     SubmitterConfig,
+    require_exact_ecr_image_uri,
     require_exact_task_definition,
     require_github_repository,
     require_github_workflow_file,
@@ -68,10 +69,45 @@ def _submitter_kwargs() -> dict[str, object]:
         "ecs_cluster_name": "cluster",
         "ecs_task_definition": "ujs-scraper:42",
         "ecs_monitor_task_definition": "ujs-scraper-monitor:17",
+        "ecs_expected_image_uri": (
+            "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+        ),
         "ecs_container_name": "worker",
         "ecs_subnet_ids": ["subnet-1"],
         "ecs_security_group_ids": ["sg-1"],
     }
+
+
+def test_exact_ecr_release_image_uri_is_bound_to_account_and_region() -> None:
+    value = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+
+    assert (
+        require_exact_ecr_image_uri(
+            value,
+            account_id="123456789012",
+            region="us-east-1",
+        )
+        == value
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        "ujs-scraper:latest",
+        "999999999999.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64,
+        "123456789012.dkr.ecr.us-west-2.amazonaws.com/ujs-scraper@sha256:" + "a" * 64,
+        "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:not-a-digest",
+    ],
+)
+def test_ecr_release_image_uri_rejects_wrong_or_mutable_identity(value: str | None) -> None:
+    with pytest.raises(ValueError, match="ECS_EXPECTED_IMAGE_URI"):
+        require_exact_ecr_image_uri(
+            value,
+            account_id="123456789012",
+            region="us-east-1",
+        )
 
 
 def test_submitter_config_requires_monitor_task_definition() -> None:

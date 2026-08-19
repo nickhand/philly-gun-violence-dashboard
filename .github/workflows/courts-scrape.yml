@@ -78,6 +78,8 @@ jobs:
           ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
           # Distinct exact monitor revision, permitted to receive the dispatch token.
           ECS_MONITOR_TASK_DEFINITION: ${{ vars.ECS_MONITOR_TASK_DEFINITION }}
+          # Exact repository@sha256 URI printed only after local and ECR release gates pass.
+          ECS_EXPECTED_IMAGE_URI: ${{ vars.ECS_EXPECTED_IMAGE_URI }}
           ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
           ECS_TASK_COUNT: ${{ vars.ECS_TASK_COUNT }}
           ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}

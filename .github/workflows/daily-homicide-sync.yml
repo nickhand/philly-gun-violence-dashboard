@@ -17,10 +17,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
-        with:
-          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
-          aws-region: us-east-1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
@@ -30,10 +26,35 @@ jobs:
       - uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
         with:
           tool: just
+      - name: Verify pinned Chrome is still the signed stable release
+        run: PYTHONPATH=packages/etl/src python3 -m etl.chrome_release
+      - name: Install exact Google Chrome release
+        run: |
+          chrome_deb="${RUNNER_TEMP}/google-chrome-stable.deb"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors --max-time 120 \
+            --output "${chrome_deb}" \
+            https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_151.0.7922.169-1_amd64.deb
+          printf '%s  %s\n' \
+            '6572478310553cb25fdcb4ba2fb5459b472c2c765f5f68e9837d4964e8a87f1e' \
+            "${chrome_deb}" | sha256sum --check --strict
+          sudo apt-get install --yes --no-install-recommends --allow-downgrades "${chrome_deb}"
+          test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" = \
+            '151.0.7922.169-1'
+          test "$(google-chrome --product-version)" = '151.0.7922.169'
+          sudo rm -f \
+            /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/trusted.gpg.d/google-chrome.gpg \
+            /etc/cron.daily/google-chrome \
+            /etc/default/google-chrome \
+            /usr/share/keyrings/google-linux-signing-keyring.gpg
+          sudo rm -rf /opt/google/chrome/cron
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
+          aws-region: us-east-1
       - name: Verify identity
         run: aws sts get-caller-identity
-      - name: Install Playwright Chromium
-        run: uv run --project packages/etl playwright install chromium --with-deps
       - name: Run homicides ETL
         run: just etl-homicides
         env:

@@ -85,9 +85,10 @@ relationship to a victim, or case outcome.
 
 Court workers use validated run-scoped SQS envelopes/results and an S3 lease. Production uses
 distinct, exact `ECS_TASK_DEFINITION` (worker) and `ECS_MONITOR_TASK_DEFINITION` (monitor)
-revisions backed by the same immutable image digest. Never use `latest`, a bare family, or a
-shared definition: semantic ECS preflight runs before submission, and only the monitor
-definition may receive the GitHub dispatch token through its ECS `secrets` list.
+revisions backed by the exact verified `ECS_EXPECTED_IMAGE_URI`. Never use `latest`, a bare
+family, an unverified digest, or a shared definition: semantic ECS preflight runs before
+submission, and only the monitor definition may receive the GitHub dispatch token through its
+ECS `secrets` list.
 
 ## Frontend
 

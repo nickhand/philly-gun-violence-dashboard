@@ -16,6 +16,8 @@ from aws_batch_scraper.orchestrate import (
 )
 from botocore.exceptions import ClientError
 
+IMAGE_URI = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+
 
 def _config() -> WorkerConfig:
     return WorkerConfig(
@@ -39,6 +41,7 @@ def _submitter_config() -> SubmitterConfig:
         ecs_cluster_name="cluster",
         ecs_task_definition="task:1",
         ecs_monitor_task_definition="monitor-task:2",
+        ecs_expected_image_uri=IMAGE_URI,
         github_repository="owner/repository",
         github_workflow_file="process.yml",
         ecs_container_name="worker",
@@ -67,16 +70,30 @@ def _task_definition_response(
             ),
             "status": "ACTIVE",
             "requiresCompatibilities": ["FARGATE"],
+            "networkMode": "awsvpc",
+            "runtimePlatform": {
+                "operatingSystemFamily": "LINUX",
+                "cpuArchitecture": "X86_64",
+            },
+            "volumes": [{"name": "tmp"}],
             "containerDefinitions": [
                 {
                     "name": "worker",
-                    "image": image or "repository.example/task@sha256:" + "a" * 64,
+                    "image": image or IMAGE_URI,
                     "secrets": secrets or [],
                     "environment": environment or [],
                     "command": command or [],
                     "entryPoint": entry_point or [],
                     "user": "app",
                     "readonlyRootFilesystem": True,
+                    "privileged": False,
+                    "mountPoints": [
+                        {
+                            "sourceVolume": "tmp",
+                            "containerPath": "/tmp",
+                            "readOnly": False,
+                        }
+                    ],
                 }
             ],
         }
@@ -229,9 +246,9 @@ def test_split_task_definition_contract_rejects_mutable_images(image: str) -> No
 @pytest.mark.parametrize(
     ("setting", "value", "message"),
     [
-        ("user", None, "non-root user"),
-        ("user", "root", "non-root user"),
-        ("user", "0:0", "non-root user"),
+        ("user", None, "app user"),
+        ("user", "root", "app user"),
+        ("user", "0:0", "app user"),
         ("readonlyRootFilesystem", False, "read-only root filesystem"),
         ("readonlyRootFilesystem", None, "read-only root filesystem"),
     ],
@@ -248,6 +265,71 @@ def test_split_task_definition_contract_requires_hardened_runtime(
         container.pop(setting)
     else:
         container[setting] = value
+    ecs = _split_definition_ecs(worker_response=worker_response)
+
+    with pytest.raises(ValueError, match=message):
+        resolve_split_task_definitions(ecs, _submitter_config())
+
+
+@pytest.mark.parametrize(
+    ("setting", "value", "message"),
+    [
+        ("networkMode", "bridge", "awsvpc"),
+        (
+            "runtimePlatform",
+            {"operatingSystemFamily": "LINUX", "cpuArchitecture": "ARM64"},
+            "LINUX/X86_64",
+        ),
+        ("volumes", [], "one temporary volume"),
+        (
+            "volumes",
+            [{"name": "tmp", "efsVolumeConfiguration": {"fileSystemId": "fs-123"}}],
+            "ephemeral task storage",
+        ),
+    ],
+)
+def test_split_task_definition_contract_requires_exact_platform_and_temporary_volume(
+    setting: str,
+    value: object,
+    message: str,
+) -> None:
+    worker_response = _task_definition_response("task:1")
+    definition = cast(dict[str, Any], worker_response["taskDefinition"])
+    definition[setting] = value
+    ecs = _split_definition_ecs(worker_response=worker_response)
+
+    with pytest.raises(ValueError, match=message):
+        resolve_split_task_definitions(ecs, _submitter_config())
+
+
+@pytest.mark.parametrize(
+    ("setting", "value", "message"),
+    [
+        ("privileged", True, "unprivileged"),
+        ("mountPoints", [], "writable /tmp"),
+        (
+            "mountPoints",
+            [{"sourceVolume": "tmp", "containerPath": "/tmp", "readOnly": True}],
+            "writable /tmp",
+        ),
+        ("volumesFrom", [{"sourceContainer": "sidecar"}], "opaque volumes"),
+        ("linuxParameters", {"capabilities": {"add": ["SYS_ADMIN"]}}, "capabilities"),
+        (
+            "linuxParameters",
+            {"tmpfs": [{"containerPath": "/app", "size": 64}]},
+            "tmpfs",
+        ),
+    ],
+)
+def test_split_task_definition_contract_rejects_runtime_isolation_bypasses(
+    setting: str,
+    value: object,
+    message: str,
+) -> None:
+    worker_response = _task_definition_response("task:1")
+    definition = cast(dict[str, Any], worker_response["taskDefinition"])
+    container = cast(dict[str, Any], definition["containerDefinitions"][0])
+    container[setting] = value
     ecs = _split_definition_ecs(worker_response=worker_response)
 
     with pytest.raises(ValueError, match=message):
@@ -295,6 +377,24 @@ def test_split_task_definition_contract_requires_one_shared_image_digest() -> No
 
     with pytest.raises(ValueError, match="same image digest"):
         resolve_split_task_definitions(ecs, _submitter_config())
+
+
+def test_split_task_definition_contract_requires_the_release_gate_image() -> None:
+    config = _submitter_config()
+    config.ecs_expected_image_uri = (
+        "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "b" * 64
+    )
+
+    with pytest.raises(ValueError, match="ECS_EXPECTED_IMAGE_URI"):
+        resolve_split_task_definitions(_split_definition_ecs(), config)
+
+
+def test_split_task_definition_contract_rejects_missing_release_gate_image() -> None:
+    config = _submitter_config()
+    config.ecs_expected_image_uri = None
+
+    with pytest.raises(ValueError, match="ECS_EXPECTED_IMAGE_URI"):
+        resolve_split_task_definitions(_split_definition_ecs(), config)
 
 
 def test_split_task_definition_contract_rejects_worker_command_override() -> None:

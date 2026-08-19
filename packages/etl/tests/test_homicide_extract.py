@@ -1,16 +1,40 @@
 """Contract tests for the external PPD homicide statistics DOM."""
 
 from datetime import date
+from unittest.mock import MagicMock
 
 import pytest
 from justhtml import JustHTML
 
+from etl.homicides import extract
 from etl.homicides.extract import parse_homicide_dom
 
 ANNUAL_YEARS = tuple(str(year) for year in range(2025, 2006, -1))
 ANNUAL_VALUES = tuple(str(250 + index) for index, _ in enumerate(ANNUAL_YEARS))
 YTD_YEARS = tuple(str(year) for year in range(2026, 2006, -1))
 YTD_VALUES = tuple(str(116 + index) for index, _ in enumerate(YTD_YEARS))
+
+
+def test_browser_launch_uses_system_chrome_with_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The homicide fetch must use the patched system Chrome with its sandbox."""
+    context = MagicMock()
+    playwright = context.__enter__.return_value
+    browser = playwright.chromium.launch.return_value
+    page = browser.new_page.return_value
+    page.content.return_value = '<div class="container-crime"></div>'
+    monkeypatch.setattr(extract, "sync_playwright", MagicMock(return_value=context))
+
+    dom = extract.fetch_homicide_dom()
+
+    assert dom.query(extract.CRIME_TABLE_SELECTOR)
+    playwright.chromium.launch.assert_called_once_with(
+        headless=True,
+        channel="chrome",
+        chromium_sandbox=True,
+    )
+    browser.close.assert_called_once_with()
 
 
 def _dom(

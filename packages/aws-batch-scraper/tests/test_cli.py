@@ -17,6 +17,8 @@ from aws_batch_scraper.types import WorkItem
 from click.utils import strip_ansi
 from typer.testing import CliRunner
 
+IMAGE_URI = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+
 
 class _SubmitConfig(SubmitterConfig):
     model_config = SubmitterConfig.model_config | {"env_file": None}
@@ -29,6 +31,7 @@ class _SubmitConfig(SubmitterConfig):
     ecs_cluster_name: str = "cluster"
     ecs_task_definition: str = "task-definition:1"
     ecs_monitor_task_definition: str = "monitor-task-definition:1"
+    ecs_expected_image_uri: str = IMAGE_URI
     github_repository: str = "owner/repository"
     github_workflow_file: str = "process.yml"
     ecs_container_name: str = "worker"
@@ -71,14 +74,28 @@ def _patch_submit_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
                 ),
                 "status": "ACTIVE",
                 "requiresCompatibilities": ["FARGATE"],
+                "networkMode": "awsvpc",
+                "runtimePlatform": {
+                    "operatingSystemFamily": "LINUX",
+                    "cpuArchitecture": "X86_64",
+                },
+                "volumes": [{"name": "tmp"}],
                 "containerDefinitions": [
                     {
                         "name": "worker",
-                        "image": "repository.example/task@sha256:" + "a" * 64,
+                        "image": IMAGE_URI,
                         "secrets": [],
                         "environment": [],
                         "user": "app",
                         "readonlyRootFilesystem": True,
+                        "privileged": False,
+                        "mountPoints": [
+                            {
+                                "sourceVolume": "tmp",
+                                "containerPath": "/tmp",
+                                "readOnly": False,
+                            }
+                        ],
                     }
                 ],
             }
@@ -90,10 +107,16 @@ def _patch_submit_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
                 ),
                 "status": "ACTIVE",
                 "requiresCompatibilities": ["FARGATE"],
+                "networkMode": "awsvpc",
+                "runtimePlatform": {
+                    "operatingSystemFamily": "LINUX",
+                    "cpuArchitecture": "X86_64",
+                },
+                "volumes": [{"name": "tmp"}],
                 "containerDefinitions": [
                     {
                         "name": "worker",
-                        "image": "repository.example/task@sha256:" + "a" * 64,
+                        "image": IMAGE_URI,
                         "secrets": [
                             {
                                 "name": "GITHUB_DISPATCH_TOKEN",
@@ -103,6 +126,14 @@ def _patch_submit_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
                         "environment": [],
                         "user": "app",
                         "readonlyRootFilesystem": True,
+                        "privileged": False,
+                        "mountPoints": [
+                            {
+                                "sourceVolume": "tmp",
+                                "containerPath": "/tmp",
+                                "readOnly": False,
+                            }
+                        ],
                     }
                 ],
             }

@@ -55,6 +55,12 @@ submitter supplies nonsecret runtime settings as ECS overrides; the monitor
 does not need to hard-code a reference to its own revision. See
 `docs/container.md` for the complete runtime contract.
 
+Both definitions must use `awsvpc`, target `LINUX/X86_64`, contain only the
+configured `ECS_CONTAINER_NAME`, run that container as the image's `app` user
+with a read-only root filesystem, and mount one ephemeral writable volume only
+at `/tmp`. They must not add capabilities, privilege, extra mounts or
+containers, or kernel overrides.
+
 ## 3. Build And Push The Container
 
 Choose a Dockerfile template from `examples/docker/`.
@@ -98,6 +104,7 @@ export SQS_DLQ_NAME=my-scraper-dlq
 export ECS_CLUSTER_NAME=my-scraper
 export ECS_TASK_DEFINITION=my-scraper:42
 export ECS_MONITOR_TASK_DEFINITION=my-scraper-monitor:17
+export ECS_EXPECTED_IMAGE_URI=123456789012.dkr.ecr.us-east-1.amazonaws.com/simple-scraper@sha256:<64-lowercase-hex>
 export ECS_CONTAINER_NAME=my-scraper
 export ECS_SUBNET_IDS=subnet-a,subnet-b
 export ECS_SECURITY_GROUP_IDS=sg-a

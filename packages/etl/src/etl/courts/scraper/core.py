@@ -224,7 +224,11 @@ class UJSPortalScraper:
             return self._page
 
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(headless=not self.debug)
+        self._browser = self._playwright.chromium.launch(
+            headless=not self.debug,
+            channel="chrome",
+            chromium_sandbox=True,
+        )
         self._page = self._browser.new_page()
 
         if self._net_observer:

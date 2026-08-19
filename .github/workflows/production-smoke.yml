@@ -23,6 +23,11 @@ jobs:
       # explicitly to false only during the documented reader-first window.
       EXPECT_ATOMIC_RELEASE: ${{ vars.EXPECT_ATOMIC_RELEASE || 'true' }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check pinned scraper browser freshness
+        env:
+          PYTHONPATH: packages/etl/src
+        run: python3 -m etl.chrome_release
       - name: Check API liveness, readiness, and statistics
         run: |
           set -euo pipefail

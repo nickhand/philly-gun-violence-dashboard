@@ -17,6 +17,11 @@ _GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{
 _GITHUB_WORKFLOW_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\.ya?ml$")
 _SUBNET_ID = re.compile(r"^subnet-[A-Za-z0-9]+$")
 _SECURITY_GROUP_ID = re.compile(r"^sg-[A-Za-z0-9]+$")
+_ECR_IMAGE_URI = re.compile(
+    r"^(?P<account>[0-9]{12})\.dkr\.ecr\.(?P<region>[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+)"
+    r"\.amazonaws\.com(?:\.cn)?/(?P<repository>"
+    r"[a-z0-9]+(?:[._/-][a-z0-9]+)*)@sha256:[0-9a-f]{64}$"
+)
 
 
 def require_exact_task_definition(
@@ -56,6 +61,22 @@ def require_split_task_definitions(worker: str, monitor: str) -> tuple[str, str]
             "monitor-only credentials to workers"
         )
     return exact_worker, exact_monitor
+
+
+def require_exact_ecr_image_uri(
+    value: str | None,
+    *,
+    account_id: str,
+    region: str,
+) -> str:
+    """Require the exact scanned ECR image selected for both task revisions."""
+    match = _ECR_IMAGE_URI.fullmatch(value) if isinstance(value, str) else None
+    if match is None or match.group("account") != account_id or match.group("region") != region:
+        raise ValueError(
+            "ECS_EXPECTED_IMAGE_URI must be an exact same-account, same-region "
+            "ECR repository@sha256 digest produced by the release gate"
+        )
+    return match.string
 
 
 def require_github_repository(value: str | None) -> str:
@@ -163,6 +184,10 @@ class SubmitterConfig(WorkerConfig):
         ...,
         description="Exact monitor ECS family:revision or revisioned task-definition ARN",
     )
+    ecs_expected_image_uri: str | None = Field(
+        default=None,
+        description="Exact ECR repository@sha256 URI approved by the release gate",
+    )
     ecs_container_name: str = Field(..., description="ECS container name for overrides")
     ecs_task_count: int = Field(default=1, ge=1, le=10)
     github_workflow_file: str | None = None
@@ -234,6 +259,12 @@ class SubmitterConfig(WorkerConfig):
             self.ecs_task_definition,
             self.ecs_monitor_task_definition,
         )
+        if self.ecs_expected_image_uri is not None:
+            require_exact_ecr_image_uri(
+                self.ecs_expected_image_uri,
+                account_id=self.aws_account_id,
+                region=self.aws_region,
+            )
         return self
 
     @property

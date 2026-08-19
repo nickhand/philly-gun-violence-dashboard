@@ -62,6 +62,31 @@ def test_process_timeout_propagates_to_worker(monkeypatch: pytest.MonkeyPatch) -
         scraper._scrape_once("1234567890", 1)
 
 
+def test_browser_launch_uses_system_chrome_with_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The court scraper must not fall back to a bundled or unsandboxed browser."""
+    playwright = MagicMock()
+    browser = playwright.chromium.launch.return_value
+    page = browser.new_page.return_value
+    manager = MagicMock()
+    manager.start.return_value = playwright
+    monkeypatch.setattr(core, "sync_playwright", MagicMock(return_value=manager))
+
+    scraper = UJSPortalScraper()
+    scraper._net_observer = MagicMock()
+    try:
+        assert scraper._ensure_page() is page
+    finally:
+        scraper.close()
+
+    playwright.chromium.launch.assert_called_once_with(
+        headless=True,
+        channel="chrome",
+        chromium_sandbox=True,
+    )
+
+
 def test_parse_results_accepts_fixture_rows() -> None:
     """Visible portal rows should parse even when the row exposes only one link."""
     html = (Path(__file__).parent / "fixtures/ujs/results_with_rows.html").read_text()
