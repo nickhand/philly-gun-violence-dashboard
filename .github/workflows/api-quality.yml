@@ -6,39 +6,59 @@ on:
       - "packages/api/**"
       - "packages/dashboard-utils/**"
       - ".dockerignore"
-      - "fly.toml"
-      - "fly.scheduler.toml"
-      - "Justfile"
-      - "just/python.just"
+      - "ruff.toml"
       - "ty.toml"
       - "uv.toml"
       - ".github/workflows/api-quality.yml"
-      - ".github/workflows/production-smoke.yml"
+      - ".github/ci/scope.py"
   push:
     branches: [main]
     paths:
       - "packages/api/**"
       - "packages/dashboard-utils/**"
       - ".dockerignore"
-      - "fly.toml"
-      - "fly.scheduler.toml"
-      - "Justfile"
-      - "just/python.just"
+      - "ruff.toml"
       - "ty.toml"
       - "uv.toml"
       - ".github/workflows/api-quality.yml"
-      - ".github/workflows/production-smoke.yml"
+      - ".github/ci/scope.py"
 
 concurrency:
-  group: api-quality-${{ github.ref }}
-  cancel-in-progress: true
+  group: api-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Route API quality jobs
+    runs-on: ubuntu-24.04
+    outputs:
+      checks: ${{ steps.scope.outputs.checks }}
+      image: ${{ steps.scope.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 .github/ci/scope.py \
+            --workflow api \
+            --event "${GITHUB_EVENT_NAME}" \
+            --before "${BEFORE_SHA}" \
+            --base "${BASE_SHA}" \
+            --head "${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+
   test:
-    name: API tests, static checks, and image smoke
+    name: API tests and static checks
+    needs: changes
+    if: needs.changes.outputs.checks == 'true'
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -51,23 +71,28 @@ jobs:
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.12.0"
-      - name: Audit production dependencies
-        run: |
-          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/api-requirements.txt"
-          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/api-requirements.txt" --disable-pip --progress-spinner off --strict
       - name: Ruff lint
         run: uv run --group dev ruff check app scripts tests
       - name: Ruff format
         run: uv run --group dev ruff format --check app scripts tests
       - name: ty
-        run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github app
+        run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github app scripts
       - name: Tests
         run: uv run --group dev pytest tests
+
+  image:
+    name: API production image smoke
+    needs: [changes, test]
+    if: >-
+      always() &&
+      needs.changes.outputs.image == 'true' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build production image
-        working-directory: .
         run: docker build --file packages/api/Dockerfile --tag philly-gun-violence-api:ci .
       - name: Smoke-test production image
-        working-directory: .
         run: |
           test "$(docker inspect --format '{{.Config.User}}' philly-gun-violence-api:ci)" = "app"
           docker run --rm \
@@ -76,3 +101,28 @@ jobs:
             --env AWS_REGION=us-east-1 \
             philly-gun-violence-api:ci \
             python -c "import os; from app.main import app; paths = set(app.openapi()['paths']); assert {'/health', '/ready', '/stats.json'} <= paths; assert not os.access('/app/api', os.W_OK); assert not os.access('/app/.venv', os.W_OK)"
+
+  gate:
+    name: API quality gate
+    needs: [changes, test, image]
+    if: always()
+    runs-on: ubuntu-24.04
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      CHECKS_SELECTED: ${{ needs.changes.outputs.checks }}
+      IMAGE_SELECTED: ${{ needs.changes.outputs.image }}
+      TEST_RESULT: ${{ needs.test.result }}
+      IMAGE_RESULT: ${{ needs.image.result }}
+    steps:
+      - name: Require every selected job to pass
+        run: |
+          test "${CHANGES_RESULT}" = "success"
+          require_routed_job() {
+            case "$1" in
+              true) test "$2" = "success" ;;
+              false) test "$2" = "skipped" ;;
+              *) echo "Invalid $3 selector: $1" >&2; exit 1 ;;
+            esac
+          }
+          require_routed_job "${CHECKS_SELECTED}" "${TEST_RESULT}" "checks"
+          require_routed_job "${IMAGE_SELECTED}" "${IMAGE_RESULT}" "image"

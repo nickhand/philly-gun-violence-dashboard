@@ -4,14 +4,14 @@ on:
   pull_request:
     paths:
       - "frontend/**"
-      - "netlify.toml"
       - ".github/workflows/frontend-quality.yml"
+      - ".github/ci/scope.py"
   push:
     branches: [main]
     paths:
       - "frontend/**"
-      - "netlify.toml"
       - ".github/workflows/frontend-quality.yml"
+      - ".github/ci/scope.py"
   # Phase 1 of the scheduler cutover keeps GitHub as the sole weekly owner.
   # Transfer this cron only after the isolated Fly scheduler is live and proven.
   schedule:
@@ -19,15 +19,42 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: frontend-quality-${{ github.ref }}
-  cancel-in-progress: true
+  group: frontend-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Route frontend quality jobs
+    runs-on: ubuntu-24.04
+    outputs:
+      unit: ${{ steps.scope.outputs.unit }}
+      browser: ${{ steps.scope.outputs.browser }}
+      lighthouse: ${{ steps.scope.outputs.lighthouse }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 .github/ci/scope.py \
+            --workflow frontend \
+            --event "${GITHUB_EVENT_NAME}" \
+            --before "${BEFORE_SHA}" \
+            --base "${BASE_SHA}" \
+            --head "${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+
   unit:
     name: Type, build, and unit coverage
+    needs: changes
+    if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -41,7 +68,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm install --global npm@11.18.0
       - run: npm ci
-      - run: npm run audit:dependencies
       - run: npm run test:lighthouse:policy
       - run: npm run type-check
       - run: npm run type-check:nuxt
@@ -63,7 +89,11 @@ jobs:
 
   browser-family:
     name: Browser family tests (${{ matrix.browser }})
-    needs: unit
+    needs: [changes, unit]
+    if: >-
+      always() &&
+      needs.changes.outputs.browser == 'true' &&
+      (needs.unit.result == 'success' || needs.unit.result == 'skipped')
     runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07
@@ -78,15 +108,12 @@ jobs:
           - browser: chromium
             legacy_projects: "--project=chromium --project=mobile-chrome"
             nuxt_projects: "--project=nuxt-chromium --project=nuxt-mobile-chrome"
-            lighthouse: true
           - browser: firefox
             legacy_projects: "--project=firefox"
             nuxt_projects: "--project=nuxt-firefox-core"
-            lighthouse: false
           - browser: webkit
             legacy_projects: "--project=webkit"
             nuxt_projects: "--project=nuxt-webkit-core --project=nuxt-mobile-webkit"
-            lighthouse: false
     defaults:
       run:
         working-directory: frontend
@@ -107,9 +134,6 @@ jobs:
       - name: Run Nuxt browser tests
         if: ${{ !cancelled() && steps.playwright.outcome == 'success' }}
         run: npx playwright test --config=playwright.nuxt.config.ts ${{ matrix.nuxt_projects }}
-      - name: Run Lighthouse performance checks
-        if: ${{ !cancelled() && steps.playwright.outcome == 'success' && matrix.lighthouse }}
-        run: npm run test:lighthouse
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
@@ -118,9 +142,64 @@ jobs:
             frontend/playwright-report
             frontend/test-results
           if-no-files-found: ignore
+
+  lighthouse:
+    name: Lighthouse performance checks
+    needs: [changes, unit]
+    if: >-
+      always() &&
+      needs.changes.outputs.lighthouse == 'true' &&
+      (needs.unit.result == 'success' || needs.unit.result == 'skipped')
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07
+      options: --user 1001 --ipc=host
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm install --global npm@11.18.0
+      - run: npm ci
+      - run: test "$(npx playwright --version)" = "Version 1.62.0"
+      - run: npm run test:lighthouse
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ !cancelled() && matrix.lighthouse }}
+        if: always()
         with:
           name: lighthouse-report
           path: frontend/lighthouse-report
           if-no-files-found: ignore
+
+  gate:
+    name: Frontend quality gate
+    needs: [changes, unit, browser-family, lighthouse]
+    if: always()
+    runs-on: ubuntu-24.04
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      UNIT_SELECTED: ${{ needs.changes.outputs.unit }}
+      BROWSER_SELECTED: ${{ needs.changes.outputs.browser }}
+      LIGHTHOUSE_SELECTED: ${{ needs.changes.outputs.lighthouse }}
+      UNIT_RESULT: ${{ needs.unit.result }}
+      BROWSER_RESULT: ${{ needs.browser-family.result }}
+      LIGHTHOUSE_RESULT: ${{ needs.lighthouse.result }}
+    steps:
+      - name: Require every selected job to pass
+        run: |
+          test "${CHANGES_RESULT}" = "success"
+          require_routed_job() {
+            case "$1" in
+              true) test "$2" = "success" ;;
+              false) test "$2" = "skipped" ;;
+              *) echo "Invalid $3 selector: $1" >&2; exit 1 ;;
+            esac
+          }
+          require_routed_job "${UNIT_SELECTED}" "${UNIT_RESULT}" "unit"
+          require_routed_job "${BROWSER_SELECTED}" "${BROWSER_RESULT}" "browser"
+          require_routed_job "${LIGHTHOUSE_SELECTED}" "${LIGHTHOUSE_RESULT}" "lighthouse"

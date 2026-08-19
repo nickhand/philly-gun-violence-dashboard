@@ -8,15 +8,13 @@ on:
       - "packages/aws-batch-scraper/**"
       - ".dockerignore"
       - "Justfile"
+      - "ruff.toml"
       - "ty.toml"
       - "uv.toml"
-      - "just/python.just"
-      - ".github/workflows/courts-scrape.yml"
-      - ".github/workflows/courts-process.yml"
       - ".github/workflows/daily-homicide-sync.yml"
-      - ".github/workflows/daily-shootings-sync.yml"
-      - ".github/workflows/production-smoke.yml"
       - ".github/workflows/etl-quality.yml"
+      - ".github/workflows/production-smoke.yml"
+      - ".github/ci/scope.py"
   push:
     branches: [main]
     paths:
@@ -25,26 +23,52 @@ on:
       - "packages/aws-batch-scraper/**"
       - ".dockerignore"
       - "Justfile"
+      - "ruff.toml"
       - "ty.toml"
       - "uv.toml"
-      - "just/python.just"
-      - ".github/workflows/courts-scrape.yml"
-      - ".github/workflows/courts-process.yml"
       - ".github/workflows/daily-homicide-sync.yml"
-      - ".github/workflows/daily-shootings-sync.yml"
-      - ".github/workflows/production-smoke.yml"
       - ".github/workflows/etl-quality.yml"
+      - ".github/workflows/production-smoke.yml"
+      - ".github/ci/scope.py"
 
 concurrency:
-  group: etl-quality-${{ github.ref }}
-  cancel-in-progress: true
+  group: etl-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  changes:
+    name: Route ETL quality jobs
+    runs-on: ubuntu-24.04
+    outputs:
+      etl: ${{ steps.scope.outputs.etl }}
+      dashboard: ${{ steps.scope.outputs.dashboard }}
+      scraper: ${{ steps.scope.outputs.scraper }}
+      image: ${{ steps.scope.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 .github/ci/scope.py \
+            --workflow etl \
+            --event "${GITHUB_EVENT_NAME}" \
+            --before "${BEFORE_SHA}" \
+            --base "${BASE_SHA}" \
+            --head "${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+
+  etl:
     name: ETL tests and static checks
+    needs: changes
+    if: needs.changes.outputs.etl == 'true'
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -57,67 +81,97 @@ jobs:
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.12.0"
-      - name: Audit ETL production dependencies
-        run: |
-          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/etl-requirements.txt"
-          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/etl-requirements.txt" --disable-pip --progress-spinner off --strict
-      - name: Audit dashboard utilities production dependencies
-        working-directory: packages/dashboard-utils
-        run: |
-          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/dashboard-utils-requirements.txt"
-          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/dashboard-utils-requirements.txt" --disable-pip --progress-spinner off --strict
-      - name: Audit AWS Batch scraper production dependencies
-        working-directory: packages/aws-batch-scraper
-        run: |
-          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/aws-batch-scraper-requirements.txt"
-          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/aws-batch-scraper-requirements.txt" --disable-pip --progress-spinner off --strict
-      - name: ETL Ruff lint
+      - name: Ruff lint
         run: uv run --group dev ruff check src tests
-      - name: ETL Ruff format
+      - name: Ruff format
         run: uv run --group dev ruff format --check src tests
-      - name: ETL ty
+      - name: ty
         run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
-      - name: ETL tests
+      - name: Tests
         run: uv run --group dev pytest tests
-      - name: Dashboard utilities Ruff lint
+
+  dashboard:
+    name: Dashboard utilities tests and static checks
+    needs: changes
+    if: needs.changes.outputs.dashboard == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
         working-directory: packages/dashboard-utils
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
+      - name: Ruff lint
         run: uv run --group dev ruff check src tests
-      - name: Dashboard utilities Ruff format
-        working-directory: packages/dashboard-utils
+      - name: Ruff format
         run: uv run --group dev ruff format --check src tests
-      - name: Dashboard utilities ty
-        working-directory: packages/dashboard-utils
+      - name: ty
         run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
-      - name: Dashboard utilities tests
-        working-directory: packages/dashboard-utils
+      - name: Tests
         run: uv run --group dev pytest tests
-      - name: AWS Batch scraper Ruff lint
+
+  scraper:
+    name: AWS Batch scraper tests and static checks
+    needs: changes
+    if: needs.changes.outputs.scraper == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
         working-directory: packages/aws-batch-scraper
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
+      - name: Ruff lint
         run: uv run --group dev ruff check src tests
-      - name: AWS Batch scraper Ruff format
-        working-directory: packages/aws-batch-scraper
+      - name: Ruff format
         run: uv run --group dev ruff format --check src tests
-      - name: AWS Batch scraper ty
-        working-directory: packages/aws-batch-scraper
+      - name: ty
         run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
-      - name: AWS Batch scraper tests
-        working-directory: packages/aws-batch-scraper
+      - name: Tests
         run: uv run --group dev pytest tests
+
+  image:
+    name: Scraper production image smoke and scan
+    needs: [changes, etl, dashboard, scraper]
+    if: >-
+      always() &&
+      needs.changes.outputs.image == 'true' &&
+      (needs.etl.result == 'success' || needs.etl.result == 'skipped') &&
+      (needs.dashboard.result == 'success' || needs.dashboard.result == 'skipped') &&
+      (needs.scraper.result == 'success' || needs.scraper.result == 'skipped')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
       - name: Verify pinned Chrome is still the signed stable release
+        working-directory: packages/etl
         run: uv run python -m etl.chrome_release
       - name: Build production scraper image
-        working-directory: .
         run: docker build --file packages/etl/Dockerfile --tag philly-courts-scraper:ci .
       - name: Smoke-test production scraper image
-        working-directory: .
         run: |
           test "$(docker inspect --format '{{.Config.User}}' philly-courts-scraper:ci)" = "app"
           test "$(docker inspect --format '{{json .Config.Cmd}}' philly-courts-scraper:ci)" = '["gv-dashboard-etl","courts","worker"]'
           image_entrypoint="$(docker inspect --format '{{json .Config.Entrypoint}}' philly-courts-scraper:ci)"
           test "${image_entrypoint}" = "null" || test "${image_entrypoint}" = "[]"
           test "$(docker inspect --format '{{json .Config.Volumes}}' philly-courts-scraper:ci)" = '{"/tmp":{}}'
-          runtime_flags=(--rm --read-only --cap-drop ALL --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m)
-          inspection_runtime_flags=(--rm --read-only --network none --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m)
+          runtime_flags=(--rm --read-only --cap-drop ALL --tmpfs "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m")
+          inspection_runtime_flags=(--rm --read-only --network none --tmpfs "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m")
           test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -c 'printf %s "$HOME"')" = "/tmp/app-home"
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'"
           test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci google-chrome --product-version)" = "151.0.7922.169"
@@ -151,9 +205,40 @@ jobs:
             --output-directory "${RUNNER_TEMP}/scraper-image-scan"
       - name: Preserve scraper SBOM and vulnerability evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: scraper-image-scan-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/scraper-image-scan
           if-no-files-found: ignore
           retention-days: 30
+
+  gate:
+    name: ETL quality gate
+    needs: [changes, etl, dashboard, scraper, image]
+    if: always()
+    runs-on: ubuntu-24.04
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      ETL_SELECTED: ${{ needs.changes.outputs.etl }}
+      DASHBOARD_SELECTED: ${{ needs.changes.outputs.dashboard }}
+      SCRAPER_SELECTED: ${{ needs.changes.outputs.scraper }}
+      IMAGE_SELECTED: ${{ needs.changes.outputs.image }}
+      ETL_RESULT: ${{ needs.etl.result }}
+      DASHBOARD_RESULT: ${{ needs.dashboard.result }}
+      SCRAPER_RESULT: ${{ needs.scraper.result }}
+      IMAGE_RESULT: ${{ needs.image.result }}
+    steps:
+      - name: Require every selected job to pass
+        run: |
+          test "${CHANGES_RESULT}" = "success"
+          require_routed_job() {
+            case "$1" in
+              true) test "$2" = "success" ;;
+              false) test "$2" = "skipped" ;;
+              *) echo "Invalid $3 selector: $1" >&2; exit 1 ;;
+            esac
+          }
+          require_routed_job "${ETL_SELECTED}" "${ETL_RESULT}" "etl"
+          require_routed_job "${DASHBOARD_SELECTED}" "${DASHBOARD_RESULT}" "dashboard"
+          require_routed_job "${SCRAPER_SELECTED}" "${SCRAPER_RESULT}" "scraper"
+          require_routed_job "${IMAGE_SELECTED}" "${IMAGE_RESULT}" "image"

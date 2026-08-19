@@ -1,0 +1,204 @@
+name: Dependency security quality
+
+on:
+  pull_request:
+    paths:
+      - "packages/api/pyproject.toml"
+      - "packages/api/uv.lock"
+      - "packages/etl/pyproject.toml"
+      - "packages/etl/uv.lock"
+      - "packages/dashboard-utils/pyproject.toml"
+      - "packages/dashboard-utils/uv.lock"
+      - "packages/aws-batch-scraper/pyproject.toml"
+      - "packages/aws-batch-scraper/uv.lock"
+      - "frontend/package-lock.json"
+      - "frontend/package.json"
+      - "uv.toml"
+      - ".github/workflows/security-quality.yml"
+      - ".github/ci/scope.py"
+  push:
+    branches: [main]
+    paths:
+      - "packages/api/pyproject.toml"
+      - "packages/api/uv.lock"
+      - "packages/etl/pyproject.toml"
+      - "packages/etl/uv.lock"
+      - "packages/dashboard-utils/pyproject.toml"
+      - "packages/dashboard-utils/uv.lock"
+      - "packages/aws-batch-scraper/pyproject.toml"
+      - "packages/aws-batch-scraper/uv.lock"
+      - "frontend/package-lock.json"
+      - "frontend/package.json"
+      - "uv.toml"
+      - ".github/workflows/security-quality.yml"
+      - ".github/ci/scope.py"
+  workflow_dispatch:
+
+concurrency:
+  group: security-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Route dependency audits
+    runs-on: ubuntu-24.04
+    outputs:
+      api: ${{ steps.scope.outputs.api }}
+      etl: ${{ steps.scope.outputs.etl }}
+      dashboard: ${{ steps.scope.outputs.dashboard }}
+      scraper: ${{ steps.scope.outputs.scraper }}
+      frontend: ${{ steps.scope.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 .github/ci/scope.py \
+            --workflow security \
+            --event "${GITHUB_EVENT_NAME}" \
+            --before "${BEFORE_SHA}" \
+            --base "${BASE_SHA}" \
+            --head "${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+
+  api:
+    name: API production dependency audit
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: packages/api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
+      - name: Audit locked production dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/api-requirements.txt"
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/api-requirements.txt" --disable-pip --progress-spinner off --strict
+
+  etl:
+    name: ETL production dependency audit
+    needs: changes
+    if: needs.changes.outputs.etl == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: packages/etl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
+      - name: Audit locked production dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/etl-requirements.txt"
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/etl-requirements.txt" --disable-pip --progress-spinner off --strict
+
+  dashboard:
+    name: Dashboard utilities production dependency audit
+    needs: changes
+    if: needs.changes.outputs.dashboard == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: packages/dashboard-utils
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
+      - name: Audit locked production dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/dashboard-requirements.txt"
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/dashboard-requirements.txt" --disable-pip --progress-spinner off --strict
+
+  scraper:
+    name: AWS Batch scraper production dependency audit
+    needs: changes
+    if: needs.changes.outputs.scraper == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: packages/aws-batch-scraper
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
+      - name: Audit locked production dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/scraper-requirements.txt"
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/scraper-requirements.txt" --disable-pip --progress-spinner off --strict
+
+  frontend:
+    name: Frontend production dependency audit
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+      - run: npm install --global npm@11.18.0
+      - run: npm audit --package-lock-only --audit-level=high
+
+  gate:
+    name: Dependency security gate
+    needs: [changes, api, etl, dashboard, scraper, frontend]
+    if: always()
+    runs-on: ubuntu-24.04
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      API_SELECTED: ${{ needs.changes.outputs.api }}
+      ETL_SELECTED: ${{ needs.changes.outputs.etl }}
+      DASHBOARD_SELECTED: ${{ needs.changes.outputs.dashboard }}
+      SCRAPER_SELECTED: ${{ needs.changes.outputs.scraper }}
+      FRONTEND_SELECTED: ${{ needs.changes.outputs.frontend }}
+      API_RESULT: ${{ needs.api.result }}
+      ETL_RESULT: ${{ needs.etl.result }}
+      DASHBOARD_RESULT: ${{ needs.dashboard.result }}
+      SCRAPER_RESULT: ${{ needs.scraper.result }}
+      FRONTEND_RESULT: ${{ needs.frontend.result }}
+    steps:
+      - name: Require every selected audit to pass
+        run: |
+          test "${CHANGES_RESULT}" = "success"
+          require_routed_job() {
+            case "$1" in
+              true) test "$2" = "success" ;;
+              false) test "$2" = "skipped" ;;
+              *) echo "Invalid $3 selector: $1" >&2; exit 1 ;;
+            esac
+          }
+          require_routed_job "${API_SELECTED}" "${API_RESULT}" "api"
+          require_routed_job "${ETL_SELECTED}" "${ETL_RESULT}" "etl"
+          require_routed_job "${DASHBOARD_SELECTED}" "${DASHBOARD_RESULT}" "dashboard"
+          require_routed_job "${SCRAPER_SELECTED}" "${SCRAPER_RESULT}" "scraper"
+          require_routed_job "${FRONTEND_SELECTED}" "${FRONTEND_RESULT}" "frontend"

@@ -98,21 +98,26 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
 # Copy lockfiles and minimal sources first to maximize cache reuse.
-COPY packages/aws-batch-scraper/pyproject.toml packages/aws-batch-scraper/uv.lock packages/aws-batch-scraper/README.md /app/aws-batch-scraper/
+COPY packages/aws-batch-scraper/pyproject.toml packages/aws-batch-scraper/uv.lock /app/aws-batch-scraper/
 COPY packages/aws-batch-scraper/src/ /app/aws-batch-scraper/src/
-COPY packages/dashboard-utils/pyproject.toml packages/dashboard-utils/uv.lock packages/dashboard-utils/README.md /app/dashboard-utils/
+COPY packages/dashboard-utils/pyproject.toml packages/dashboard-utils/uv.lock /app/dashboard-utils/
 COPY packages/dashboard-utils/src/ /app/dashboard-utils/src/
-COPY packages/etl/pyproject.toml packages/etl/uv.lock packages/etl/README.md /app/etl/
+COPY packages/etl/pyproject.toml packages/etl/uv.lock /app/etl/
+RUN touch \
+    /app/aws-batch-scraper/README.md \
+    /app/dashboard-utils/README.md \
+    /app/etl/README.md
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project /app/aws-batch-scraper --locked --no-install-project \
     && uv sync --project /app/dashboard-utils --locked --no-install-project \
     && uv sync --project /app/etl --locked --no-install-project
 
-# Copy source code only after dependencies are installed.
-COPY packages/aws-batch-scraper/ /app/aws-batch-scraper/
-COPY packages/dashboard-utils/ /app/dashboard-utils/
-COPY packages/etl/ /app/etl/
+# Copy only runtime sources after dependencies are installed. Tests, local
+# recipes, examples, and documentation must not perturb the release image.
+COPY packages/aws-batch-scraper/src/ /app/aws-batch-scraper/src/
+COPY packages/dashboard-utils/src/ /app/dashboard-utils/src/
+COPY packages/etl/src/ /app/etl/src/
 
 # Install the source code into the environment and then fail closed if the
 # runtime drifted from the reviewed Python, Playwright, or Chrome contracts.

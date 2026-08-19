@@ -113,6 +113,9 @@ container commands documented in the package READMEs.
 - The same external scheduler dispatches a daily production smoke workflow;
   failures make stale readiness, broken pages, or unavailable immutable
   downloads visible in GitHub Actions instead of relying on a liveness check.
+- It also dispatches the weekly dependency-security workflow, so advisory
+  database updates remain checked even when repository files do not change and
+  GitHub's inactivity rule cannot disable the cadence.
 - During the scheduler split-app rollout, the weekly frontend-quality check
   remains on its native GitHub schedule and is absent from the Fly crontab. Its
   ownership moves only in a separate quiet-window handoff after the isolated

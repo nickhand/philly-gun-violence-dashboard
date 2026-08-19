@@ -23,7 +23,8 @@ The Fly scheduler is the long-term owner of GitHub `workflow_dispatch` cadence b
 GitHub may disable scheduled workflows after repository inactivity. During the guarded
 split-app cutover, `frontend-quality.yml` deliberately keeps its native weekly schedule and
 is absent from the Fly crontab; transfer that final schedule only through the documented
-phase-2 quiet-window handoff. Do not move ETL or production-smoke cadence back to GitHub.
+phase-2 quiet-window handoff. Do not move ETL, production-smoke, or dependency-security
+cadence back to GitHub.
 
 ## Python tooling
 

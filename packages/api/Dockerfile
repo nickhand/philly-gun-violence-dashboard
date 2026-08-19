@@ -25,17 +25,21 @@ RUN python -c "import sys; from hashlib import sha256; from pathlib import Path;
     && chmod +x /usr/local/bin/supercronic
 
 # Copy lockfiles and minimal sources first to maximize cache reuse.
-COPY packages/dashboard-utils/pyproject.toml packages/dashboard-utils/uv.lock packages/dashboard-utils/README.md /app/dashboard-utils/
+COPY packages/dashboard-utils/pyproject.toml packages/dashboard-utils/uv.lock /app/dashboard-utils/
 COPY packages/dashboard-utils/src/ /app/dashboard-utils/src/
 COPY packages/api/pyproject.toml packages/api/uv.lock /app/api/
+RUN touch /app/dashboard-utils/README.md /app/api/README.md
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project /app/dashboard-utils --locked --no-install-project && \
     uv sync --project /app/api --locked --no-install-project
 
-# Copy source code only after dependencies are installed.
-COPY packages/dashboard-utils/ /app/dashboard-utils/
-COPY packages/api/ /app/api/
+# Copy only runtime sources after dependencies are installed. Tests, local
+# recipes, and documentation must not perturb the production image identity.
+COPY packages/dashboard-utils/src/ /app/dashboard-utils/src/
+COPY packages/api/app/ /app/api/app/
+COPY packages/api/scripts/ /app/api/scripts/
+COPY packages/api/crontab /app/api/crontab
 
 # Install the source code into the environment.
 RUN --mount=type=cache,target=/root/.cache/uv \

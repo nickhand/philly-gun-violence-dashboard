@@ -1,0 +1,63 @@
+name: Repository configuration quality
+
+on:
+  pull_request:
+    paths:
+      - ".github/ci/**"
+      - ".github/workflows/**"
+      - "README.md"
+      - "packages/api/Dockerfile"
+      - "packages/api/README.md"
+      - "packages/api/crontab"
+      - "packages/api/just/api.just"
+      - "packages/api/scripts/dispatch_workflow.py"
+      - "packages/aws-batch-scraper/README.md"
+      - "packages/dashboard-utils/README.md"
+      - "packages/etl/Dockerfile"
+      - "packages/etl/README.md"
+      - "fly.toml"
+      - "fly.scheduler.toml"
+      - "netlify.toml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/ci/**"
+      - ".github/workflows/**"
+      - "README.md"
+      - "packages/api/Dockerfile"
+      - "packages/api/README.md"
+      - "packages/api/crontab"
+      - "packages/api/just/api.just"
+      - "packages/api/scripts/dispatch_workflow.py"
+      - "packages/aws-batch-scraper/README.md"
+      - "packages/dashboard-utils/README.md"
+      - "packages/etl/Dockerfile"
+      - "packages/etl/README.md"
+      - "fly.toml"
+      - "fly.scheduler.toml"
+      - "netlify.toml"
+
+concurrency:
+  group: config-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: CI routing and deployment contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate workflow syntax and expressions
+        run: |
+          docker run --rm \
+            --network none \
+            --read-only \
+            --volume "${GITHUB_WORKSPACE}:/repo:ro" \
+            --workdir /repo \
+            docker.io/rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -color
+      - run: python3 -m unittest discover .github/ci -p "test_*.py"
+      - run: python3 .github/ci/check_deployment_config.py

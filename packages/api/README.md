@@ -195,6 +195,11 @@ freshness, indexable public pages, the manifest contract, and every immutable
 download URL. Its schedule remains outside GitHub so the same inactivity rule
 cannot silently disable monitoring.
 
+The same scheduler dispatches `security-quality.yml` every Tuesday. Dependency
+audits use a changing advisory database, so they run weekly even when lockfiles
+are unchanged; keeping this cadence outside GitHub prevents repository
+inactivity from silently disabling the security check.
+
 Configure an independent dead-man check before enabling that schedule. Store
 its success-ping URL as the GitHub Actions secret
 `PRODUCTION_SMOKE_HEARTBEAT_URL` and set the service to alert when the daily ping

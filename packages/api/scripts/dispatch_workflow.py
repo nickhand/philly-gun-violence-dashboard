@@ -16,6 +16,7 @@ ALLOWED_WORKFLOWS = frozenset(
         "daily-shootings-sync.yml",
         "frontend-quality.yml",
         "production-smoke.yml",
+        "security-quality.yml",
     }
 )
 MAX_ATTEMPTS = 4

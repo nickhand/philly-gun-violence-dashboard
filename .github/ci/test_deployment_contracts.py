@@ -1,0 +1,175 @@
+"""Repository-level deployment and scheduler contracts."""
+
+from __future__ import annotations
+
+import importlib.util
+import re
+import unittest
+from collections import Counter
+from pathlib import Path
+from types import ModuleType
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
+
+EXTERNAL_SCHEDULE_COUNTS = {
+    "courts-scrape.yml": 1,
+    "daily-homicide-sync.yml": 1,
+    "daily-shootings-sync.yml": 3,
+    "production-smoke.yml": 1,
+    "security-quality.yml": 1,
+}
+DISPATCH_ONLY_WORKFLOWS = frozenset({*EXTERNAL_SCHEDULE_COUNTS, "courts-process.yml"})
+EXPECTED_CRONTAB_LINES = (
+    "30 11 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml",
+    "30 15 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml",
+    "30 17 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml",
+    "15 15 * * * python scripts/dispatch_workflow.py daily-homicide-sync.yml",
+    "15 2 * * 5 python scripts/dispatch_workflow.py courts-scrape.yml",
+    "0 19 * * * python scripts/dispatch_workflow.py production-smoke.yml",
+    "15 10 * * 2 python scripts/dispatch_workflow.py security-quality.yml",
+)
+
+
+def _workflow_files() -> tuple[Path, ...]:
+    return tuple(sorted((*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml"))))
+
+
+def _action_references(source: str) -> tuple[str, ...]:
+    uncommented = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    pattern = re.compile(
+        r"(?<![\w-])(?:['\"]uses['\"]|uses)[ \t]*:[ \t]*"
+        r"['\"]?([^'\"\s,#}\]]+)"
+    )
+    return tuple(pattern.findall(uncommented))
+
+
+def _load_dispatcher() -> ModuleType:
+    path = REPOSITORY_ROOT / "packages/api/scripts/dispatch_workflow.py"
+    spec = importlib.util.spec_from_file_location("dispatch_workflow_contract", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("could not load workflow dispatcher")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class DeploymentContracts(unittest.TestCase):
+    def test_frontend_weekly_schedule_stays_native_during_phase_one(self) -> None:
+        workflow = (REPOSITORY_ROOT / ".github/workflows/frontend-quality.yml").read_text()
+        crontab = (REPOSITORY_ROOT / "packages/api/crontab").read_text()
+
+        self.assertIn('cron: "30 9 * * 1"', workflow)
+        self.assertNotIn("dispatch_workflow.py frontend-quality.yml", crontab)
+
+    def test_security_audit_uses_the_external_scheduler(self) -> None:
+        workflow = (REPOSITORY_ROOT / ".github/workflows/security-quality.yml").read_text()
+        crontab = (REPOSITORY_ROOT / "packages/api/crontab").read_text()
+
+        self.assertNotIn("  schedule:", workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn(
+            "15 10 * * 2 python scripts/dispatch_workflow.py security-quality.yml",
+            crontab,
+        )
+
+    def test_external_schedule_targets_are_exact_and_dispatch_only(self) -> None:
+        crontab = (REPOSITORY_ROOT / "packages/api/crontab").read_text()
+        active_lines = tuple(
+            line.strip()
+            for line in crontab.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        self.assertEqual(Counter(active_lines), Counter(EXPECTED_CRONTAB_LINES))
+        targets = tuple(line.rsplit(maxsplit=1)[-1] for line in active_lines)
+        self.assertEqual(Counter(targets), Counter(EXTERNAL_SCHEDULE_COUNTS))
+
+        allowed = _load_dispatcher().ALLOWED_WORKFLOWS
+        self.assertEqual(set(allowed), {*EXTERNAL_SCHEDULE_COUNTS, "frontend-quality.yml"})
+        for workflow_name in DISPATCH_ONLY_WORKFLOWS:
+            with self.subTest(workflow=workflow_name):
+                source = (WORKFLOWS / workflow_name).read_text()
+                self.assertIn("  workflow_dispatch:", source)
+                self.assertNotIn("  schedule:", source)
+
+    def test_workflows_pin_actions_and_declare_permissions(self) -> None:
+        for workflow in _workflow_files():
+            source = workflow.read_text()
+            with self.subTest(workflow=workflow.name):
+                self.assertIn("\npermissions:\n", source)
+                for action in _action_references(source):
+                    self.assertFalse(
+                        action.startswith("./"),
+                        "local actions require recursive pinning and trigger validation",
+                    )
+                    self.assertRegex(action, r"@[0-9a-f]{40}$")
+
+    def test_action_reference_parser_covers_step_and_reusable_workflow_forms(self) -> None:
+        source = """
+        jobs:
+          first:
+            steps:
+              - name: Named step
+                uses: owner/action@1111111111111111111111111111111111111111
+          second:
+            uses: o/r/.github/workflows/c.yml@2222222222222222222222222222222222222222
+          third:
+            "uses": owner/quoted@3333333333333333333333333333333333333333
+          fourth:
+            uses : owner/spaced@4444444444444444444444444444444444444444
+          fifth:
+            steps:
+              - { uses: owner/flow@5555555555555555555555555555555555555555 }
+        """
+        self.assertEqual(
+            _action_references(source),
+            (
+                "owner/action@1111111111111111111111111111111111111111",
+                "o/r/.github/workflows/c.yml@2222222222222222222222222222222222222222",
+                "owner/quoted@3333333333333333333333333333333333333333",
+                "owner/spaced@4444444444444444444444444444444444444444",
+                "owner/flow@5555555555555555555555555555555555555555",
+            ),
+        )
+
+    def test_config_quality_uses_the_pinned_offline_actionlint_image(self) -> None:
+        source = (WORKFLOWS / "config-quality.yml").read_text()
+        self.assertIn(
+            "docker.io/rhysd/actionlint:1.7.12@sha256:"
+            "b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667",
+            source,
+        )
+        self.assertIn("--network none", source)
+        self.assertIn("--read-only", source)
+
+    def test_scheduler_deploy_prevents_overlapping_cron_machines(self) -> None:
+        scheduler_config = (REPOSITORY_ROOT / "fly.scheduler.toml").read_text()
+        recipes = (REPOSITORY_ROOT / "packages/api/just/api.just").read_text()
+
+        self.assertIn('strategy = "immediate"', scheduler_config)
+        self.assertIn("fly-deploy-scheduler: fly-assert-legacy-scheduler-stopped", recipes)
+        self.assertIn("--strategy immediate --ha=false", recipes)
+        self.assertIn("fly-assert-single-scheduler", recipes)
+        self.assertIn('flyctl secrets unset GITHUB_PAT --app "{{ fly_api_app }}"', recipes)
+
+    def test_deployment_docs_put_reader_before_scheduler_and_token_removal(self) -> None:
+        for relative_path in ("README.md", "packages/api/README.md"):
+            with self.subTest(path=relative_path):
+                source = (REPOSITORY_ROOT / relative_path).read_text()
+                deployment = source.split("## Deployment (Fly.io)", maxsplit=1)[1]
+                api_deploy = deployment.index("just fly-deploy-api")
+                scheduler_deploy = deployment.index("just fly-deploy-scheduler")
+                token_removal = deployment.index("just fly-remove-legacy-api-token")
+
+                self.assertLess(deployment.index("EXPECT_ATOMIC_RELEASE=false"), api_deploy)
+                self.assertLess(deployment.index("public/downloads/manifest.json"), api_deploy)
+                self.assertLess(api_deploy, scheduler_deploy)
+                self.assertLess(scheduler_deploy, token_removal)
+                self.assertIn("legacy-backed", deployment)
+                self.assertIn("1 GB", deployment)
+
+
+if __name__ == "__main__":
+    unittest.main()

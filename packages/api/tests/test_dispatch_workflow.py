@@ -2,7 +2,6 @@
 
 from collections.abc import Iterator
 from email.message import Message
-from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
@@ -13,8 +12,6 @@ from scripts.dispatch_workflow import (
     WorkflowDispatchRejectedError,
     dispatch_workflow,
 )
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
 class FakeResponse:
@@ -89,6 +86,15 @@ def test_frontend_quality_remains_allowlisted_for_phase_two() -> None:
     assert request.full_url.endswith("/frontend-quality.yml/dispatches")
 
 
+def test_security_quality_uses_the_external_scheduler() -> None:
+    opener = SequenceOpener([FakeResponse()])
+
+    dispatch_workflow("security-quality.yml", token="secret", open_url=opener)
+
+    request, _ = opener.calls[0]
+    assert request.full_url.endswith("/security-quality.yml/dispatches")
+
+
 def test_dispatch_retries_only_rate_limit_with_bounded_backoff() -> None:
     """An explicit 429 proves non-acceptance and is safe to retry."""
     opener = SequenceOpener([_http_error(429), FakeResponse()])
@@ -160,44 +166,3 @@ def test_dispatch_fails_after_rate_limit_retry_budget() -> None:
 
     assert len(opener.calls) == 4
     assert sleeps == [1.0, 2.0, 4.0]
-
-
-def test_frontend_weekly_schedule_stays_native_during_phase_one() -> None:
-    """The first scheduler release must not create a weekly-check gap or duplicate owner."""
-    workflow = (REPOSITORY_ROOT / ".github/workflows/frontend-quality.yml").read_text()
-    crontab = (REPOSITORY_ROOT / "packages/api/crontab").read_text()
-
-    assert 'cron: "30 9 * * 1"' in workflow
-    assert "dispatch_workflow.py frontend-quality.yml" not in crontab
-
-
-def test_scheduler_deploy_contract_prevents_overlapping_cron_machines() -> None:
-    scheduler_config = (REPOSITORY_ROOT / "fly.scheduler.toml").read_text()
-    recipes = (REPOSITORY_ROOT / "packages/api/just/api.just").read_text()
-
-    assert 'strategy = "immediate"' in scheduler_config
-    assert "fly-deploy-scheduler: fly-assert-legacy-scheduler-stopped" in recipes
-    assert "--strategy immediate --ha=false" in recipes
-    assert "fly-assert-single-scheduler" in recipes
-    assert 'flyctl secrets unset GITHUB_PAT --app "{{ fly_api_app }}"' in recipes
-
-
-@pytest.mark.parametrize(
-    "readme_path",
-    [REPOSITORY_ROOT / "README.md", REPOSITORY_ROOT / "packages/api/README.md"],
-)
-def test_deployment_docs_put_reader_before_scheduler_and_token_removal(
-    readme_path: Path,
-) -> None:
-    """Runbooks cannot enable current-main writers before the new reader is proven."""
-    deployment = readme_path.read_text().split("## Deployment (Fly.io)", maxsplit=1)[1]
-
-    api_deploy = deployment.index("just fly-deploy-api")
-    scheduler_deploy = deployment.index("just fly-deploy-scheduler")
-    token_removal = deployment.index("just fly-remove-legacy-api-token")
-
-    assert deployment.index("EXPECT_ATOMIC_RELEASE=false") < api_deploy
-    assert deployment.index("public/downloads/manifest.json") < api_deploy
-    assert api_deploy < scheduler_deploy < token_removal
-    assert "legacy-backed" in deployment
-    assert "1 GB" in deployment
