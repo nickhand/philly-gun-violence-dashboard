@@ -31,6 +31,5 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.14.8",
     "ty==0.0.69",
-    "types-boto3[essential]>=1.42.15",
     "types-geopandas>=1.1.1.20250829",
 ]
