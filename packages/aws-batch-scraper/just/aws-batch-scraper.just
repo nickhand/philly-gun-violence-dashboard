@@ -63,8 +63,7 @@ scraper-push-container: scraper-require-release-target
 	cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image verify-local-image --image "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" --tag "${SCRAPER_IMAGE_TAG}"
 	docker tag "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}"
 	docker push "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}"
-	@digest=$(cd packages/aws-batch-scraper && uv run aws-batch-scraper-release-image verify-scan --account-id "${AWS_ACCOUNT_ID}" --repository "${ECR_REPOSITORY_NAME:-ujs-scraper}" --region "${AWS_REGION:-us-east-1}" --tag "${SCRAPER_IMAGE_TAG}" --profile "${AWS_PROFILE:-}"); \
-	echo "Register the ECS task revision with: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/${ECR_REPOSITORY_NAME:-ujs-scraper}@$digest"
+	@cd packages/aws-batch-scraper && uv run aws-batch-scraper-release-image verify-scan --account-id "${AWS_ACCOUNT_ID}" --repository "${ECR_REPOSITORY_NAME:-ujs-scraper}" --region "${AWS_REGION:-us-east-1}" --tag "${SCRAPER_IMAGE_TAG}" --profile "${AWS_PROFILE:-}"
 
 # Complete container workflow: login, build, and push.
 [group: "aws-batch-scraper"]

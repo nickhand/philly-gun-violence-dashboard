@@ -2,11 +2,14 @@
 
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 FULL_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -15,8 +18,18 @@ AWS_ACCOUNT_ID_PATTERN = re.compile(r"^[0-9]{12}$")
 ECR_REPOSITORY_PATTERN = re.compile(r"^(?=.{2,256}$)[a-z0-9]+(?:[._/-][a-z0-9]+)*$")
 AWS_REGION_PATTERN = re.compile(r"^[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+$")
 REVISION_LABEL = "org.opencontainers.image.revision"
+SCAN_POLL_INTERVAL_SECONDS = 10.0
+SCAN_MAX_ATTEMPTS = 180
+_SCAN_PENDING_STATUSES = frozenset({"IN_PROGRESS", "PENDING"})
+_SCAN_SUCCESS_STATUSES = frozenset({"ACTIVE", "COMPLETE"})
+_SCAN_SEVERITIES = frozenset({"UNDEFINED", "INFORMATIONAL", "LOW", "MEDIUM", "HIGH", "CRITICAL"})
+_AWS_CLI_ERROR_PATTERN = re.compile(
+    r"An error occurred \((?P<code>[A-Za-z][A-Za-z0-9]+)\) when calling the "
+    r"[A-Za-z][A-Za-z0-9]+ operation:"
+)
 
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+Sleeper = Callable[[float], None]
 
 
 class ReleaseIntegrityError(RuntimeError):
@@ -89,6 +102,11 @@ def _json_output(
     label: str,
 ) -> dict[str, Any]:
     output = _checked_output(runner, command, label=label)
+    return _parse_json_object(output, label=label)
+
+
+def _parse_json_object(output: str, *, label: str) -> dict[str, Any]:
+    """Parse one command response as a JSON object or fail closed."""
     try:
         value = json.loads(output)
     except json.JSONDecodeError as exc:
@@ -277,45 +295,42 @@ def _resolve_remote_digest(
     return digest
 
 
-def verify_remote_scan(
+def _scan_findings_payload(
     target: ReleaseTarget,
+    digest: str,
     *,
-    runner: CommandRunner = _default_runner,
+    runner: CommandRunner,
+) -> dict[str, Any] | None:
+    """Read one scan snapshot, tolerating only initial scan-registration lag."""
+    command = target.aws_command(
+        "ecr",
+        "describe-image-scan-findings",
+        "--registry-id",
+        target.account_id,
+        "--repository-name",
+        target.repository,
+        "--image-id",
+        f"imageDigest={digest}",
+        "--no-paginate",
+        "--output",
+        "json",
+    )
+    result = runner(command)
+    if result.returncode != 0:
+        stderr = result.stderr if isinstance(result.stderr, str) else ""
+        error_match = _AWS_CLI_ERROR_PATTERN.search(stderr)
+        if error_match is not None and error_match.group("code") == "ScanNotFoundException":
+            return None
+        raise ReleaseIntegrityError("ECR image scan findings command failed")
+    return _parse_json_object(result.stdout, label="ECR image scan findings")
+
+
+def _validated_scan_status(
+    payload: dict[str, Any],
+    target: ReleaseTarget,
+    digest: str,
 ) -> str:
-    """Resolve the pushed digest, wait for its scan, and reject severe findings."""
-    digest = _resolve_remote_digest(target, runner=runner)
-    image_id = f"imageDigest={digest}"
-    _checked_output(
-        runner,
-        target.aws_command(
-            "ecr",
-            "wait",
-            "image-scan-complete",
-            "--registry-id",
-            target.account_id,
-            "--repository-name",
-            target.repository,
-            "--image-id",
-            image_id,
-        ),
-        label="ECR image scan waiter",
-    )
-    payload = _json_output(
-        runner,
-        target.aws_command(
-            "ecr",
-            "describe-image-scan-findings",
-            "--registry-id",
-            target.account_id,
-            "--repository-name",
-            target.repository,
-            "--image-id",
-            image_id,
-            "--output",
-            "json",
-        ),
-        label="ECR image scan findings",
-    )
+    """Validate scan identity and return its exact service status."""
     response_image_id = payload.get("imageId")
     if payload.get("registryId") != target.account_id:
         raise ReleaseIntegrityError("ECR scan findings returned the wrong registry account")
@@ -323,29 +338,97 @@ def verify_remote_scan(
         raise ReleaseIntegrityError("ECR scan findings returned the wrong repository")
     if not isinstance(response_image_id, dict) or response_image_id.get("imageDigest") != digest:
         raise ReleaseIntegrityError("ECR scan findings did not match the pushed image digest")
-    status = payload.get("imageScanStatus")
-    if not isinstance(status, dict) or status.get("status") != "COMPLETE":
-        raise ReleaseIntegrityError("ECR image scan did not reach COMPLETE")
+    status_record = payload.get("imageScanStatus")
+    status = status_record.get("status") if isinstance(status_record, dict) else None
+    if not isinstance(status, str) or not status:
+        raise ReleaseIntegrityError("ECR image scan omitted its status")
+    return status
+
+
+def _require_aware_timestamp(value: object, *, label: str) -> None:
+    """Require the timestamp shape emitted by the AWS CLI for completed scans."""
+    if not isinstance(value, str) or not value.strip():
+        raise ReleaseIntegrityError(f"ECR image scan omitted its {label} timestamp")
+    try:
+        timestamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ReleaseIntegrityError(
+            f"ECR image scan returned an invalid {label} timestamp"
+        ) from exc
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ReleaseIntegrityError(f"ECR image scan returned an invalid {label} timestamp")
+
+
+def _require_clean_scan_findings(payload: dict[str, Any]) -> None:
+    """Reject malformed findings or any Critical/High vulnerability count."""
     findings = payload.get("imageScanFindings")
     if not isinstance(findings, dict):
         raise ReleaseIntegrityError("ECR image scan omitted its findings")
-    counts = findings.get("findingSeverityCounts", {})
+    _require_aware_timestamp(
+        findings.get("imageScanCompletedAt"),
+        label="completion",
+    )
+    _require_aware_timestamp(
+        findings.get("vulnerabilitySourceUpdatedAt"),
+        label="vulnerability-source update",
+    )
+    counts = findings.get("findingSeverityCounts")
     if not isinstance(counts, dict):
-        raise ReleaseIntegrityError("ECR image scan returned invalid severity counts")
-    normalized_counts: dict[str, int] = {}
+        raise ReleaseIntegrityError("ECR image scan omitted valid severity counts")
     for severity, count in counts.items():
-        if not isinstance(severity, str) or isinstance(count, bool) or not isinstance(count, int):
+        if not isinstance(severity, str) or severity not in _SCAN_SEVERITIES:
+            raise ReleaseIntegrityError("ECR image scan returned an unknown severity")
+        if isinstance(count, bool) or not isinstance(count, int):
             raise ReleaseIntegrityError("ECR image scan returned an invalid severity count")
         if count < 0:
             raise ReleaseIntegrityError("ECR image scan returned a negative severity count")
-        normalized_counts[severity.upper()] = count
-    critical = normalized_counts.get("CRITICAL", 0)
-    high = normalized_counts.get("HIGH", 0)
+    # AWS reports this map as aggregate totals even when detailed findings have
+    # a nextToken, so omitted individual High/Critical keys mean zero.
+    critical = counts.get("CRITICAL", 0)
+    high = counts.get("HIGH", 0)
     if critical or high:
         raise ReleaseIntegrityError(
             f"ECR scan blocked release: {critical} Critical and {high} High findings"
         )
-    return digest
+
+
+def verify_remote_scan(
+    target: ReleaseTarget,
+    *,
+    runner: CommandRunner = _default_runner,
+    sleeper: Sleeper = time.sleep,
+    max_attempts: int = SCAN_MAX_ATTEMPTS,
+    poll_interval_seconds: float = SCAN_POLL_INTERVAL_SECONDS,
+) -> str:
+    """Resolve the pushed digest, poll its scan, and reject severe findings."""
+    if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
+        raise ValueError("Scan max_attempts must be a positive integer")
+    if (
+        isinstance(poll_interval_seconds, bool)
+        or not isinstance(poll_interval_seconds, (int, float))
+        or not math.isfinite(poll_interval_seconds)
+        or poll_interval_seconds < 0
+    ):
+        raise ValueError("Scan poll_interval_seconds must be non-negative")
+
+    digest = _resolve_remote_digest(target, runner=runner)
+    last_status = "SCAN_NOT_FOUND"
+    for attempt in range(1, max_attempts + 1):
+        payload = _scan_findings_payload(target, digest, runner=runner)
+        if payload is not None:
+            last_status = _validated_scan_status(payload, target, digest)
+            if last_status in _SCAN_SUCCESS_STATUSES:
+                _require_clean_scan_findings(payload)
+                return digest
+            if last_status not in _SCAN_PENDING_STATUSES:
+                raise ReleaseIntegrityError(f"ECR image scan reached terminal status {last_status}")
+        if attempt < max_attempts:
+            sleeper(poll_interval_seconds)
+
+    raise ReleaseIntegrityError(
+        "ECR image scan did not become ready after "
+        f"{max_attempts} checks; last status was {last_status}"
+    )
 
 
 def _target_from_args(args: argparse.Namespace) -> ReleaseTarget:
@@ -392,7 +475,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "verify-local-image":
             verify_local_image(args.image, args.tag)
         elif args.command == "verify-scan":
-            print(verify_remote_scan(_target_from_args(args)))
+            target = _target_from_args(args)
+            digest = verify_remote_scan(target)
+            print(f"{target.repository_uri}@{digest}")
         else:  # pragma: no cover - argparse constrains this state.
             raise AssertionError(f"Unhandled release command: {args.command}")
     except (ReleaseIntegrityError, ValueError) as exc:

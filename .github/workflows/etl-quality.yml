@@ -111,6 +111,8 @@ jobs:
           test "$(docker inspect --format '{{json .Config.Cmd}}' philly-courts-scraper:ci)" = '["gv-dashboard-etl","courts","worker"]'
           test "$(docker inspect --format '{{json .Config.Volumes}}' philly-courts-scraper:ci)" = '{"/tmp":{}}'
           runtime_flags=(--rm --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m)
+          test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci python --version)" = "Python 3.13.15"
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "import bz2, ctypes, dbm, lzma, readline, sqlite3, ssl, uuid, zlib; assert sqlite3.sqlite_version == '3.53.4'; assert ssl.OPENSSL_VERSION.startswith('OpenSSL 3.6.3')"
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl --help
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl courts monitor --help
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True); browser.close(); context.stop()"

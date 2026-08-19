@@ -1,4 +1,42 @@
-FROM python:3.13-slim-trixie@sha256:ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a
+# Copy the official Python runtime from an immutable donor without carrying its
+# vulnerable Debian userspace into the final image.
+FROM python:3.13-slim-trixie@sha256:ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a AS python-runtime
+
+# Pin the exact linux/amd64 Sid manifest used by the ECR release build, then
+# bring every base package forward to one signed, dated Debian snapshot.
+FROM debian:sid-20260803-slim@sha256:76b6251aaac0ebb6aca1afbc780717aab7e455038c07cb0cb23facb33d241c7d
+
+RUN printf '%s\n' \
+        'Types: deb' \
+        'URIs: http://snapshot.debian.org/archive/debian/20260819T000000Z' \
+        'Suites: sid' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        'Check-Valid-Until: no' \
+        > /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get full-upgrade --yes --no-install-recommends \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates \
+        libbz2-1.0 \
+        libc6 \
+        libdb5.3t64 \
+        libffi8 \
+        libgdbm6t64 \
+        liblzma5 \
+        libncursesw6 \
+        libreadline8t64 \
+        libsqlite3-0 \
+        libssl3t64 \
+        libtinfo6 \
+        libuuid1 \
+        libzstd1 \
+        netbase \
+        tzdata \
+        zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=python-runtime /usr/local /usr/local
 COPY --from=ghcr.io/astral-sh/uv:0.12.0@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 /uv /uvx /bin/
 
 # Install the project into `/app`
@@ -12,6 +50,11 @@ ENV UV_LINK_MODE=copy
 
 # Omit development dependencies
 ENV UV_NO_DEV=1
+
+# Use the immutable donor's Python even after each package's `.python-version`
+# is copied, and never download another interpreter during the image build.
+ENV UV_PYTHON=/usr/local/bin/python3
+ENV UV_PYTHON_DOWNLOADS=never
 
 # Ensure installed tools can be executed out of the box
 ENV UV_TOOL_BIN_DIR=/usr/local/bin

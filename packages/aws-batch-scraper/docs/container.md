@@ -86,8 +86,11 @@ Before the push, configure the ECR repository with immutable tags and automatic
 scanning. Tag immutability is an external release gate: the local absence check
 cannot eliminate a race with another publisher. The guarded recipe binds every
 inspection and scan to `AWS_ACCOUNT_ID`, verifies the returned repository URI,
-requires scan-on-push, and prints a digest only after the exact pushed image has
-no Critical or High findings. Do not replace it with an unguarded manual
+requires scan-on-push, and makes up to 180 scan checks spaced 10 seconds apart
+(about 30 minutes of wait time, plus AWS CLI request time). It prints the complete
+`repository@sha256:...` URI only after the exact pushed image has no Critical or
+High findings. Terminal, malformed, unauthorized, and timeout outcomes exit
+nonzero without printing a URI. Do not replace it with an unguarded manual
 `docker push` sequence.
 
 Register separate worker and monitor ECS task-definition revisions using the
@@ -137,10 +140,11 @@ such as `courts-submit` or `build-container`.
 The build and push recipes require a completely clean checkout and
 `SCRAPER_IMAGE_TAG` equal to the full current commit SHA. They reject an ECR tag
 that already exists, label and re-check the local image revision, resolve the
-exact pushed digest, wait for its ECR scan, and fail on any Critical or High
-finding. After those checks pass, the recipe prints the digest URI to use in the
-ECS task definition. The repository must separately enforce immutable ECR tags
-and scan-on-push:
+exact pushed digest, make up to 180 scan checks spaced 10 seconds apart (about
+30 minutes of wait time, plus AWS CLI request time), and fail on any Critical or
+High finding. After those checks pass, the recipe prints the full digest URI to
+use in the ECS task definition. The repository must separately
+enforce immutable ECR tags and scan-on-push:
 
 ```bash
 SCRAPER_IMAGE_TAG=$(git rev-parse HEAD) just scraper-build-and-push-container

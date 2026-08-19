@@ -207,8 +207,17 @@ UJS-specific names such as `ujs-scraper`, `ujs-incidents`, and
 `gv-dashboard-etl courts worker` are this project's configuration, not framework
 defaults.
 
-The courts container is `packages/etl/Dockerfile`. It is intentionally project-specific:
-it installs `dashboard-utils`, `etl`, and Playwright Chromium, then defaults to:
+The courts container is `packages/etl/Dockerfile`. It is intentionally
+project-specific. The final image starts from an exact `linux/amd64` manifest
+of Debian Sid, replaces its package source with a signed, dated Debian snapshot,
+and full-upgrades the base before installing an explicit set of Python runtime
+libraries. Python 3.13 comes from the `/usr/local` tree of a separate
+digest-pinned official Python image; that donor's Debian userspace is not copied.
+uv cannot download a different interpreter. CI verifies the native Python
+modules, SQLite, OpenSSL, and Playwright Chromium under the hardened runtime
+settings. The resulting release artifact is identified by its own immutable ECR
+digest, and its scan remains the fail-closed vulnerability gate. The image
+defaults to:
 
 ```bash
 gv-dashboard-etl courts worker
@@ -225,12 +234,16 @@ SCRAPER_IMAGE_TAG=$(git rev-parse HEAD) \
 
 The recipe requires a clean checkout and the full current commit SHA, refuses a
 tag that already exists, verifies the local revision label, resolves the pushed
-digest, waits for its scan, and blocks any Critical or High finding. Configure
-the ECR repository itself with immutable tags and scan-on-push before using the
-recipe; immutability remains an external rollout gate that closes the
-check-then-push race. Use the printed `repository@sha256:...` URI in separate
-worker and monitor ECS task-definition revisions. Only the monitor definition
-may reference the GitHub dispatch-token secret.
+digest, and makes up to 180 scan checks spaced 10 seconds apart (about 30 minutes
+of wait time, plus AWS CLI request time). Any Critical or High finding blocks
+release. A pending or briefly unregistered scan is retried; authorization,
+terminal scan, malformed-response, and timeout failures exit nonzero without
+printing an image URI. Configure the ECR repository itself with immutable tags
+and scan-on-push before using the recipe; immutability remains an external
+rollout gate that closes the check-then-push race. Use the printed
+`repository@sha256:...` URI in separate worker and monitor ECS task-definition
+revisions. Only the monitor definition may reference the GitHub dispatch-token
+secret.
 
 The image runs as the unprivileged `app` user and keeps application code,
 dependencies, and Chromium root-owned. Both task definitions must explicitly
