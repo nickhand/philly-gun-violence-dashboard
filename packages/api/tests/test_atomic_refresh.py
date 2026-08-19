@@ -683,6 +683,32 @@ def test_missing_timestamps_never_throttle_the_initial_refresh(monkeypatch) -> N
     assert "shootings" not in app.state.dataset_last_failed
 
 
+def test_zero_timestamps_never_throttle_a_refresh(monkeypatch) -> None:
+    app = _app_with_shootings(_shootings(_version("old-version", "old-victim")))
+    app.state.dataset_last_checked["shootings"] = 0.0
+    app.state.dataset_last_failed["shootings"] = 0.0
+    reloads: list[str] = []
+
+    monkeypatch.setattr(data_loader.settings, "api_refresh_ttl_seconds", 10**12)
+    monkeypatch.setattr(data_loader.settings, "api_refresh_failure_backoff_seconds", 10**12)
+    monkeypatch.setattr(
+        data_loader,
+        "_current_source_token",
+        lambda app, name: ("release", "new-version"),
+    )
+    monkeypatch.setattr(
+        data_loader,
+        "_reload_dataset",
+        lambda app, name: reloads.append(name),
+    )
+
+    data_loader.refresh_if_stale(app, ["shootings"])
+
+    assert reloads == ["shootings"]
+    assert app.state.dataset_last_checked["shootings"] > 0
+    assert "shootings" not in app.state.dataset_last_failed
+
+
 def test_concurrent_refresh_builds_once_and_swaps_only_when_complete(monkeypatch) -> None:
     old = _shootings(_version("old-version", "old-victim"))
     app = _app_with_shootings(old)

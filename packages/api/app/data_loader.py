@@ -1036,11 +1036,12 @@ def refresh_if_stale(app: FastAPI, names: list[str]) -> None:
         for name in names:
             now = time.monotonic()
             last_checked = app.state.dataset_last_checked.get(name)
-            if last_checked is not None and now - last_checked < ttl:
+            if last_checked is not None and last_checked > 0 and now - last_checked < ttl:
                 continue
             last_failed = app.state.dataset_last_failed.get(name)
             if (
                 last_failed is not None
+                and last_failed > 0
                 and now - last_failed < settings.api_refresh_failure_backoff_seconds
             ):
                 continue
