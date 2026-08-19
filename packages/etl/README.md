@@ -238,7 +238,9 @@ set `user: app`, set `readonlyRootFilesystem: true`, and mount a writable task
 volume at `/tmp`;
 `HOME`, `TMPDIR`, and the XDG cache/config paths already point there. CI starts
 Chromium with a read-only root plus a temporary `/tmp` mount so this contract is
-tested before release.
+tested before release. The image declares `VOLUME ["/tmp"]` after preserving
+mode `1777`; the task volume must mount at that exact path so Fargate carries
+those writable sticky-directory permissions into the otherwise empty bind mount.
 
 ### Courts worker protocol rollout gate
 

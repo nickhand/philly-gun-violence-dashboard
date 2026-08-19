@@ -6,6 +6,18 @@ from pathlib import Path
 from aws_batch_scraper.types import ScrapeStatus, WorkItem
 
 
+def test_courts_image_declares_writable_tmp_volume() -> None:
+    """Fargate must preserve writable /tmp permissions for the non-root app user."""
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
+    source = dockerfile.read_text()
+
+    chmod = "RUN chmod 1777 /tmp"
+    volume = 'VOLUME ["/tmp"]'
+    assert chmod in source
+    assert volume in source
+    assert source.index(chmod) < source.index(volume) < source.index("USER app")
+
+
 def test_simple_scraper_example_imports_and_scrapes() -> None:
     """The documented simple scraper example should import and satisfy the contract."""
     repo_root = Path(__file__).resolve().parents[2]

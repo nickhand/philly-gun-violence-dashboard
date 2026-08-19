@@ -34,7 +34,10 @@ runtime user and `readonlyRootFilesystem: true`; submitter preflight rejects
 either omission. Keep installed code owned by the image build user and mount an
 explicit writable temporary volume for the paths required by the scraper.
 Browser containers commonly need `/tmp`; route `HOME`, `TMPDIR`, and XDG
-cache/config state to that mount and test the image before registration.
+cache/config state to that mount and test the image before registration. For a
+non-root Fargate task, declare that exact path with a Dockerfile `VOLUME` after
+setting its intended ownership and permissions; otherwise an empty bind mount
+defaults to root ownership and may not be writable by the runtime user.
 
 ## Runtime Environment
 

@@ -188,14 +188,32 @@ silently replace the frozen rollback origin.
 - `fly.scheduler.toml` defines the credential-isolated external scheduler.
 - `packages/api/Dockerfile` builds the shared image; each app runs only its own process.
 
+The first rollout is reader-first. Set the GitHub Actions variable
+`EXPECT_ATOMIC_RELEASE=false`, configure the production-smoke heartbeat, and
+grant the Fly API identity `s3:GetObject` for
+`public/downloads/manifest.json` before deploying. The updated scheduler checks
+out current `main`, so deploying it also enables the updated atomic writers.
+Deploy and prove the 1 GB pointer-aware API against the legacy objects before
+handing off any schedule.
+
 ```bash
-just fly-create-scheduler       # one time only
-just fly-secrets-scheduler
-just fly-stop-legacy-scheduler  # quiet window; required before first deploy
-just fly-deploy-scheduler
 just fly-secrets-api
-just fly-deploy-api
+just fly-deploy-api              # require /health and legacy-backed /ready
+just fly-create-scheduler        # one time only; skip if it exists
+just fly-secrets-scheduler
+just fly-stop-legacy-scheduler   # quiet window; no active GitHub/ECS work
+just fly-deploy-scheduler        # require one Machine and one successful dispatch
+just fly-remove-legacy-api-token # only after the scheduler proof
 ```
+
+Preserve the quiet gap: never start the new scheduler while an API `cron`
+Machine or previously dispatched GitHub/ECS job is active. After the reader is
+live, publish complete immutable objects before moving each release pointer;
+shootings and homicides migrate first through their updated jobs, while the
+boundary writer retains its separate reader-first gate. Set
+`EXPECT_ATOMIC_RELEASE=true` only after all three release pointers are live and
+verified. The full cutover and rollback checks are in
+`packages/api/README.md`.
 
 ## Portfolio
 If this project is useful or you want to collaborate, check out:

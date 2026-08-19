@@ -102,23 +102,42 @@ uv run python scripts/audit_stats_consistency.py http://127.0.0.1:8000
 
 ## Deployment (Fly.io)
 
+The first atomic-release deployment is reader-first. Before enabling any
+scheduler that can dispatch the updated workflows, set the repository variable
+`EXPECT_ATOMIC_RELEASE=false`, configure the independent smoke-test heartbeat,
+and verify that `fly-philly-gv-dashboard-api` can read
+`public/downloads/manifest.json`. The exact least-privilege IAM grant is
+documented above. Keep the legacy API `GITHUB_PAT` temporarily: importing the
+API's S3 secrets does not remove an existing Fly secret, and the token is needed
+until schedule ownership has been proven on the isolated app.
+
 ```bash
+just fly-secrets-api         # Give the API only its read-only S3 credentials
+just fly-deploy-api          # Deploy the 1 GB pointer-aware reader first
+# Verify /health, /ready, 1 GB RAM, and legacy-backed readiness here.
 just fly-create-scheduler    # One-time app creation; skip if it already exists
 just fly-secrets-scheduler   # Give the scheduler only its Actions token
 just fly-stop-legacy-scheduler # Quiet-window handoff: remove the API cron owner
-just fly-deploy-scheduler    # Deploy the external Supercronic app
-just fly-secrets-api         # Give the API only its read-only S3 credentials
-just fly-remove-legacy-api-token # Delete the old API GITHUB_PAT secret
-just fly-deploy-api          # Deploy the public API app
+just fly-deploy-scheduler    # Enable current-main workflow dispatches
+# Observe exactly one expected dispatch and require it to succeed here.
+just fly-remove-legacy-api-token # Only now delete the API GITHUB_PAT
 ```
 
 The API and scheduler are separate Fly apps so a compromise of the public API
 cannot expose the GitHub Actions credential. The scheduler has no HTTP service
 and receives no AWS credentials; the API receives no `GITHUB_PAT`.
 
-For the split-app migration, choose a quiet window away from every cron minute.
-First verify that no scheduler-started GitHub workflow or courts ECS monitor is
-still active. Then create/configure the isolated app, run
+Deploy `fly.toml` before the scheduler handoff and require the started `app`
+Machine to have the configured 1 GB of memory. `/health` and `/ready` must pass,
+and before the first pointer is published every dataset reported by `/ready`
+must be current and have `source: "legacy"`. Do not manually run, or enable a
+scheduler that can run, the updated shootings, homicide, or boundary writers
+until this reader proof succeeds. A missing `/ready`, an unreadable shared
+manifest, or a non-current legacy dataset stops the rollout.
+
+Only after that reader gate succeeds, choose a quiet window away from every cron
+minute. Verify that no scheduler-started GitHub workflow or courts ECS monitor
+is still active. Then create/configure the isolated app, run
 `just fly-stop-legacy-scheduler`, and only after that succeeds run
 `just fly-deploy-scheduler`. The deploy recipe refuses to proceed while any
 legacy API `cron` Machine exists, replaces scheduler Machines with Fly's
@@ -126,11 +145,14 @@ legacy API `cron` Machine exists, replaces scheduler Machines with Fly's
 that exactly one Machine is started. This intentionally creates a short quiet
 gap; never deploy the new scheduler before stopping the old cron owner. The
 Machine guard cannot prove that an already-dispatched GitHub or ECS job is
-finished, which is why the operator check is a required first step. After the
-new cadence is observed, deploy `fly.toml` and remove the obsolete `GITHUB_PAT`
-from the API app with `just fly-remove-legacy-api-token`. Importing the API's S3
-secrets does not delete an already-stored Fly secret, so this explicit removal is
-a required credential-isolation gate.
+finished, which is why the operator check is a required first step.
+
+Treat the scheduler deployment as enabling the current `main` writers. Observe
+exactly one expected natural dispatch, verify that it finishes successfully,
+and inspect GitHub before any manual re-dispatch. Only after that proof may the
+obsolete API token be removed with `just fly-remove-legacy-api-token`. Confirm
+afterward that the scheduler app holds only `GITHUB_PAT` and the API app does not
+hold it; this explicit removal is a required credential-isolation gate.
 
 Workflow dispatch POSTs are non-idempotent. The scheduler retries only an
 explicit HTTP 429, which proves GitHub did not accept the request. A timeout,

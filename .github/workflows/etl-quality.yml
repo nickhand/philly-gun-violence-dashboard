@@ -109,7 +109,8 @@ jobs:
         run: |
           test "$(docker inspect --format '{{.Config.User}}' philly-courts-scraper:ci)" = "app"
           test "$(docker inspect --format '{{json .Config.Cmd}}' philly-courts-scraper:ci)" = '["gv-dashboard-etl","courts","worker"]'
-          runtime_flags=(--rm --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,size=512m)
+          test "$(docker inspect --format '{{json .Config.Volumes}}' philly-courts-scraper:ci)" = '{"/tmp":{}}'
+          runtime_flags=(--rm --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m)
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl --help
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl courts monitor --help
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True); browser.close(); context.stop()"

@@ -64,9 +64,14 @@ ENV PYTHONUNBUFFERED=1
 
 # The scraper does not need root privileges at runtime. Keep installed code and
 # browser executables owned by root; the app user only needs to read/execute them.
-RUN groupadd --system app \
+# Preserve standard sticky /tmp permissions when Fargate populates the matching
+# task bind mount from this image volume.
+RUN chmod 1777 /tmp \
+    && groupadd --system app \
     && useradd --system --gid app --home-dir /tmp --no-create-home \
         --shell /usr/sbin/nologin app
+
+VOLUME ["/tmp"]
 
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []
