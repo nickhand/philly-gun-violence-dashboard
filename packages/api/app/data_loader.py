@@ -1035,11 +1035,14 @@ def refresh_if_stale(app: FastAPI, names: list[str]) -> None:
     try:
         for name in names:
             now = time.monotonic()
-            last_checked = app.state.dataset_last_checked.get(name, 0.0)
-            if now - last_checked < ttl:
+            last_checked = app.state.dataset_last_checked.get(name)
+            if last_checked is not None and now - last_checked < ttl:
                 continue
-            last_failed = app.state.dataset_last_failed.get(name, 0.0)
-            if now - last_failed < settings.api_refresh_failure_backoff_seconds:
+            last_failed = app.state.dataset_last_failed.get(name)
+            if (
+                last_failed is not None
+                and now - last_failed < settings.api_refresh_failure_backoff_seconds
+            ):
                 continue
             try:
                 loaded = _loaded_source_token(get_data_snapshot(app), name)
@@ -1052,7 +1055,6 @@ def refresh_if_stale(app: FastAPI, names: list[str]) -> None:
                 continue
             app.state.dataset_last_failed.pop(name, None)
             app.state.dataset_last_checked[name] = time.monotonic()
-            app.state.dataset_last_failed.pop(name, None)
     finally:
         lock.release()
 

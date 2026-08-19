@@ -657,6 +657,32 @@ def _app_with_shootings(shootings: ShootingsSnapshot) -> FastAPI:
     return app
 
 
+def test_missing_timestamps_never_throttle_the_initial_refresh(monkeypatch) -> None:
+    app = _app_with_shootings(_shootings(_version("old-version", "old-victim")))
+    reloads: list[str] = []
+
+    # A numeric sentinel such as 0.0 looks recent whenever process uptime is
+    # lower than the TTL/backoff. Missing entries must mean "never attempted."
+    monkeypatch.setattr(data_loader.settings, "api_refresh_ttl_seconds", 10**12)
+    monkeypatch.setattr(data_loader.settings, "api_refresh_failure_backoff_seconds", 10**12)
+    monkeypatch.setattr(
+        data_loader,
+        "_current_source_token",
+        lambda app, name: ("release", "new-version"),
+    )
+    monkeypatch.setattr(
+        data_loader,
+        "_reload_dataset",
+        lambda app, name: reloads.append(name),
+    )
+
+    data_loader.refresh_if_stale(app, ["shootings"])
+
+    assert reloads == ["shootings"]
+    assert "shootings" in app.state.dataset_last_checked
+    assert "shootings" not in app.state.dataset_last_failed
+
+
 def test_concurrent_refresh_builds_once_and_swaps_only_when_complete(monkeypatch) -> None:
     old = _shootings(_version("old-version", "old-victim"))
     app = _app_with_shootings(old)
