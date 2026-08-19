@@ -75,6 +75,15 @@ def test_courts_image_declares_writable_tmp_volume() -> None:
     assert source.index(chmod) < source.index(volume) < source.index("USER app")
 
 
+def test_courts_image_does_not_install_system_pip_or_venv() -> None:
+    """The uv-managed app environment must not need Ubuntu's pip/venv packages."""
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
+    source = dockerfile.read_text()
+
+    assert "python3-pip" not in source
+    assert "python3-venv" not in source
+
+
 def test_daily_homicide_workflow_installs_the_same_exact_chrome() -> None:
     """The host-run homicide job must not use a drifting runner browser."""
     repo_root = Path(__file__).resolve().parents[3]

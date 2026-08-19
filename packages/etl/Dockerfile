@@ -51,7 +51,6 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260819T160000Z" \
         ca-certificates \
         netbase \
         python3 \
-        python3-venv \
         tzdata \
         /tmp/google-chrome-stable.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
