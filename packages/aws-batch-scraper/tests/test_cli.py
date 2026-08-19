@@ -14,6 +14,7 @@ from aws_batch_scraper.cli import (
 )
 from aws_batch_scraper.config import SubmitterConfig
 from aws_batch_scraper.types import WorkItem
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 
@@ -163,6 +164,9 @@ def test_manual_run_monitor_requires_dispatch_repository_before_polling(
     class MissingRepositoryConfig(_SubmitConfig):
         github_repository: str | None = None
 
+    # GitHub Actions injects this variable into every step. This test exercises
+    # the missing-setting boundary, so it must not inherit the runner context.
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     _patch_submit_session(monkeypatch)
     monitor_run = MagicMock()
     monkeypatch.setattr(orchestrate, "monitor_run", monitor_run)
@@ -387,7 +391,8 @@ def test_submit_requires_a_terminal_coordinator_before_mutating_aws(
     result = CliRunner().invoke(_submit_app(), ["submit"])
 
     assert result.exit_code == 2
-    assert "--wait or --monitor-in-ecs" in result.output
+    output = " ".join(strip_ansi(result.output).split())
+    assert "terminal run ownership" in output
     acquire.assert_not_called()
 
 
