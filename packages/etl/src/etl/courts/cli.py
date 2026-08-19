@@ -9,6 +9,7 @@ from loguru import logger
 
 from etl.courts.config import CourtsSubmitterConfig, CourtsWorkerConfig
 from etl.courts.extract import load_incidents
+from etl.courts.fargate_smoke import FARGATE_SMOKE_SUCCESS_MARKER, run_fargate_smoke
 from etl.courts.scraper.core import UJSPortalScraper
 
 app = create_cli(
@@ -109,3 +110,10 @@ def smoke(
             if scraper.page is None:
                 raise RuntimeError("UJS portal browser check did not create a page")
         logger.info("Courts portal smoke check passed.")
+
+
+@app.command("fargate-smoke")
+def fargate_smoke() -> None:
+    """Fail closed unless a one-shot Fargate task matches the runtime contract."""
+    run_fargate_smoke()
+    typer.echo(FARGATE_SMOKE_SUCCESS_MARKER)

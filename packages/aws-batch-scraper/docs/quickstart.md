@@ -41,16 +41,21 @@ workflow:
 - ECS/Fargate cluster
 - Separate ECS worker and monitor task definitions that run the same immutable
   scraper image
-- ECS task and execution roles; separate worker/monitor roles are recommended
-  as a further least-privilege boundary
+- One reviewed ECS task role and one reviewed execution role shared by these
+  two definitions. Supporting separate worker/monitor roles requires distinct
+  expected-role settings and is a future hardening change, not part of the
+  current runtime contract.
 - SQS queue and dead-letter queue
 - S3 bucket name
 - VPC subnet IDs
 - security group IDs
 
 The worker definition should use the worker command and must not inject the
-GitHub dispatch token. The monitor definition accepts the monitor command
-override and is the only definition permitted to inject that secret. The
+GitHub dispatch token. Set the monitor definition's static command to exactly
+`["/bin/false"]`; the framework replaces it with the monitor command only for
+reviewed launches. A direct no-override launch therefore exits instead of
+starting the browser with the token. The monitor definition is the only one
+permitted to inject that secret. The
 submitter supplies nonsecret runtime settings as ECS overrides; the monitor
 does not need to hard-code a reference to its own revision. See
 `docs/container.md` for the complete runtime contract.
@@ -58,8 +63,14 @@ does not need to hard-code a reference to its own revision. See
 Both definitions must use `awsvpc`, target `LINUX/X86_64`, contain only the
 configured `ECS_CONTAINER_NAME`, run that container as the image's `app` user
 with a read-only root filesystem, and mount one ephemeral writable volume only
-at `/tmp`. They must not add capabilities, privilege, extra mounts or
-containers, or kernel overrides.
+at `/tmp`. They must drop `ALL` Linux capabilities and must not add
+capabilities, privilege, extra mounts or containers, or kernel overrides. The
+worker definition must have empty `secrets`, `environment`, and
+`environmentFiles`; reviewed nonsecret settings are supplied only as per-run
+overrides. Neither definition may use `repositoryCredentials`,
+`credentialSpecs`, a FireLens log router, static labels, a health-check command,
+exposed ports, or interactive terminals; logging, when configured, must use
+`awslogs` with no `secretOptions`.
 
 ## 3. Build And Push The Container
 
@@ -105,6 +116,10 @@ export ECS_CLUSTER_NAME=my-scraper
 export ECS_TASK_DEFINITION=my-scraper:42
 export ECS_MONITOR_TASK_DEFINITION=my-scraper-monitor:17
 export ECS_EXPECTED_IMAGE_URI=123456789012.dkr.ecr.us-east-1.amazonaws.com/simple-scraper@sha256:<64-lowercase-hex>
+export ECS_EXPECTED_TASK_ROLE_ARN=arn:aws:iam::123456789012:role/simple-scraper-task
+export ECS_EXPECTED_EXECUTION_ROLE_ARN=arn:aws:iam::123456789012:role/simple-scraper-execution
+export ECS_EXPECTED_MONITOR_SECRET_ARN=arn:aws:secretsmanager:us-east-1:123456789012:secret:simple-scraper/github-dispatch-token-AbCdEf
+export ECS_PLATFORM_VERSION=1.4.0
 export ECS_CONTAINER_NAME=my-scraper
 export ECS_SUBNET_IDS=subnet-a,subnet-b
 export ECS_SECURITY_GROUP_IDS=sg-a

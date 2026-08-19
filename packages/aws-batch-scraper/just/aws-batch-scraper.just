@@ -9,7 +9,7 @@
 #   aws_batch_scraper_browser_freshness_script := "etl/src/etl/chrome_release.py"
 #   aws_batch_scraper_required_sbom_packages := "python:playwright=..."
 #   aws_batch_scraper_chrome_executable_sha256 := "sha256:..."
-#   aws_batch_scraper_chrome_sandbox_sha256 := "sha256:..."
+#   aws_batch_scraper_chrome_sandbox_scan_args := "--forbid-chrome-sandbox ..."
 #   aws_batch_scraper_release_evidence_root := ".artifacts/aws-batch-scraper/releases"
 #
 # Release recipes read AWS_ACCOUNT_ID, AWS_REGION, ECR_REPOSITORY_NAME,
@@ -69,7 +69,7 @@ scraper-build-container: scraper-require-release-target scraper-check-browser-fr
 # Generate exact-image SBOMs and run the offline local vulnerability gates.
 [group: "aws-batch-scraper"]
 scraper-scan-container: scraper-require-release-target
-	@cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image scan-local-image --image "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" --expected-distro-name ubuntu --expected-distro-version 26.04 --required-packages "{{aws_batch_scraper_required_sbom_packages}}" --required-chrome-executable-sha256 "{{aws_batch_scraper_chrome_executable_sha256}}" --required-chrome-sandbox-sha256 "{{aws_batch_scraper_chrome_sandbox_sha256}}"
+	@cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image scan-local-image --image "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" --expected-distro-name ubuntu --expected-distro-version 26.04 --required-packages "{{aws_batch_scraper_required_sbom_packages}}" --required-chrome-executable-sha256 "{{aws_batch_scraper_chrome_executable_sha256}}" {{aws_batch_scraper_chrome_sandbox_scan_args}}
 
 # Push the exact locally scanned image ID to ECR.
 [group: "aws-batch-scraper"]
@@ -79,7 +79,7 @@ scraper-push-container: scraper-require-release-target scraper-check-browser-fre
 	@set -euo pipefail; \
 	repository_root="$(git rev-parse --show-toplevel)"; \
 	scan_output_directory="${repository_root}/{{aws_batch_scraper_release_evidence_root}}/${SCRAPER_IMAGE_TAG}"; \
-	scan_identity="$(cd packages/aws-batch-scraper && uv run aws-batch-scraper-release-image scan-local-image --image "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" --expected-distro-name ubuntu --expected-distro-version 26.04 --required-packages "{{aws_batch_scraper_required_sbom_packages}}" --required-chrome-executable-sha256 "{{aws_batch_scraper_chrome_executable_sha256}}" --required-chrome-sandbox-sha256 "{{aws_batch_scraper_chrome_sandbox_sha256}}" --output-directory "${scan_output_directory}" --print-identity)"; \
+	scan_identity="$(cd packages/aws-batch-scraper && uv run aws-batch-scraper-release-image scan-local-image --image "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" --expected-distro-name ubuntu --expected-distro-version 26.04 --required-packages "{{aws_batch_scraper_required_sbom_packages}}" --required-chrome-executable-sha256 "{{aws_batch_scraper_chrome_executable_sha256}}" {{aws_batch_scraper_chrome_sandbox_scan_args}} --output-directory "${scan_output_directory}" --print-identity)"; \
 	if [[ "${scan_identity}" == *$'\n'* ]]; then \
 		echo "Local scanner returned more than one identity line." >&2; exit 1; \
 	fi; \

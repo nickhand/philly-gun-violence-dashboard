@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from collections.abc import Callable, Sequence
@@ -474,6 +475,104 @@ def _inspect_local_image(
     }
 
 
+def _export_final_filesystem(
+    image_id: str,
+    destination: Path,
+    *,
+    runner: CommandRunner,
+) -> None:
+    """Export one stopped container's merged root filesystem and remove it."""
+    container_id = _checked_output(
+        runner,
+        [
+            "docker",
+            "container",
+            "create",
+            "--network",
+            "none",
+            "--entrypoint",
+            "/bin/true",
+            image_id,
+        ],
+        label="Final filesystem container creation",
+    ).strip()
+    if re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
+        raise ReleaseIntegrityError("Docker returned an invalid filesystem-audit container ID")
+    export_error: ReleaseIntegrityError | None = None
+    try:
+        _checked_output(
+            runner,
+            [
+                "docker",
+                "container",
+                "export",
+                "--output",
+                str(destination),
+                container_id,
+            ],
+            label="Final filesystem export",
+        )
+    except ReleaseIntegrityError as exc:
+        export_error = exc
+    cleanup = runner(["docker", "container", "rm", "--force", "--volumes", container_id])
+    if cleanup.returncode != 0:
+        raise ReleaseIntegrityError(
+            "Could not remove the stopped filesystem-audit container"
+        ) from export_error
+    if export_error is not None:
+        raise export_error
+    if destination.is_symlink() or not destination.is_file() or destination.stat().st_size < 1:
+        raise ReleaseIntegrityError("Docker did not export a valid final filesystem archive")
+
+
+def validate_final_filesystem_archive(
+    path: Path,
+    *,
+    image_id: str,
+    forbid_chrome_sandbox: bool,
+    forbid_setuid_setgid_files: bool,
+) -> dict[str, Any]:
+    """Audit merged runtime file modes without executing any image binary."""
+    members = 0
+    regular_files = 0
+    chrome_sandbox_present = False
+    privileged_paths: list[str] = []
+    try:
+        with tarfile.open(path, mode="r:*") as archive:
+            for member in archive:
+                members += 1
+                normalized = "/" + member.name.removeprefix("./").lstrip("/")
+                if normalized == _CHROME_SANDBOX:
+                    chrome_sandbox_present = True
+                if member.isfile():
+                    regular_files += 1
+                    if member.mode & 0o6000:
+                        privileged_paths.append(normalized)
+    except (OSError, tarfile.TarError) as exc:
+        raise ReleaseIntegrityError("Final filesystem export was not a valid tar archive") from exc
+    if members < 1 or regular_files < 1:
+        raise ReleaseIntegrityError("Final filesystem export did not contain regular files")
+    if forbid_chrome_sandbox and chrome_sandbox_present:
+        raise ReleaseIntegrityError("Final filesystem retained the forbidden Chrome sandbox helper")
+    if forbid_setuid_setgid_files and privileged_paths:
+        rendered = ", ".join(sorted(privileged_paths)[:10])
+        suffix = "" if len(privileged_paths) <= 10 else f" (+{len(privileged_paths) - 10} more)"
+        raise ReleaseIntegrityError(
+            f"Final filesystem retained setuid/setgid files: {rendered}{suffix}"
+        )
+    return {
+        "schema_version": 1,
+        "image_id": image_id,
+        "archive_sha256": _sha256_file(path),
+        "members": members,
+        "regular_files": regular_files,
+        "chrome_sandbox_present": chrome_sandbox_present,
+        "setuid_setgid_files": len(privileged_paths),
+        "chrome_sandbox_policy": "forbidden" if forbid_chrome_sandbox else "permitted",
+        "setuid_setgid_policy": "forbidden" if forbid_setuid_setgid_files else "permitted",
+    }
+
+
 def _load_json_file(path: Path, *, label: str) -> dict[str, Any]:
     """Read a bounded regular JSON file and require an object at its root."""
     if path.is_symlink() or not path.is_file():
@@ -639,15 +738,41 @@ def _require_chrome_file_evidence(
     return observed_sha256
 
 
+def _require_no_setid_files(payload: dict[str, Any]) -> None:
+    """Reject every final-image file carrying a setuid or setgid mode bit."""
+    files = payload.get("files")
+    if not isinstance(files, list):
+        raise ReleaseIntegrityError("Syft SBOM omitted final-image file evidence")
+    violations: list[str] = []
+    for record in files:
+        if not isinstance(record, dict):
+            continue
+        metadata = record.get("metadata")
+        if not isinstance(metadata, dict) or not isinstance((mode := metadata.get("mode")), int):
+            continue
+        # Syft serializes mode as the octal digits in a decimal integer. The
+        # leading digit therefore carries sticky/setgid/setuid (1/2/4).
+        special_bits = mode // 10_000_000
+        if special_bits & 0o6:
+            location = record.get("location")
+            path = location.get("path") if isinstance(location, dict) else None
+            violations.append(path if isinstance(path, str) else "<unknown>")
+    if violations:
+        rendered = ", ".join(sorted(violations)[:10])
+        suffix = "" if len(violations) <= 10 else f" (+{len(violations) - 10} more)"
+        raise ReleaseIntegrityError(f"Final image retained setuid/setgid files: {rendered}{suffix}")
+
+
 def _require_chrome_evidence(
     payload: dict[str, Any],
     requirement: PackageRequirement,
     artifacts: Sequence[dict[str, Any]],
     *,
     expected_executable_sha256: str,
-    expected_sandbox_sha256: str,
-) -> dict[str, str]:
-    """Bind the Chrome CPE scan to its exact deb package and privileged files."""
+    expected_sandbox_sha256: str | None,
+    forbid_sandbox: bool,
+) -> dict[str, Any]:
+    """Bind the Chrome CPE scan to its exact deb package and runtime files."""
     if len(artifacts) != 1:
         raise ReleaseIntegrityError("Syft SBOM contained ambiguous Google Chrome packages")
     artifact = artifacts[0]
@@ -668,7 +793,7 @@ def _require_chrome_evidence(
         else set()
     )
     if not {_CHROME_EXECUTABLE, _CHROME_SANDBOX}.issubset(owned_paths):
-        raise ReleaseIntegrityError("Google Chrome deb did not own its expected runtime files")
+        raise ReleaseIntegrityError("Google Chrome deb did not own its expected package files")
 
     version_match = _CHROME_DEB_VERSION_PATTERN.fullmatch(requirement.version)
     if version_match is None:
@@ -683,13 +808,29 @@ def _require_chrome_evidence(
         expected_sha256=expected_executable_sha256,
         expected_mode=755,
     )
-    observed_sandbox_sha256 = _require_chrome_file_evidence(
-        files,
-        path=_CHROME_SANDBOX,
-        label="setuid sandbox",
-        expected_sha256=expected_sandbox_sha256,
-        expected_mode=40000755,
-    )
+    sandbox_records = [
+        record
+        for record in files
+        if isinstance(record, dict)
+        and isinstance(record.get("location"), dict)
+        and record["location"].get("path") == _CHROME_SANDBOX
+    ]
+    if forbid_sandbox:
+        if sandbox_records:
+            raise ReleaseIntegrityError("Final image retained the forbidden Chrome sandbox helper")
+        observed_sandbox_sha256: str | None = None
+    else:
+        if expected_sandbox_sha256 is None:
+            raise ReleaseIntegrityError(
+                "Google Chrome SBOM contract omitted its expected sandbox digest"
+            )
+        observed_sandbox_sha256 = _require_chrome_file_evidence(
+            files,
+            path=_CHROME_SANDBOX,
+            label="setuid sandbox",
+            expected_sha256=expected_sandbox_sha256,
+            expected_mode=40000755,
+        )
     browser_version = version_match.group("browser")
     return {
         "package": requirement.canonical,
@@ -698,7 +839,9 @@ def _require_chrome_evidence(
         "executable": _CHROME_EXECUTABLE,
         "executable_sha256": observed_executable_sha256,
         "sandbox": _CHROME_SANDBOX,
+        "sandbox_present": not forbid_sandbox,
         "sandbox_sha256": observed_sandbox_sha256,
+        "sandbox_policy": "forbidden" if forbid_sandbox else "setuid",
         "cpe": f"cpe:2.3:a:google:chrome:{browser_version}:*:*:*:*:*:*:*",
     }
 
@@ -711,6 +854,8 @@ def validate_syft_sbom(
     requirements: Sequence[PackageRequirement],
     expected_chrome_executable_sha256: str | None = None,
     expected_chrome_sandbox_sha256: str | None = None,
+    forbid_chrome_sandbox: bool = False,
+    forbid_setuid_setgid_files: bool = False,
 ) -> dict[str, Any]:
     """Validate image identity, schema, and exact package evidence in a Syft SBOM."""
     descriptor = payload.get("descriptor")
@@ -745,8 +890,11 @@ def validate_syft_sbom(
     artifacts = payload.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         raise ReleaseIntegrityError("Syft SBOM did not contain any packages")
+    if forbid_setuid_setgid_files:
+        _require_no_setid_files(payload)
+
     observed: dict[str, str] = {}
-    chrome: dict[str, str] | None = None
+    chrome: dict[str, Any] | None = None
     for requirement in requirements:
         versions, matched_artifacts = _artifact_versions(artifacts, requirement)
         if versions != {requirement.version}:
@@ -761,9 +909,13 @@ def validate_syft_sbom(
                 raise ReleaseIntegrityError(
                     "Google Chrome SBOM contract omitted its expected executable digest"
                 )
-            if expected_chrome_sandbox_sha256 is None:
+            if expected_chrome_sandbox_sha256 is None and not forbid_chrome_sandbox:
                 raise ReleaseIntegrityError(
                     "Google Chrome SBOM contract omitted its expected sandbox digest"
+                )
+            if expected_chrome_sandbox_sha256 is not None and forbid_chrome_sandbox:
+                raise ReleaseIntegrityError(
+                    "Chrome sandbox digest and forbidden-sandbox policy are mutually exclusive"
                 )
             chrome = _require_chrome_evidence(
                 payload,
@@ -771,6 +923,7 @@ def validate_syft_sbom(
                 matched_artifacts,
                 expected_executable_sha256=expected_chrome_executable_sha256,
                 expected_sandbox_sha256=expected_chrome_sandbox_sha256,
+                forbid_sandbox=forbid_chrome_sandbox,
             )
         observed[requirement.canonical] = requirement.version
     if chrome is None and expected_chrome_executable_sha256 is not None:
@@ -781,11 +934,16 @@ def validate_syft_sbom(
         raise ReleaseIntegrityError(
             "Chrome sandbox digest was configured without a Google Chrome package"
         )
+    if chrome is None and forbid_chrome_sandbox:
+        raise ReleaseIntegrityError(
+            "Forbidden Chrome sandbox policy was configured without a Google Chrome package"
+        )
     return {
         "image_id": image_id,
         "manifest_digest": manifest_digest,
         "packages": observed,
         "chrome": chrome,
+        "setuid_setgid_files_forbidden": forbid_setuid_setgid_files,
     }
 
 
@@ -1244,6 +1402,8 @@ def scan_local_image(
     expected_distro_version: str,
     expected_chrome_executable_sha256: str | None = None,
     expected_chrome_sandbox_sha256: str | None = None,
+    forbid_chrome_sandbox: bool = False,
+    forbid_setuid_setgid_files: bool = False,
     output_directory: Path | None = None,
     expected_platform: str = LOCAL_SCAN_PLATFORM,
     runner: CommandRunner = _default_runner,
@@ -1264,6 +1424,10 @@ def scan_local_image(
     ):
         if digest is not None and IMAGE_DIGEST_PATTERN.fullmatch(digest) is None:
             raise ValueError(f"Expected Chrome {label} digest must be a lowercase SHA-256")
+    if expected_chrome_sandbox_sha256 is not None and forbid_chrome_sandbox:
+        raise ValueError(
+            "Chrome sandbox digest and forbidden-sandbox policy are mutually exclusive"
+        )
     _clock_time(clock)
 
     grype_version = _scanner_version(
@@ -1329,6 +1493,21 @@ def scan_local_image(
         if archive.is_symlink() or not archive.is_file() or archive.stat().st_size < 1:
             raise ReleaseIntegrityError("Docker did not export a valid local image archive")
 
+        filesystem_archive = root / "filesystem.tar"
+        _export_final_filesystem(
+            image_record["image_id"],
+            filesystem_archive,
+            runner=runner,
+        )
+        filesystem_audit = validate_final_filesystem_archive(
+            filesystem_archive,
+            image_id=image_record["image_id"],
+            forbid_chrome_sandbox=forbid_chrome_sandbox,
+            forbid_setuid_setgid_files=forbid_setuid_setgid_files,
+        )
+        filesystem_audit_path = report_output / "filesystem-audit.json"
+        _write_json_file(filesystem_audit_path, filesystem_audit)
+
         syft_command = _scanner_run_prefix(
             SYFT_IMAGE,
             network_none=True,
@@ -1364,6 +1543,8 @@ def scan_local_image(
             requirements=requirements,
             expected_chrome_executable_sha256=expected_chrome_executable_sha256,
             expected_chrome_sandbox_sha256=expected_chrome_sandbox_sha256,
+            forbid_chrome_sandbox=forbid_chrome_sandbox,
+            forbid_setuid_setgid_files=forbid_setuid_setgid_files,
         )
         validate_cyclonedx_sbom(
             _load_json_file(cyclonedx_path, label="CycloneDX SBOM"),
@@ -1447,7 +1628,12 @@ def scan_local_image(
                     _CHROME_CPE_CONTROL,
                 ]
             )
-        raw_artifact_names = ["sbom.syft.json", "sbom.cdx.json", "grype.json"]
+        raw_artifact_names = [
+            "filesystem-audit.json",
+            "sbom.syft.json",
+            "sbom.cdx.json",
+            "grype.json",
+        ]
         shutil.copy2(syft_path, report_output / "sbom.syft.json")
         shutil.copy2(cyclonedx_path, report_output / "sbom.cdx.json")
         if chrome_report_path is not None:
@@ -1520,12 +1706,14 @@ def scan_local_image(
             },
             "packages": sbom["packages"],
             "chrome": chrome_record,
+            "filesystem": filesystem_audit,
             "scans": {
                 "image": report,
                 "chrome": chrome_report,
                 "chrome_coverage_control": chrome_control,
             },
             "artifacts": {
+                "filesystem-audit.json": _sha256_file(filesystem_audit_path),
                 "sbom.syft.json": _sha256_file(syft_path),
                 "sbom.cdx.json": _sha256_file(cyclonedx_path),
                 "grype.json": _sha256_file(report_path),
@@ -1896,8 +2084,70 @@ def write_verified_release_receipt(
         or control_counts["High"] < 1
     ):
         raise ReleaseIntegrityError("Local scan receipt omitted its Chrome coverage control")
+    filesystem = payload.get("filesystem")
+    if (
+        not isinstance(filesystem, dict)
+        or filesystem.get("schema_version") != 1
+        or filesystem.get("image_id") != expected_image_id
+        or isinstance(filesystem.get("members"), bool)
+        or not isinstance(filesystem.get("members"), int)
+        or filesystem["members"] < 1
+        or isinstance(filesystem.get("regular_files"), bool)
+        or not isinstance(filesystem.get("regular_files"), int)
+        or filesystem["regular_files"] < 1
+        or not isinstance(filesystem.get("archive_sha256"), str)
+        or IMAGE_DIGEST_PATTERN.fullmatch(filesystem["archive_sha256"]) is None
+    ):
+        raise ReleaseIntegrityError("Local scan receipt omitted its final-filesystem audit")
+    chrome = payload.get("chrome")
+    if not isinstance(chrome, dict):
+        raise ReleaseIntegrityError("Local scan receipt omitted its Chrome sandbox policy")
+    sandbox_policy = chrome.get("sandbox_policy")
+    setid_policy = filesystem.get("setuid_setgid_policy")
+    setid_count = filesystem.get("setuid_setgid_files")
+    if setid_policy == "forbidden":
+        if isinstance(setid_count, bool) or not isinstance(setid_count, int) or setid_count != 0:
+            raise ReleaseIntegrityError(
+                "Local scan receipt did not prove its forbidden setuid/setgid policy"
+            )
+    elif setid_policy == "permitted":
+        if isinstance(setid_count, bool) or not isinstance(setid_count, int) or setid_count < 0:
+            raise ReleaseIntegrityError(
+                "Local scan receipt contained an invalid permitted setuid/setgid audit"
+            )
+    else:
+        raise ReleaseIntegrityError("Local scan receipt omitted its setuid/setgid policy")
+    if sandbox_policy == "forbidden":
+        if (
+            chrome.get("sandbox_present") is not False
+            or chrome.get("sandbox_sha256") is not None
+            or filesystem.get("chrome_sandbox_policy") != "forbidden"
+            or filesystem.get("chrome_sandbox_present") is not False
+        ):
+            raise ReleaseIntegrityError(
+                "Local scan receipt did not prove its forbidden privilege-helper policy"
+            )
+    elif sandbox_policy == "setuid":
+        sandbox_sha256 = chrome.get("sandbox_sha256")
+        if (
+            chrome.get("sandbox_present") is not True
+            or not isinstance(sandbox_sha256, str)
+            or IMAGE_DIGEST_PATTERN.fullmatch(sandbox_sha256) is None
+            or filesystem.get("chrome_sandbox_policy") != "permitted"
+            or filesystem.get("setuid_setgid_policy") != "permitted"
+            or filesystem.get("chrome_sandbox_present") is not True
+            or isinstance(setid_count, bool)
+            or not isinstance(setid_count, int)
+            or setid_count < 1
+        ):
+            raise ReleaseIntegrityError(
+                "Local scan receipt did not prove its reviewed setuid sandbox policy"
+            )
+    else:
+        raise ReleaseIntegrityError("Local scan receipt omitted its Chrome sandbox policy")
     artifacts = payload.get("artifacts")
     required_artifacts = {
+        "filesystem-audit.json",
         "sbom.syft.json",
         "sbom.cdx.json",
         "grype.json",
@@ -1976,7 +2226,10 @@ def _parser() -> argparse.ArgumentParser:
     local_scan.add_argument("--image", required=True)
     local_scan.add_argument("--required-packages", required=True)
     local_scan.add_argument("--required-chrome-executable-sha256")
-    local_scan.add_argument("--required-chrome-sandbox-sha256")
+    sandbox_policy = local_scan.add_mutually_exclusive_group()
+    sandbox_policy.add_argument("--required-chrome-sandbox-sha256")
+    sandbox_policy.add_argument("--forbid-chrome-sandbox", action="store_true")
+    local_scan.add_argument("--forbid-setuid-setgid-files", action="store_true")
     local_scan.add_argument("--output-directory", type=Path)
     local_scan.add_argument("--expected-platform", default=LOCAL_SCAN_PLATFORM)
     local_scan.add_argument("--expected-distro-name", required=True)
@@ -2008,6 +2261,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 expected_distro_version=args.expected_distro_version,
                 expected_chrome_executable_sha256=args.required_chrome_executable_sha256,
                 expected_chrome_sandbox_sha256=args.required_chrome_sandbox_sha256,
+                forbid_chrome_sandbox=args.forbid_chrome_sandbox,
+                forbid_setuid_setgid_files=args.forbid_setuid_setgid_files,
                 output_directory=args.output_directory,
                 expected_platform=args.expected_platform,
             )

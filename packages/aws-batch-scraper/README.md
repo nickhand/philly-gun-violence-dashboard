@@ -229,6 +229,12 @@ subclass defaults:
 - `ECS_EXPECTED_IMAGE_URI`, the exact same-account and same-region ECR
   `repository@sha256` URI printed by the completed local-plus-ECR release gate.
   Both selected task definitions must use this exact image.
+- `ECS_EXPECTED_TASK_ROLE_ARN` and `ECS_EXPECTED_EXECUTION_ROLE_ARN`, the exact
+  reviewed same-account roles both selected definitions must use.
+- `ECS_EXPECTED_MONITOR_SECRET_ARN`, the exact same-account, same-region
+  Secrets Manager ARN that may appear only once in the monitor definition.
+- `ECS_PLATFORM_VERSION=1.4.0`, the exact Fargate platform supplied to every
+  worker and monitor `RunTask` call.
 - `ECS_SUBNET_IDS`, `ECS_SECURITY_GROUP_IDS`; both must be explicit, nonempty,
   unique ID lists (the default security group is never selected implicitly)
 - `RUN_ID`, set by the submitter for worker and monitor tasks
@@ -243,14 +249,27 @@ definitions through ECS and requires the exact ACTIVE cluster, ACTIVE Fargate
 definitions, `awsvpc` networking, the reviewed `LINUX/X86_64` runtime, and one
 ephemeral task volume mounted read-write only at `/tmp`. Each definition must
 contain only the configured `app` container, with a read-only root filesystem,
-no privilege elevation, no added Linux capabilities, no opaque or additional
-mounts, no task-definition entry-point override, and the image's default worker
-command. Images must be digest-pinned and both definitions must use the same
-primary image digest. The worker definition cannot expose the dispatch token;
-the monitor token must come through the primary container's ECS `secrets` list
-rather than plaintext. Both launch helpers repeat this preflight. The submitter
+no privilege elevation, no added Linux capabilities, and an exact
+`capabilities.drop: [ALL]` policy; no opaque or additional mounts; no
+task-definition entry-point override; and the image's default worker command.
+Images must be digest-pinned and both definitions must use the same primary
+image digest plus the configured exact task and execution roles. The worker
+definition must have empty `secrets`, `environment`, and `environmentFiles`;
+the monitor must have no static environment and exactly one ECS secret,
+`GITHUB_DISPATCH_TOKEN`, whose `valueFrom` must equal
+`ECS_EXPECTED_MONITOR_SECRET_ARN`. The monitor's static task-definition command
+must be exactly `["/bin/false"]`; reviewed framework launches override it with
+the actual monitor command, while a direct launch exits without starting the
+browser. Both launch helpers repeat this preflight and
+pin `platformVersion` to `1.4.0`. The submitter
 identity therefore needs `ecs:DescribeTaskDefinition`; AWS requires that action
 with `Resource: "*"`, so do not attach a cluster-resource condition to it.
+
+Neither definition may use `repositoryCredentials`, `credentialSpecs`, a
+FireLens log router, static container labels, a health-check command, exposed
+ports, or interactive terminals. If logging is configured, it must use
+`awslogs` with an empty `secretOptions` list. These checks prevent alternate
+secret-loading, executable, and ingress paths.
 
 Provision those AWS resources with your current infrastructure workflow. The
 framework only needs the runtime values above and AWS credentials from the
@@ -293,15 +312,17 @@ your deployment can support separate roles:
   put for the run manifest, `tasks.json`, lease, and terminal/ambiguity evidence
 
 The task execution role should contain image-pull/logging permissions. When the
-monitor task definition injects `GITHUB_DISPATCH_TOKEN` or another ECS secret,
-its execution role also needs least-privilege `secretsmanager:GetSecretValue`
-or `ssm:GetParameters` for that exact secret plus `kms:Decrypt` for its CMK when
-applicable. The application task role carries the runtime SQS/S3/ECS permissions
+monitor task definition injects `GITHUB_DISPATCH_TOKEN`, its execution role
+also needs least-privilege `secretsmanager:GetSecretValue` for that exact
+Secrets Manager ARN plus `kms:Decrypt` for its CMK when applicable. The
+application task role carries the runtime SQS/S3/ECS permissions
 above. A shared worker and monitor task definition would expose monitor-only
 secrets to workers, so the configuration rejects one revision in both roles.
-The worker definition must not reference the dispatch-token secret. A distinct
-worker execution role that cannot read that secret is the preferred further
-least-privilege boundary. Keep the token repository-scoped, short-lived, and
+The worker definition must not reference the dispatch-token secret. The current
+runtime contract deliberately binds both definitions to one exact reviewed
+task role and one exact reviewed execution role; adopting separate roles needs
+distinct expected-role settings in the framework first. Keep the token
+repository-scoped, short-lived, and
 minimally permissioned: a fine-grained token needs repository **Actions: read
 and write**, not **Contents: write**, to create the workflow dispatch. GitHub
 Actions should use an OIDC role with
@@ -312,7 +333,10 @@ visible, in-flight, and delayed queue messages. Then register a revision with
 the immutable image digest for each role. Set `ECS_TASK_DEFINITION` to the exact
 worker revision and `ECS_MONITOR_TASK_DEFINITION` to a different exact monitor
 revision, and set `ECS_EXPECTED_IMAGE_URI` to the verified digest URI printed by
-the release command. Verify that only the monitor definition references the dispatch token,
+the release command. Set `ECS_EXPECTED_TASK_ROLE_ARN` and
+`ECS_EXPECTED_EXECUTION_ROLE_ARN` to the exact reviewed roles, and set
+`ECS_EXPECTED_MONITOR_SECRET_ARN` to the exact dispatch-token secret ARN. Verify that only
+the monitor definition references the dispatch token,
 then verify a sampled run writes run-scoped objects before restoring production
 scheduling. Do not mix workers that only write global results with processors
 that require exact-run results.

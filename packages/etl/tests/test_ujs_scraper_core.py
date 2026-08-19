@@ -33,6 +33,7 @@ def test_visible_results_parse_failure_is_retryable_ui_drift(
     scraper = UJSPortalScraper(errors="ignore")
     scraper._net_observer = NetworkObserver()
     monkeypatch.setattr(scraper, "_ensure_page", lambda: FakePage())
+    monkeypatch.setattr(scraper, "assert_portal_origin", lambda: None)
     monkeypatch.setattr(core, "_parse_results", MagicMock(side_effect=ValueError("drift")))
     monkeypatch.setattr(
         classifier,
@@ -62,13 +63,15 @@ def test_process_timeout_propagates_to_worker(monkeypatch: pytest.MonkeyPatch) -
         scraper._scrape_once("1234567890", 1)
 
 
-def test_browser_launch_uses_system_chrome_with_sandbox(
+def test_browser_launch_uses_system_chrome_with_fargate_sandbox_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The court scraper must not fall back to a bundled or unsandboxed browser."""
+    """The courts worker disables only Chrome's Fargate-incompatible sandbox."""
     playwright = MagicMock()
     browser = playwright.chromium.launch.return_value
-    page = browser.new_page.return_value
+    context = browser.new_context.return_value
+    page = context.new_page.return_value
+    page.url = core.PORTAL_URL
     manager = MagicMock()
     manager.start.return_value = playwright
     monkeypatch.setattr(core, "sync_playwright", MagicMock(return_value=manager))
@@ -83,8 +86,13 @@ def test_browser_launch_uses_system_chrome_with_sandbox(
     playwright.chromium.launch.assert_called_once_with(
         headless=True,
         channel="chrome",
-        chromium_sandbox=True,
+        chromium_sandbox=False,
     )
+    browser.new_context.assert_called_once_with(service_workers="block")
+    context.route.assert_called_once()
+    assert context.route.call_args.args[0] == "**/*"
+    context.route_web_socket.assert_called_once()
+    assert context.route_web_socket.call_args.args[0] == "**/*"
 
 
 def test_parse_results_accepts_fixture_rows() -> None:

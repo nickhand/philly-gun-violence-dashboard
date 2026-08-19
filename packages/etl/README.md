@@ -29,6 +29,10 @@ uv run gv-dashboard-etl homicides smoke
 uv run gv-dashboard-etl courts smoke
 ```
 
+`gv-dashboard-etl courts fargate-smoke` is a container-only promotion probe;
+run it as the command override of one exact digest-backed worker task, as
+described under **Courts Scraper** below.
+
 ## Pipeline Structure
 
 Each domain follows this pattern:
@@ -214,11 +218,25 @@ same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
 date. It full-upgrades that snapshot before installing Ubuntu's native Python
 (3.13 or newer) and a checksum-pinned Google Chrome 151.0.7922.169 package.
 The Playwright client is pinned to 1.62.0, launches the system `chrome` channel
-with Chromium's sandbox explicitly enabled, and never downloads a separate
-browser bundle. uv cannot download a different interpreter. CI verifies those
-versions and launches Chrome as the production user under the hardened runtime
-settings. The resulting release artifact is identified by its own immutable ECR
-digest, and its scan remains the fail-closed vulnerability gate.
+and never downloads a separate browser bundle. The courts worker explicitly
+sets `chromium_sandbox=False`: Fargate's default seccomp profile does not permit
+the namespace operations required by Chrome's nested sandbox. This exception is
+local to the Fargate courts scraper; the host-run homicide workflow continues to
+set `chromium_sandbox=True`. uv cannot download a different interpreter. CI
+verifies those versions and launches Chrome as the production user under the
+same default outer seccomp behavior used by Fargate. The resulting release
+artifact is identified by its own immutable ECR digest, and its scan remains the
+fail-closed vulnerability gate.
+
+The browser context blocks service workers and intercepts every routed page
+request. It permits only HTTPS requests to the exact
+`ujsportal.pacourts.us` origin on the default TLS port, aborts and records every
+attempted origin escape, blocks every WebSocket, and checks the final page
+origin after the landing page and every search. Live landing and search
+observations used to establish this policy required neither third-party origins
+nor WebSockets. A newly required origin or WebSocket is therefore a failing
+policy change to investigate and review, not something the worker follows
+implicitly.
 
 The minimal Ubuntu base does not initially contain CA roots. Before its first
 apt transaction, the build bootstraps `openssl` 3.5.5-1ubuntu3.3 (SHA-256
@@ -237,6 +255,14 @@ The image defaults to:
 ```bash
 gv-dashboard-etl courts worker
 ```
+
+The image has an explicitly empty entrypoint and contains an executable
+`/bin/false` that returns status 1. Keep the worker task definition on the image
+default command. Set the distinct monitor task definition's default command to
+exactly `["/bin/false"]`; the framework supplies the real monitor command only as
+a reviewed `RunTask` override. A monitor launched without that override therefore
+fails immediately instead of accidentally starting another worker or letting an
+image entrypoint consume the inert command.
 
 The scraper needs existing ECR, ECS, SQS, IAM, and separate worker/monitor task
 definition resources.
@@ -272,23 +298,99 @@ secret.
 The image runs as the unprivileged `app` user and keeps application code,
 dependencies, and Google Chrome root-owned. Both task definitions must explicitly
 target `LINUX/X86_64` with `awsvpc`, contain only the reviewed container, set
-`user: app`, set `readonlyRootFilesystem: true`, remain unprivileged, add no
-Linux capabilities or opaque mounts, and mount one ephemeral writable task
-volume only at `/tmp`;
+`user: app`, set `readonlyRootFilesystem: true`, remain unprivileged, drop
+`ALL` Linux capabilities while adding none, use no security-profile overrides
+or opaque mounts, and mount one
+ephemeral writable task volume only at `/tmp`;
 `HOME`, `TMPDIR`, and the XDG cache/config paths already point there. CI starts
 Chrome with a read-only root plus a temporary `/tmp` mount so this contract is
 tested before release. The image declares `VOLUME ["/tmp"]` after preserving
 mode `1777`; the task volume must mount at that exact path so Fargate carries
 those writable sticky-directory permissions into the otherwise empty bind mount.
 
-The CI browser smoke relaxes only Docker's outer seccomp profile because its
-default profile blocks the namespace syscalls used by Chrome's enabled SUID
-sandbox. It still runs non-root with a read-only root, a no-exec temporary
-volume, no added capabilities, and `chromium_sandbox=True`. This proves the
-image's sandbox installation, not Fargate compatibility. Before registering or
-promoting worker/monitor revisions, run the exact digest as a one-shot Fargate
-browser launch with the production task isolation settings. If that launch
-fails, stop the rollout; do not disable Chrome's sandbox or promote the image.
+The CI browser smoke keeps Docker's default seccomp profile and explicitly uses
+`chromium_sandbox=False`, matching the courts worker's browser and outer-seccomp
+settings rather than relaxing the container boundary. CI additionally gives its
+temporary mount `nosuid`, `nodev`, and `noexec` flags; those stricter local flags
+are not asserted as properties of Fargate's task bind mount. Because the internal
+browser sandbox is disabled, a successful Chrome exploit means same-user code
+execution as the courts worker. The exact-origin route and final-URL policy
+constrains ordinary Playwright HTTP(S) requests and blocks browser WebSockets;
+it is defense-in-depth, not a kernel or network containment boundary. It does
+not contain WebRTC, raw sockets, or network activity after same-user code
+execution. Exploit code is not bound by that route.
+With the currently accepted all-egress security group, it could contact arbitrary
+outbound endpoints, query the ECS task-credential endpoint, exfiltrate temporary
+task-role credentials, read or irrecoverably overwrite unversioned
+`ujs-scraper/*` S3 objects, drain the main SQS queue, or spam its DLQ. This risk is
+knowingly accepted for now; the portal is not trusted content. Real outbound
+containment requires a dedicated egress proxy or firewall plus a reviewed VPC
+endpoint design, not another browser callback.
+
+Compensating controls still reduce likelihood and blast radius: a patched,
+checksum-pinned and vulnerability-scanned Chrome image; immutable image digests;
+Fargate task isolation and its default security profile; an unprivileged `app`
+user; a read-only root; all Linux capabilities dropped; and only one ephemeral
+writable mount at `/tmp`. The Chrome sandbox helper is removed from the image
+rather than retaining an unused setuid-capable executable. After all installs,
+the build also strips every SUID and SGID file mode across the image and fails if
+any remain; CI repeats that whole-filesystem assertion in a read-only,
+network-disabled inspection container. The audit runs as root only so owner-only
+directories cannot hide a privileged mode; production still runs as `app` with
+all capabilities dropped. The worker receives no GitHub dispatch secret; only
+the non-browser monitor task may receive it through ECS `secrets`.
+
+Before promoting worker/monitor revisions, run the exact digest as one one-shot
+Fargate task using the production worker task definition, subnets, security
+groups, task/execution roles, and this command override:
+
+```text
+gv-dashboard-etl courts fargate-smoke
+```
+
+Supply the same nonsecret overrides as a production worker launch:
+`AWS_ACCOUNT_ID`, `AWS_REGION`, `ECS_CLUSTER_NAME`, the exact revisioned
+`ECS_TASK_DEFINITION`, digest-pinned `ECS_EXPECTED_IMAGE_URI`,
+`ECS_CONTAINER_NAME`, and `ECS_PLATFORM_VERSION=1.4.0`. Fargate injects
+`ECS_CONTAINER_METADATA_URI_V4`; do not synthesize it. The command reads that
+link-local endpoint, makes no AWS API calls, and writes no application data. It
+binds the live Fargate launch, cluster, task family/revision, only application
+container, image URI, and image digest to those overrides. It also fails unless
+the live process is the non-root `app` user; seccomp filter mode is 2; effective,
+permitted, and bounding capability sets are zero; the root mount is read-only;
+`/tmp` is a separate writable mode-1777 mount; the Chrome sandbox helper and
+reachable SUID/SGID files are absent; and `GITHUB_DISPATCH_TOKEN` is absent. It
+then uses the real `UJSPortalScraper` to reach the live landing selector under
+the exact-origin policy and, while the browser is open, proves that a Chrome
+process has the explicit `--no-sandbox` argument.
+
+Promote only when the task exits zero and its logs contain this marker exactly
+once:
+
+```text
+COURTS_FARGATE_SMOKE_OK_V1
+```
+
+Any missing marker or nonzero exit blocks promotion. Do not loosen the Fargate
+security profile, add privileges, or fall back to a different task definition
+to make the probe pass.
+
+The in-container metadata does not expose the exact Fargate platform version,
+`enableExecuteCommand`, task-definition security fields, or authoritative ENI
+security groups. Pair the marker with mandatory control-plane evidence for the
+same returned task ARN. Before launch, `DescribeTaskDefinition` must resolve the
+exact ACTIVE worker ARN/revision and prove Fargate compatibility,
+`LINUX/X86_64`, the exact digest image and container, all reviewed isolation
+fields, and no worker secret channel. Launch exactly one task with launch type
+Fargate, platform version `1.4.0`, execute-command disabled, and the production
+subnets/security groups. Afterward, `DescribeTasks` must show that exact task
+definition ARN, `FARGATE`, Linux platform `1.4.0`,
+`enableExecuteCommand=false`, the exact container/image/`imageDigest`, the
+expected attached ENI and subnet, `STOPPED`, and exactly one configured essential
+container with exit code 0. Resolve the ENI with EC2 and compare its complete
+security-group set. CloudWatch must contain the success marker exactly once, and
+ECS must show no remaining PENDING or RUNNING probe task. Any mismatch blocks
+promotion even if the in-container marker appeared.
 
 ### Courts worker protocol rollout gate
 
@@ -302,15 +404,25 @@ which wrote only global result objects. Before the first run after this change:
    monitor task-definition revisions that use the printed digest URI, then use
    `aws ecs describe-task-definition` to verify both resolved `image` values
    contain that exact `@sha256:` digest. The worker definition must not contain
-   `GITHUB_DISPATCH_TOKEN`; the monitor definition may. A separate worker
-   execution role that cannot read the backing secret is recommended as a
-   follow-up least-privilege boundary. Set the GitHub Actions repository variable
+   `GITHUB_DISPATCH_TOKEN`; the monitor definition may. A distinct worker
+   execution role that cannot read the backing secret is a future
+   least-privilege improvement, but current preflight requires both definitions
+   to use `ECS_EXPECTED_EXECUTION_ROLE_ARN`. Do not configure separate execution
+   roles until distinct expected-role settings and validation are implemented.
+   Set the GitHub Actions repository variable
    `ECS_TASK_DEFINITION` to the exact worker revision and
    `ECS_MONITOR_TASK_DEFINITION` to the distinct exact monitor revision (or
    their full revisioned ARNs), and set `ECS_EXPECTED_IMAGE_URI` to the exact
    ECR `repository@sha256` URI printed by the completed release gate. Bare
    families, one shared revision, and a task definition using any other image
-   are intentionally rejected. The courts workflow runs a read-only semantic
+   are intentionally rejected. The monitor definition must default exactly to
+   `["/bin/false"]`, while the worker must retain the image's worker default; both
+   rely on the image's empty entrypoint. The courts workflow also requires
+   `ECS_EXPECTED_TASK_ROLE_ARN` and
+   `ECS_EXPECTED_EXECUTION_ROLE_ARN` to match the exact reviewed same-account
+   roles in both definitions, and set `ECS_EXPECTED_MONITOR_SECRET_ARN` to the
+   exact dispatch-token secret ARN used once by the monitor definition. Every
+   launch pins `ECS_PLATFORM_VERSION=1.4.0`. The courts workflow runs a read-only semantic
    preflight before submission; its OIDC role needs
    `ecs:DescribeTaskDefinition` in a separate `Resource: "*"` statement without
    an `ecs:cluster` condition.

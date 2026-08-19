@@ -10,7 +10,7 @@ import tenacity
 from aws_batch_scraper.types import FailureArtifact, ScrapeResult, ScrapeStatus, WorkItem
 from justhtml import JustHTML
 from loguru import logger
-from playwright.sync_api import Browser, Page, Playwright, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
@@ -20,6 +20,7 @@ from etl.courts.scraper.classifier import (
     classify_case_search,
     classify_from_exception,
 )
+from etl.courts.scraper.origin_policy import PortalOriginPolicy
 from etl.courts.scraper.schema import PortalResult, SoftBlocked
 
 if TYPE_CHECKING:
@@ -161,7 +162,9 @@ class UJSPortalScraper:
 
     _playwright: Playwright | None = field(init=False, default=None)
     _browser: Browser | None = field(init=False, default=None)
+    _context: BrowserContext | None = field(init=False, default=None)
     _page: Page | None = field(init=False, default=None)
+    _origin_policy: PortalOriginPolicy | None = field(init=False, default=None)
     _net_observer: NetworkObserver = field(init=False)
 
     def __post_init__(self) -> None:
@@ -223,22 +226,44 @@ class UJSPortalScraper:
         if self._page is not None:
             return self._page
 
-        self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(
-            headless=not self.debug,
-            channel="chrome",
-            chromium_sandbox=True,
-        )
-        self._page = self._browser.new_page()
+        try:
+            self._playwright = sync_playwright().start()
+            self._browser = self._playwright.chromium.launch(
+                headless=not self.debug,
+                channel="chrome",
+                # Fargate's default seccomp profile cannot start Chrome's nested
+                # namespace sandbox. Keep this exception local to the courts worker;
+                # the host-run homicide workflow continues to enable it.
+                chromium_sandbox=False,
+            )
+            self._origin_policy = PortalOriginPolicy()
+            self._context = self._browser.new_context(service_workers="block")
+            self._context.route("**/*", self._origin_policy.handle_route)
+            self._context.route_web_socket("**/*", self._origin_policy.handle_websocket)
+            self._page = self._context.new_page()
 
-        if self._net_observer:
-            self._net_observer.attach(self._page)
+            if self._net_observer:
+                self._net_observer.attach(self._page)
 
-        self._page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-        self._page.wait_for_selector(SEARCH_BY_DROPDOWN, state="visible", timeout=_NAV_TIMEOUT_MS)
-        self._page.select_option(SEARCH_BY_DROPDOWN, label=self.search_by)
+            self._page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+            self._page.wait_for_selector(
+                SEARCH_BY_DROPDOWN,
+                state="visible",
+                timeout=_NAV_TIMEOUT_MS,
+            )
+            self._page.select_option(SEARCH_BY_DROPDOWN, label=self.search_by)
+            self.assert_portal_origin()
+        except BaseException:
+            self._reset_page()
+            raise
 
         return self._page
+
+    def assert_portal_origin(self) -> None:
+        """Fail if any browser request or the final page escaped the UJS origin."""
+        if self._page is None or self._origin_policy is None:
+            raise RuntimeError("UJS portal origin policy has no live browser page")
+        self._origin_policy.assert_page(self._page)
 
     def _reset_page(self) -> None:
         """Close Playwright objects and reset handles."""
@@ -248,6 +273,8 @@ class UJSPortalScraper:
         try:
             if self._page:
                 self._page.close()
+            if self._context:
+                self._context.close()
             if self._browser:
                 self._browser.close()
             if self._playwright:
@@ -255,7 +282,9 @@ class UJSPortalScraper:
         finally:
             self._playwright = None
             self._browser = None
+            self._context = None
             self._page = None
+            self._origin_policy = None
 
     def close(self) -> None:
         """Close Playwright resources."""
@@ -401,6 +430,9 @@ class UJSPortalScraper:
                 self._net_observer,
                 elapsed_ms,
             )
+
+        if page is not None:
+            self.assert_portal_origin()
 
         if result.is_retryable:
             raise RetryableScrapeError(result)

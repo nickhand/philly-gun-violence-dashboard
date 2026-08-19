@@ -58,6 +58,10 @@ ECS_CLUSTER_NAME=my-scraper
 ECS_TASK_DEFINITION=my-scraper:42
 ECS_MONITOR_TASK_DEFINITION=my-scraper-monitor:17
 ECS_EXPECTED_IMAGE_URI=123456789012.dkr.ecr.us-east-1.amazonaws.com/my-scraper@sha256:<64-lowercase-hex>
+ECS_EXPECTED_TASK_ROLE_ARN=arn:aws:iam::123456789012:role/my-scraper-task
+ECS_EXPECTED_EXECUTION_ROLE_ARN=arn:aws:iam::123456789012:role/my-scraper-execution
+ECS_EXPECTED_MONITOR_SECRET_ARN=arn:aws:secretsmanager:us-east-1:123456789012:secret:my-scraper/github-dispatch-token-AbCdEf
+ECS_PLATFORM_VERSION=1.4.0
 ECS_CONTAINER_NAME=my-scraper
 ECS_SUBNET_IDS=subnet-a,subnet-b
 ECS_SECURITY_GROUP_IDS=sg-a
@@ -132,8 +136,10 @@ Set `ECS_TASK_DEFINITION` to the exact worker `family:revision` (or full
 revisioned ARN) and `ECS_MONITOR_TASK_DEFINITION` to a different exact monitor
 revision. Bare family names and a shared worker/monitor revision are rejected at
 configuration and launch boundaries. Only the monitor definition may inject
-`GITHUB_DISPATCH_TOKEN`. Prefer a separate worker execution role that cannot
-read that secret.
+`GITHUB_DISPATCH_TOKEN`. The current contract binds both definitions to the
+single exact task role and execution role configured below. A separate worker
+execution role would require distinct expected-role settings before it can be
+used without weakening the fail-closed preflight.
 
 The submitter resolves both definitions before the first durable mutation and
 again at each launch boundary. It requires an ACTIVE cluster; ACTIVE Fargate
@@ -141,10 +147,24 @@ definitions using `awsvpc` and `LINUX/X86_64`; exactly one container named
 by `ECS_CONTAINER_NAME`, running as the image's `app` user; the exact
 `ECS_EXPECTED_IMAGE_URI`; a read-only root filesystem; and one ephemeral volume
 mounted read-write only at `/tmp`. It rejects privileged containers, added
-capabilities, extra mounts or containers, kernel overrides, and entry-point
-overrides. No worker container may receive the dispatch token; the primary
-monitor container must receive it through ECS `secrets`, never a plaintext
-environment value.
+capabilities, a capability-drop list other than exactly `ALL`, extra mounts or
+containers, kernel overrides, and entry-point overrides. The worker definition
+must have empty `secrets`, `environment`, and `environmentFiles`; reviewed
+nonsecret values arrive only through per-run ECS overrides. The primary monitor
+definition must have no static environment and exactly one ECS secret,
+`GITHUB_DISPATCH_TOKEN`, bound to the exact `valueFrom` ARN in
+`ECS_EXPECTED_MONITOR_SECRET_ARN`. Its static command must be exactly
+`["/bin/false"]`; the framework supplies the real monitor command as a launch
+override, while a direct no-override launch exits without starting the browser.
+Every launch explicitly pins Fargate platform
+version `1.4.0` rather than accepting `LATEST`.
+Both definitions must also use the exact same-account task and execution roles
+named by `ECS_EXPECTED_TASK_ROLE_ARN` and `ECS_EXPECTED_EXECUTION_ROLE_ARN`.
+Neither definition may set `repositoryCredentials`, `credentialSpecs`, a
+FireLens log router, static labels, a health-check command, exposed ports, or
+interactive terminals; logging, when present, must use `awslogs` with no
+`secretOptions`. This closes alternate secret-loading, executable, and ingress
+channels.
 The submitter role needs `ecs:DescribeTaskDefinition` with `Resource: "*"` in a
 statement without the `ecs:cluster` condition used to scope `ecs:RunTask`.
 
@@ -160,11 +180,17 @@ aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
 aws_batch_scraper_browser_freshness_script := "etl/src/etl/chrome_release.py"
 aws_batch_scraper_required_sbom_packages := "python:playwright=1.62.0,deb:google-chrome-stable=151.0.7922.169-1,binary:node=24.18.1"
 aws_batch_scraper_chrome_executable_sha256 := "sha256:..."
-aws_batch_scraper_chrome_sandbox_sha256 := "sha256:..."
+aws_batch_scraper_chrome_sandbox_scan_args := "--forbid-chrome-sandbox --forbid-setuid-setgid-files"
 aws_batch_scraper_release_evidence_root := ".artifacts/aws-batch-scraper/releases"
 
 import "packages/aws-batch-scraper/just/aws-batch-scraper.just"
 ```
+
+This project's release recipes require the final image to omit Chrome's
+setuid sandbox helper and every other setuid/setgid file. The local SBOM gate
+fails if `/opt/google/chrome/chrome-sandbox` or any privileged-mode file is
+present; the worker instead relies on the reviewed Fargate task boundary and
+the browser launch policy documented by the application.
 
 The release recipes read `AWS_ACCOUNT_ID`, `AWS_REGION`,
 `ECR_REPOSITORY_NAME`, `SCRAPER_IMAGE_TAG`, and optional `AWS_PROFILE`

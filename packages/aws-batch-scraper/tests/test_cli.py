@@ -18,6 +18,11 @@ from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 IMAGE_URI = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+TASK_ROLE_ARN = "arn:aws:iam::123456789012:role/ujs-scraper-task"
+EXECUTION_ROLE_ARN = "arn:aws:iam::123456789012:role/ujs-scraper-execution"
+MONITOR_SECRET_ARN = (
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:ujs-scraper/github-dispatch-token-AbCdEf"
+)
 
 
 class _SubmitConfig(SubmitterConfig):
@@ -32,6 +37,10 @@ class _SubmitConfig(SubmitterConfig):
     ecs_task_definition: str = "task-definition:1"
     ecs_monitor_task_definition: str = "monitor-task-definition:1"
     ecs_expected_image_uri: str = IMAGE_URI
+    ecs_expected_task_role_arn: str = TASK_ROLE_ARN
+    ecs_expected_execution_role_arn: str = EXECUTION_ROLE_ARN
+    ecs_expected_monitor_secret_arn: str = MONITOR_SECRET_ARN
+    ecs_platform_version: str = "1.4.0"
     github_repository: str = "owner/repository"
     github_workflow_file: str = "process.yml"
     ecs_container_name: str = "worker"
@@ -72,6 +81,8 @@ def _patch_submit_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
                 "taskDefinitionArn": (
                     "arn:aws:ecs:us-east-1:123456789012:task-definition/task-definition:1"
                 ),
+                "taskRoleArn": TASK_ROLE_ARN,
+                "executionRoleArn": EXECUTION_ROLE_ARN,
                 "status": "ACTIVE",
                 "requiresCompatibilities": ["FARGATE"],
                 "networkMode": "awsvpc",
@@ -89,6 +100,7 @@ def _patch_submit_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
                         "user": "app",
                         "readonlyRootFilesystem": True,
                         "privileged": False,
+                        "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
                         "mountPoints": [
                             {
                                 "sourceVolume": "tmp",
@@ -105,6 +117,8 @@ def _patch_submit_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
                 "taskDefinitionArn": (
                     "arn:aws:ecs:us-east-1:123456789012:task-definition/monitor-task-definition:1"
                 ),
+                "taskRoleArn": TASK_ROLE_ARN,
+                "executionRoleArn": EXECUTION_ROLE_ARN,
                 "status": "ACTIVE",
                 "requiresCompatibilities": ["FARGATE"],
                 "networkMode": "awsvpc",
@@ -117,16 +131,18 @@ def _patch_submit_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
                     {
                         "name": "worker",
                         "image": IMAGE_URI,
+                        "command": ["/bin/false"],
                         "secrets": [
                             {
                                 "name": "GITHUB_DISPATCH_TOKEN",
-                                "valueFrom": "arn:aws:secretsmanager:token",
+                                "valueFrom": MONITOR_SECRET_ARN,
                             }
                         ],
                         "environment": [],
                         "user": "app",
                         "readonlyRootFilesystem": True,
                         "privileged": False,
+                        "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
                         "mountPoints": [
                             {
                                 "sourceVolume": "tmp",

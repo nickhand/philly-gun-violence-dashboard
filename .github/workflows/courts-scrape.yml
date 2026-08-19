@@ -80,6 +80,12 @@ jobs:
           ECS_MONITOR_TASK_DEFINITION: ${{ vars.ECS_MONITOR_TASK_DEFINITION }}
           # Exact repository@sha256 URI printed only after local and ECR release gates pass.
           ECS_EXPECTED_IMAGE_URI: ${{ vars.ECS_EXPECTED_IMAGE_URI }}
+          # Exact reviewed roles; task-definition substitution fails before queue mutation.
+          ECS_EXPECTED_TASK_ROLE_ARN: ${{ vars.ECS_EXPECTED_TASK_ROLE_ARN }}
+          ECS_EXPECTED_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXPECTED_EXECUTION_ROLE_ARN }}
+          # Exact monitor-only secret and reviewed Fargate runtime contract.
+          ECS_EXPECTED_MONITOR_SECRET_ARN: ${{ vars.ECS_EXPECTED_MONITOR_SECRET_ARN }}
+          ECS_PLATFORM_VERSION: "1.4.0"
           ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
           ECS_TASK_COUNT: ${{ vars.ECS_TASK_COUNT }}
           ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}

@@ -32,6 +32,9 @@ RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
     && test -s /etc/ssl/certs/ca-certificates.crt \
     && rm -f /tmp/openssl.deb /tmp/ca-certificates.deb
 
+# Fargate's default seccomp profile cannot start Chrome's nested namespace
+# sandbox. The courts worker therefore disables that sandbox, so the runtime
+# image removes the otherwise unused privilege-bearing helper entirely.
 RUN test "$UBUNTU_SNAPSHOT" = "20260819T160000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
@@ -59,12 +62,14 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260819T160000Z" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
         /tmp/google-chrome-stable.deb \
+        /opt/google/chrome/chrome-sandbox \
         /etc/apt/sources.list.d/google-chrome.list \
         /etc/apt/trusted.gpg.d/google-chrome.gpg \
         /etc/cron.daily/google-chrome \
         /etc/default/google-chrome \
         /usr/share/keyrings/google-linux-signing-keyring.gpg \
         /usr/bin/pebble \
+    && test ! -e /opt/google/chrome/chrome-sandbox \
     && rm -rf /opt/google/chrome/cron \
     && rm -rf /var/lib/apt/lists/*
 
@@ -143,6 +148,15 @@ RUN chmod 1777 /tmp \
     && groupadd --system app \
     && useradd --system --gid app --home-dir /tmp/app-home --no-create-home \
         --shell /usr/sbin/nologin app
+
+# No runtime path needs setuid or setgid execution. Strip every privilege bit
+# after all OS and application installs, then fail closed if any remain. The
+# monitor task's inert default command must also exist and return false directly.
+RUN test -x /bin/false \
+    && ( /bin/false; test "$?" -eq 1 ) \
+    && find / -xdev -type f -perm /6000 -exec chmod a-s {} + \
+    && privileged_paths="$(find / -xdev -type f -perm /6000 -print)" \
+    && test -z "$privileged_paths"
 
 VOLUME ["/tmp"]
 

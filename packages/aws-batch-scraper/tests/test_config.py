@@ -4,6 +4,9 @@ import pytest
 from aws_batch_scraper.config import (
     SubmitterConfig,
     require_exact_ecr_image_uri,
+    require_exact_fargate_platform,
+    require_exact_iam_role_arn,
+    require_exact_secret_arn,
     require_exact_task_definition,
     require_github_repository,
     require_github_workflow_file,
@@ -72,6 +75,13 @@ def _submitter_kwargs() -> dict[str, object]:
         "ecs_expected_image_uri": (
             "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
         ),
+        "ecs_expected_task_role_arn": "arn:aws:iam::123456789012:role/ujs-scraper-task",
+        "ecs_expected_execution_role_arn": ("arn:aws:iam::123456789012:role/ujs-scraper-execution"),
+        "ecs_expected_monitor_secret_arn": (
+            "arn:aws:secretsmanager:us-east-1:123456789012:"
+            "secret:ujs-scraper/github-dispatch-token-AbCdEf"
+        ),
+        "ecs_platform_version": "1.4.0",
         "ecs_container_name": "worker",
         "ecs_subnet_ids": ["subnet-1"],
         "ecs_security_group_ids": ["sg-1"],
@@ -108,6 +118,100 @@ def test_ecr_release_image_uri_rejects_wrong_or_mutable_identity(value: str | No
             account_id="123456789012",
             region="us-east-1",
         )
+
+
+def test_exact_iam_role_arn_is_bound_to_account() -> None:
+    value = "arn:aws:iam::123456789012:role/service/ujs-scraper-task"
+
+    assert (
+        require_exact_iam_role_arn(
+            value,
+            account_id="123456789012",
+            setting_name="ECS_EXPECTED_TASK_ROLE_ARN",
+        )
+        == value
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        "",
+        "ujs-scraper-task",
+        "arn:aws:iam::999999999999:role/ujs-scraper-task",
+        "arn:aws:iam::123456789012:user/ujs-scraper-task",
+        "arn:aws:iam::123456789012:role/path//ujs-scraper-task",
+    ],
+)
+def test_iam_role_arn_rejects_wrong_or_ambiguous_identity(value: str | None) -> None:
+    with pytest.raises(ValueError, match="exact same-account IAM role ARN"):
+        require_exact_iam_role_arn(
+            value,
+            account_id="123456789012",
+            setting_name="ECS_EXPECTED_TASK_ROLE_ARN",
+        )
+
+
+def test_exact_monitor_secret_arn_is_bound_to_account_and_region() -> None:
+    value = (
+        "arn:aws:secretsmanager:us-east-1:123456789012:"
+        "secret:ujs-scraper/github-dispatch-token-AbCdEf"
+    )
+
+    assert (
+        require_exact_secret_arn(
+            value,
+            account_id="123456789012",
+            region="us-east-1",
+            setting_name="ECS_EXPECTED_MONITOR_SECRET_ARN",
+        )
+        == value
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        "",
+        "ujs-scraper/github-dispatch-token",
+        (
+            "arn:aws:secretsmanager:us-east-1:999999999999:"
+            "secret:ujs-scraper/github-dispatch-token-AbCdEf"
+        ),
+        (
+            "arn:aws:secretsmanager:us-west-2:123456789012:"
+            "secret:ujs-scraper/github-dispatch-token-AbCdEf"
+        ),
+        (
+            "arn:aws:secretsmanager:us-east-1:123456789012:"
+            "secret:ujs-scraper//github-dispatch-token-AbCdEf"
+        ),
+    ],
+)
+def test_monitor_secret_arn_rejects_wrong_or_ambiguous_identity(value: str | None) -> None:
+    with pytest.raises(ValueError, match="same-account, same-region Secrets Manager ARN"):
+        require_exact_secret_arn(
+            value,
+            account_id="123456789012",
+            region="us-east-1",
+            setting_name="ECS_EXPECTED_MONITOR_SECRET_ARN",
+        )
+
+
+def test_submitter_config_rejects_unreviewed_fargate_platform() -> None:
+    values = _submitter_kwargs()
+    values["ecs_platform_version"] = "LATEST"
+
+    with pytest.raises(ValueError, match="ECS_PLATFORM_VERSION"):
+        SubmitterConfig(**values)
+
+
+@pytest.mark.parametrize("value", ["LATEST", "1.3.0", "1.4", ""])
+def test_exact_fargate_platform_rejects_mutable_or_unreviewed_values(value: str) -> None:
+    with pytest.raises(ValueError, match="ECS_PLATFORM_VERSION"):
+        require_exact_fargate_platform(value)
 
 
 def test_submitter_config_requires_monitor_task_definition() -> None:

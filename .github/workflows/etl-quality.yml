@@ -113,19 +113,30 @@ jobs:
         run: |
           test "$(docker inspect --format '{{.Config.User}}' philly-courts-scraper:ci)" = "app"
           test "$(docker inspect --format '{{json .Config.Cmd}}' philly-courts-scraper:ci)" = '["gv-dashboard-etl","courts","worker"]'
+          image_entrypoint="$(docker inspect --format '{{json .Config.Entrypoint}}' philly-courts-scraper:ci)"
+          test "${image_entrypoint}" = "null" || test "${image_entrypoint}" = "[]"
           test "$(docker inspect --format '{{json .Config.Volumes}}' philly-courts-scraper:ci)" = '{"/tmp":{}}'
-          runtime_flags=(--rm --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m)
+          runtime_flags=(--rm --read-only --cap-drop ALL --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m)
+          inspection_runtime_flags=(--rm --read-only --network none --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m)
           test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -c 'printf %s "$HOME"')" = "/tmp/app-home"
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'"
           test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci google-chrome --product-version)" = "151.0.7922.169"
-          docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test "$(stat -c %U:%G:%a /opt/google/chrome/chrome-sandbox)" = root:root:4755; test ! -e /ms-playwright; test ! -e /usr/bin/pebble; test ! -e /etc/apt/sources.list.d/google-chrome.list; test ! -e /etc/cron.daily/google-chrome; test ! -e /etc/default/google-chrome; test ! -e /usr/share/keyrings/google-linux-signing-keyring.gpg; test ! -e /opt/google/chrome/cron'
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test ! -e /opt/google/chrome/chrome-sandbox; test ! -e /ms-playwright; test ! -e /usr/bin/pebble; test ! -e /etc/apt/sources.list.d/google-chrome.list; test ! -e /etc/cron.daily/google-chrome; test ! -e /etc/default/google-chrome; test ! -e /usr/share/keyrings/google-linux-signing-keyring.gpg; test ! -e /opt/google/chrome/cron'
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test -x /bin/false'
+          if docker run "${runtime_flags[@]}" philly-courts-scraper:ci /bin/false; then
+            echo "/bin/false unexpectedly returned success" >&2
+            exit 1
+          else
+            test "$?" -eq 1
+          fi
+          # Inspect as root so owner-only directories cannot hide privileged
+          # modes; read-only root and no network contain this inspection.
+          docker run "${inspection_runtime_flags[@]}" --user root philly-courts-scraper:ci sh -ceu 'privileged_paths="$(find / -xdev -type f -perm /6000 -print)"; test -z "$privileged_paths"'
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl --help
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl courts monitor --help
-          # Docker's default seccomp profile blocks the namespace syscalls used by
-          # Chrome's enabled internal sandbox. Relax only this test container's
-          # outer profile; chromium_sandbox=True remains mandatory in the browser.
-          browser_runtime_flags=("${runtime_flags[@]}" --security-opt seccomp=unconfined)
-          docker run "${browser_runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True, channel='chrome', chromium_sandbox=True); assert browser.version == '151.0.7922.169', browser.version; browser.close(); context.stop()"
+          # Match Fargate's default outer security profile: only Chrome's nested
+          # sandbox is disabled for this courts browser launch.
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True, channel='chrome', chromium_sandbox=False); assert browser.version == '151.0.7922.169', browser.version; browser.close(); context.stop()"
       - name: Generate SBOMs and scan the exact production image
         working-directory: packages/aws-batch-scraper
         run: |
@@ -135,7 +146,8 @@ jobs:
             --expected-distro-version 26.04 \
             --required-packages "python:playwright=1.62.0,deb:google-chrome-stable=151.0.7922.169-1,binary:node=24.18.1" \
             --required-chrome-executable-sha256 "sha256:3059e7448d906793a7116351739d3096d232d1516e8bf19209b1e2957d5e7662" \
-            --required-chrome-sandbox-sha256 "sha256:18391bf9d217ddbde9956347cbb1346d2808a73ade4baa3f88a610447cf946b4" \
+            --forbid-chrome-sandbox \
+            --forbid-setuid-setgid-files \
             --output-directory "${RUNNER_TEMP}/scraper-image-scan"
       - name: Preserve scraper SBOM and vulnerability evidence
         if: always()

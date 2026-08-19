@@ -17,6 +17,11 @@ from aws_batch_scraper.orchestrate import (
 from botocore.exceptions import ClientError
 
 IMAGE_URI = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+TASK_ROLE_ARN = "arn:aws:iam::123456789012:role/ujs-scraper-task"
+EXECUTION_ROLE_ARN = "arn:aws:iam::123456789012:role/ujs-scraper-execution"
+MONITOR_SECRET_ARN = (
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:ujs-scraper/github-dispatch-token-AbCdEf"
+)
 
 
 def _config() -> WorkerConfig:
@@ -42,6 +47,10 @@ def _submitter_config() -> SubmitterConfig:
         ecs_task_definition="task:1",
         ecs_monitor_task_definition="monitor-task:2",
         ecs_expected_image_uri=IMAGE_URI,
+        ecs_expected_task_role_arn=TASK_ROLE_ARN,
+        ecs_expected_execution_role_arn=EXECUTION_ROLE_ARN,
+        ecs_expected_monitor_secret_arn=MONITOR_SECRET_ARN,
+        ecs_platform_version="1.4.0",
         github_repository="owner/repository",
         github_workflow_file="process.yml",
         ecs_container_name="worker",
@@ -63,11 +72,18 @@ def _task_definition_response(
     command: list[str] | None = None,
     entry_point: list[str] | None = None,
 ) -> dict[str, object]:
+    resolved_command = (
+        command
+        if command is not None
+        else (["/bin/false"] if family_revision.startswith("monitor") else [])
+    )
     return {
         "taskDefinition": {
             "taskDefinitionArn": (
                 f"arn:aws:ecs:us-east-1:123456789012:task-definition/{family_revision}"
             ),
+            "taskRoleArn": TASK_ROLE_ARN,
+            "executionRoleArn": EXECUTION_ROLE_ARN,
             "status": "ACTIVE",
             "requiresCompatibilities": ["FARGATE"],
             "networkMode": "awsvpc",
@@ -82,11 +98,12 @@ def _task_definition_response(
                     "image": image or IMAGE_URI,
                     "secrets": secrets or [],
                     "environment": environment or [],
-                    "command": command or [],
+                    "command": resolved_command,
                     "entryPoint": entry_point or [],
                     "user": "app",
                     "readonlyRootFilesystem": True,
                     "privileged": False,
+                    "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
                     "mountPoints": [
                         {
                             "sourceVolume": "tmp",
@@ -123,7 +140,7 @@ def _split_definition_ecs(
             secrets=[
                 {
                     "name": "GITHUB_DISPATCH_TOKEN",
-                    "valueFrom": "arn:aws:secretsmanager:token",
+                    "valueFrom": MONITOR_SECRET_ARN,
                 }
             ],
         ),
@@ -195,6 +212,21 @@ def test_worker_launch_rejects_mutated_bare_task_definition() -> None:
     ecs.run_task.assert_not_called()
 
 
+@pytest.mark.parametrize("launcher", ["worker", "monitor"])
+def test_task_launch_rejects_mutated_fargate_platform(launcher: str) -> None:
+    config = _submitter_config()
+    config.ecs_platform_version = "LATEST"
+    ecs = _split_definition_ecs()
+
+    with pytest.raises(ValueError, match="ECS_PLATFORM_VERSION"):
+        if launcher == "worker":
+            launch_workers(ecs, config, "run-1")
+        else:
+            launch_monitor(ecs, config, "run-1", ["tool", "monitor"])
+
+    ecs.run_task.assert_not_called()
+
+
 def test_split_task_definition_contract_resolves_both_exact_revisions() -> None:
     ecs = _split_definition_ecs()
 
@@ -210,21 +242,49 @@ def test_split_task_definition_contract_resolves_both_exact_revisions() -> None:
     ]
 
 
-def test_split_task_definition_contract_rejects_worker_dispatch_secret() -> None:
+@pytest.mark.parametrize("secret_name", ["GITHUB_DISPATCH_TOKEN", "OTHER_SECRET"])
+def test_split_task_definition_contract_rejects_every_worker_secret(
+    secret_name: str,
+) -> None:
     ecs = _split_definition_ecs(
         worker_response=_task_definition_response(
             "task:1",
             secrets=[
                 {
-                    "name": "GITHUB_DISPATCH_TOKEN",
+                    "name": secret_name,
                     "valueFrom": "arn:aws:secretsmanager:token",
                 }
             ],
         )
     )
 
-    with pytest.raises(ValueError, match="Worker task definition must not expose"):
+    with pytest.raises(ValueError, match="must not include any ECS secrets"):
         resolve_split_task_definitions(ecs, _submitter_config())
+
+
+def test_split_task_definition_contract_rejects_static_worker_environment() -> None:
+    ecs = _split_definition_ecs(
+        worker_response=_task_definition_response(
+            "task:1",
+            environment=[{"name": "UNREVIEWED", "value": "value"}],
+        )
+    )
+
+    with pytest.raises(ValueError, match="must not include static environment"):
+        resolve_split_task_definitions(ecs, _submitter_config())
+
+
+def test_split_task_definition_contract_rejects_worker_environment_files() -> None:
+    worker_response = _task_definition_response("task:1")
+    definition = cast(dict[str, Any], worker_response["taskDefinition"])
+    container = cast(dict[str, Any], definition["containerDefinitions"][0])
+    container["environmentFiles"] = [{"type": "s3", "value": "arn:aws:s3:::bucket/env"}]
+
+    with pytest.raises(ValueError, match="opaque environment files"):
+        resolve_split_task_definitions(
+            _split_definition_ecs(worker_response=worker_response),
+            _submitter_config(),
+        )
 
 
 @pytest.mark.parametrize(
@@ -251,6 +311,7 @@ def test_split_task_definition_contract_rejects_mutable_images(image: str) -> No
         ("user", "0:0", "app user"),
         ("readonlyRootFilesystem", False, "read-only root filesystem"),
         ("readonlyRootFilesystem", None, "read-only root filesystem"),
+        ("linuxParameters", None, "linuxParameters"),
     ],
 )
 def test_split_task_definition_contract_requires_hardened_runtime(
@@ -313,10 +374,60 @@ def test_split_task_definition_contract_requires_exact_platform_and_temporary_vo
             "writable /tmp",
         ),
         ("volumesFrom", [{"sourceContainer": "sidecar"}], "opaque volumes"),
+        (
+            "repositoryCredentials",
+            {"credentialsParameter": MONITOR_SECRET_ARN},
+            "repository credentials",
+        ),
+        (
+            "credentialSpecs",
+            ["credentialspecdomainless:arn:aws:s3:::bucket/spec"],
+            "credential specs",
+        ),
+        (
+            "firelensConfiguration",
+            {"type": "fluentbit"},
+            "log router",
+        ),
+        (
+            "dockerLabels",
+            {"GITHUB_DISPATCH_TOKEN": "plaintext"},
+            "opaque labels",
+        ),
+        (
+            "healthCheck",
+            {"command": ["CMD-SHELL", "browser-worker"]},
+            "static health command",
+        ),
+        (
+            "portMappings",
+            [{"containerPort": 8080, "hostPort": 8080}],
+            "expose network ports",
+        ),
+        ("interactive", True, "noninteractive"),
+        ("pseudoTerminal", True, "noninteractive"),
+        (
+            "logConfiguration",
+            {
+                "logDriver": "awslogs",
+                "secretOptions": [{"name": "token", "valueFrom": MONITOR_SECRET_ARN}],
+            },
+            "without secret options",
+        ),
+        (
+            "logConfiguration",
+            {"logDriver": "splunk", "secretOptions": []},
+            "use awslogs",
+        ),
         ("linuxParameters", {"capabilities": {"add": ["SYS_ADMIN"]}}, "capabilities"),
+        ("linuxParameters", {"capabilities": {"drop": []}}, "drop every"),
+        ("linuxParameters", {"capabilities": {"drop": ["NET_RAW"]}}, "drop every"),
         (
             "linuxParameters",
-            {"tmpfs": [{"containerPath": "/app", "size": 64}]},
+            {
+                "capabilities": {"drop": ["ALL"]},
+                "tmpfs": [{"containerPath": "/app", "size": 64}],
+            },
             "tmpfs",
         ),
     ],
@@ -339,7 +450,82 @@ def test_split_task_definition_contract_rejects_runtime_isolation_bypasses(
 def test_split_task_definition_contract_requires_monitor_secret_injection() -> None:
     ecs = _split_definition_ecs(monitor_response=_task_definition_response("monitor-task:2"))
 
-    with pytest.raises(ValueError, match="inject GITHUB_DISPATCH_TOKEN from an ECS secret"):
+    with pytest.raises(ValueError, match="inject only GITHUB_DISPATCH_TOKEN"):
+        resolve_split_task_definitions(ecs, _submitter_config())
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        [],
+        ["gv-dashboard-etl", "courts", "worker"],
+        ["/bin/false", "unexpected-argument"],
+    ],
+)
+def test_split_task_definition_contract_requires_fail_closed_monitor_default(
+    command: list[str],
+) -> None:
+    ecs = _split_definition_ecs(
+        monitor_response=_task_definition_response(
+            "monitor-task:2",
+            command=command,
+            secrets=[
+                {
+                    "name": "GITHUB_DISPATCH_TOKEN",
+                    "valueFrom": MONITOR_SECRET_ARN,
+                }
+            ],
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"default to \['/bin/false'\]"):
+        resolve_split_task_definitions(ecs, _submitter_config())
+
+
+def test_split_task_definition_contract_rejects_extra_monitor_secret() -> None:
+    ecs = _split_definition_ecs(
+        monitor_response=_task_definition_response(
+            "monitor-task:2",
+            secrets=[
+                {
+                    "name": "GITHUB_DISPATCH_TOKEN",
+                    "valueFrom": MONITOR_SECRET_ARN,
+                },
+                {
+                    "name": "UNREVIEWED",
+                    "valueFrom": "arn:aws:secretsmanager:other",
+                },
+            ],
+        )
+    )
+
+    with pytest.raises(ValueError, match="inject only GITHUB_DISPATCH_TOKEN"):
+        resolve_split_task_definitions(ecs, _submitter_config())
+
+
+@pytest.mark.parametrize(
+    "secrets",
+    [
+        [
+            {
+                "name": "GITHUB_DISPATCH_TOKEN",
+                "valueFrom": ("arn:aws:secretsmanager:us-east-1:123456789012:secret:other-AbCdEf"),
+            }
+        ],
+        [
+            {"name": "GITHUB_DISPATCH_TOKEN", "valueFrom": MONITOR_SECRET_ARN},
+            {"name": "GITHUB_DISPATCH_TOKEN", "valueFrom": MONITOR_SECRET_ARN},
+        ],
+    ],
+)
+def test_split_task_definition_contract_binds_one_exact_monitor_secret(
+    secrets: list[dict[str, str]],
+) -> None:
+    ecs = _split_definition_ecs(
+        monitor_response=_task_definition_response("monitor-task:2", secrets=secrets)
+    )
+
+    with pytest.raises(ValueError, match="reviewed ECS secret"):
         resolve_split_task_definitions(ecs, _submitter_config())
 
 
@@ -357,7 +543,7 @@ def test_split_task_definition_contract_rejects_plaintext_monitor_token() -> Non
         )
     )
 
-    with pytest.raises(ValueError, match="must not store GITHUB_DISPATCH_TOKEN plaintext"):
+    with pytest.raises(ValueError, match="must not include static environment"):
         resolve_split_task_definitions(ecs, _submitter_config())
 
 
@@ -386,6 +572,41 @@ def test_split_task_definition_contract_requires_the_release_gate_image() -> Non
     )
 
     with pytest.raises(ValueError, match="ECS_EXPECTED_IMAGE_URI"):
+        resolve_split_task_definitions(_split_definition_ecs(), config)
+
+
+@pytest.mark.parametrize(
+    ("field", "definition_key", "message"),
+    [
+        ("ecs_expected_task_role_arn", "taskRoleArn", "reviewed task role"),
+        (
+            "ecs_expected_execution_role_arn",
+            "executionRoleArn",
+            "reviewed execution role",
+        ),
+    ],
+)
+def test_split_task_definition_contract_binds_reviewed_roles(
+    field: str,
+    definition_key: str,
+    message: str,
+) -> None:
+    config = _submitter_config()
+    setattr(config, field, "arn:aws:iam::123456789012:role/reviewed-other-role")
+
+    with pytest.raises(ValueError, match=message):
+        resolve_split_task_definitions(_split_definition_ecs(), config)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["ecs_expected_task_role_arn", "ecs_expected_execution_role_arn"],
+)
+def test_split_task_definition_contract_requires_reviewed_role_config(field: str) -> None:
+    config = _submitter_config()
+    setattr(config, field, None)
+
+    with pytest.raises(ValueError, match="exact same-account IAM role ARN"):
         resolve_split_task_definitions(_split_definition_ecs(), config)
 
 

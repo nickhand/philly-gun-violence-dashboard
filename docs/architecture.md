@@ -48,6 +48,26 @@ incident IDs
   -> processed court-status dataset
 ```
 
+The courts browser explicitly disables Chrome's nested sandbox because it cannot
+start under Fargate's default seccomp profile. This is a courts-only runtime
+exception; the host-run homicide browser keeps its internal sandbox enabled.
+The courts task retains Fargate isolation, a non-root user, a read-only root,
+default seccomp, all Linux capabilities dropped, one ephemeral temporary mount,
+a digest-pinned scanned image, narrowly scoped task-role access, and no browser
+worker secrets. The unused Chrome sandbox helper is removed from the image, all
+other SUID/SGID modes are stripped after installation, and CI requires none to
+remain. The exact-origin HTTP(S) route and total browser-WebSocket block are
+defense-in-depth, not kernel or network containment; they do not contain WebRTC,
+raw sockets, or post-exploit network activity. Because Chrome runs without its
+internal sandbox, a browser compromise means same-user worker code execution.
+With the current all-egress security group, that code could contact arbitrary
+outbound endpoints, query the ECS credential endpoint, exfiltrate temporary
+task-role credentials, read or irrecoverably overwrite unversioned
+`ujs-scraper/*` S3 objects, drain the main SQS queue, or spam its DLQ. These risks
+are knowingly accepted for now; portal content is not trusted. Real containment
+requires a dedicated egress proxy/firewall and reviewed VPC endpoints. See the
+ETL README for the full residual-risk statement and release gate.
+
 ## API Caching Strategy
 
 The shootings API uses content-addressed URLs:

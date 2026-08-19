@@ -19,6 +19,11 @@ from typer.testing import CliRunner
 from etl.courts.config import CourtsSubmitterConfig
 
 IMAGE_URI = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
+TASK_ROLE_ARN = "arn:aws:iam::123456789012:role/ujs-scraper-task"
+EXECUTION_ROLE_ARN = "arn:aws:iam::123456789012:role/ujs-scraper-execution"
+MONITOR_SECRET_ARN = (
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:ujs-scraper/github-dispatch-token-AbCdEf"
+)
 
 
 def _config() -> CourtsSubmitterConfig:
@@ -29,6 +34,10 @@ def _config() -> CourtsSubmitterConfig:
         ecs_task_definition="ujs-scraper:1",
         ecs_monitor_task_definition="ujs-scraper-monitor:2",
         ecs_expected_image_uri=IMAGE_URI,
+        ecs_expected_task_role_arn=TASK_ROLE_ARN,
+        ecs_expected_execution_role_arn=EXECUTION_ROLE_ARN,
+        ecs_expected_monitor_secret_arn=MONITOR_SECRET_ARN,
+        ecs_platform_version="1.4.0",
         github_repository="owner/repository",
         ecs_subnet_ids=["subnet-1"],
         ecs_security_group_ids=["sg-1"],
@@ -110,11 +119,12 @@ class FakeECS:
         container = {
             "name": "ujs-scraper",
             "image": IMAGE_URI,
+            "command": ["/bin/false"] if is_monitor else [],
             "secrets": (
                 [
                     {
                         "name": "GITHUB_DISPATCH_TOKEN",
-                        "valueFrom": "arn:aws:secretsmanager:token",
+                        "valueFrom": MONITOR_SECRET_ARN,
                     }
                 ]
                 if is_monitor
@@ -124,6 +134,7 @@ class FakeECS:
             "user": "app",
             "readonlyRootFilesystem": True,
             "privileged": False,
+            "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
             "mountPoints": [
                 {
                     "sourceVolume": "tmp",
@@ -135,6 +146,8 @@ class FakeECS:
         return {
             "taskDefinition": {
                 "taskDefinitionArn": arn,
+                "taskRoleArn": TASK_ROLE_ARN,
+                "executionRoleArn": EXECUTION_ROLE_ARN,
                 "status": "ACTIVE",
                 "requiresCompatibilities": ["FARGATE"],
                 "networkMode": "awsvpc",
@@ -286,6 +299,7 @@ def test_workers_launch_in_one_idempotent_request() -> None:
     assert ecs.requests[0]["taskDefinition"] == "ujs-scraper:1"
     assert ecs.requests[0]["taskDefinition"] != "ujs-scraper-monitor:2"
     assert ecs.requests[0]["clientToken"].startswith("gv-worker-")
+    assert ecs.requests[0]["platformVersion"] == "1.4.0"
 
 
 def test_launch_workers_marks_exhausted_transport_error_ambiguous(
@@ -349,6 +363,10 @@ def test_submit_persists_partial_launch_task_arns(
         ecs_task_definition: str = "ujs-scraper:42"
         ecs_monitor_task_definition: str = "ujs-scraper-monitor:17"
         ecs_expected_image_uri: str = IMAGE_URI
+        ecs_expected_task_role_arn: str = TASK_ROLE_ARN
+        ecs_expected_execution_role_arn: str = EXECUTION_ROLE_ARN
+        ecs_expected_monitor_secret_arn: str = MONITOR_SECRET_ARN
+        ecs_platform_version: str = "1.4.0"
         github_repository: str = "owner/repository"
         ecs_subnet_ids: list[str] = ["subnet-1"]
         ecs_security_group_ids: list[str] = ["sg-1"]
@@ -399,11 +417,16 @@ def test_launch_monitor_overrides_worker_command(monkeypatch: pytest.MonkeyPatch
     assert ecs.requests[0]["taskDefinition"] == "ujs-scraper-monitor:2"
     assert ecs.requests[0]["taskDefinition"] != "ujs-scraper:1"
     assert ecs.requests[0]["clientToken"].startswith("gv-monitor-")
+    assert ecs.requests[0]["platformVersion"] == "1.4.0"
     monitor_environment = {entry["name"]: entry["value"] for entry in override["environment"]}
     assert monitor_environment["ECS_CLUSTER_NAME"] == "ujs-scraper"
     assert monitor_environment["ECS_TASK_DEFINITION"] == "ujs-scraper:1"
     assert monitor_environment["ECS_MONITOR_TASK_DEFINITION"] == "ujs-scraper-monitor:2"
     assert monitor_environment["ECS_EXPECTED_IMAGE_URI"] == IMAGE_URI
+    assert monitor_environment["ECS_EXPECTED_TASK_ROLE_ARN"] == TASK_ROLE_ARN
+    assert monitor_environment["ECS_EXPECTED_EXECUTION_ROLE_ARN"] == EXECUTION_ROLE_ARN
+    assert monitor_environment["ECS_EXPECTED_MONITOR_SECRET_ARN"] == MONITOR_SECRET_ARN
+    assert monitor_environment["ECS_PLATFORM_VERSION"] == "1.4.0"
     assert monitor_environment["ECS_CONTAINER_NAME"] == "ujs-scraper"
 
     for name, value in monitor_environment.items():

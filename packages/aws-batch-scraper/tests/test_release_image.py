@@ -1,8 +1,10 @@
 """Tests for fail-closed scraper image release integrity checks."""
 
 import hashlib
+import io
 import json
 import subprocess
+import tarfile
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +20,7 @@ from aws_batch_scraper.release_image import (
     preflight_release,
     validate_chrome_control_report,
     validate_chrome_grype_report,
+    validate_final_filesystem_archive,
     validate_grype_report,
     validate_syft_sbom,
     verify_local_image,
@@ -788,6 +791,7 @@ def test_verify_scan_cli_failure_is_nonzero_and_prints_no_uri(
 def _local_release_evidence(directory: Path) -> Path:
     artifacts: dict[str, str] = {}
     for name in (
+        "filesystem-audit.json",
         "sbom.syft.json",
         "sbom.cdx.json",
         "grype.json",
@@ -817,6 +821,22 @@ def _local_release_evidence(directory: Path) -> Path:
                         "version": release_image.SYFT_VERSION,
                         "schema": release_image.SYFT_SCHEMA_VERSION,
                     },
+                },
+                "filesystem": {
+                    "schema_version": 1,
+                    "image_id": IMAGE_ID,
+                    "archive_sha256": "sha256:" + "d" * 64,
+                    "members": 100,
+                    "regular_files": 80,
+                    "chrome_sandbox_present": False,
+                    "setuid_setgid_files": 0,
+                    "chrome_sandbox_policy": "forbidden",
+                    "setuid_setgid_policy": "forbidden",
+                },
+                "chrome": {
+                    "sandbox_policy": "forbidden",
+                    "sandbox_present": False,
+                    "sandbox_sha256": None,
                 },
                 "scans": {
                     "image": {"severity_counts": {"Critical": 0, "High": 0, "Unknown": 0}},
@@ -855,7 +875,65 @@ def test_verified_release_receipt_binds_remote_digest_to_rehashed_local_evidence
     assert release_image.IMAGE_DIGEST_PATTERN.fullmatch(payload["local_scan_receipt_sha256"])
 
 
-@pytest.mark.parametrize("mutation", ["image-id", "artifact", "high", "control"])
+def test_verified_release_receipt_supports_reviewed_setuid_sandbox_policy(
+    tmp_path: Path,
+) -> None:
+    local_receipt = _local_release_evidence(tmp_path)
+    payload = json.loads(local_receipt.read_text())
+    payload["chrome"] = {
+        "sandbox_policy": "setuid",
+        "sandbox_present": True,
+        "sandbox_sha256": "sha256:" + "e" * 64,
+    }
+    payload["filesystem"].update(
+        {
+            "chrome_sandbox_policy": "permitted",
+            "setuid_setgid_policy": "permitted",
+            "chrome_sandbox_present": True,
+            "setuid_setgid_files": 1,
+        }
+    )
+    local_receipt.write_text(json.dumps(payload))
+    release_receipt = tmp_path / "release.json"
+
+    release_image.write_verified_release_receipt(
+        local_receipt,
+        release_receipt,
+        target=_target(),
+        digest=DIGEST,
+        expected_image_id=IMAGE_ID,
+        clock=lambda: NOW,
+    )
+
+    assert json.loads(release_receipt.read_text())["status"] == "verified"
+
+
+def test_verified_release_receipt_binds_independent_permitted_setid_policy(
+    tmp_path: Path,
+) -> None:
+    local_receipt = _local_release_evidence(tmp_path)
+    payload = json.loads(local_receipt.read_text())
+    payload["filesystem"]["setuid_setgid_policy"] = "permitted"
+    payload["filesystem"]["setuid_setgid_files"] = 2
+    local_receipt.write_text(json.dumps(payload))
+    release_receipt = tmp_path / "release.json"
+
+    release_image.write_verified_release_receipt(
+        local_receipt,
+        release_receipt,
+        target=_target(),
+        digest=DIGEST,
+        expected_image_id=IMAGE_ID,
+        clock=lambda: NOW,
+    )
+
+    assert json.loads(release_receipt.read_text())["status"] == "verified"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["image-id", "artifact", "high", "control", "bool-members", "bool-setid"],
+)
 def test_verified_release_receipt_rejects_tampered_or_incomplete_evidence(
     tmp_path: Path,
     mutation: str,
@@ -870,8 +948,14 @@ def test_verified_release_receipt_rejects_tampered_or_incomplete_evidence(
     elif mutation == "high":
         payload["scans"]["image"]["severity_counts"]["High"] = 1
         local_receipt.write_text(json.dumps(payload))
-    else:
+    elif mutation == "control":
         payload["scans"]["chrome_coverage_control"]["severity_counts"]["High"] = 0
+        local_receipt.write_text(json.dumps(payload))
+    elif mutation == "bool-members":
+        payload["filesystem"]["members"] = True
+        local_receipt.write_text(json.dumps(payload))
+    else:
+        payload["filesystem"]["setuid_setgid_files"] = False
         local_receipt.write_text(json.dumps(payload))
     release_receipt = tmp_path / "release.json"
 
@@ -1068,6 +1152,155 @@ def test_syft_contract_binds_exact_chrome_payload_and_playwright_node() -> None:
     assert result["chrome"]["cpe"] == (f"cpe:2.3:a:google:chrome:{CHROME_VERSION}:*:*:*:*:*:*:*")
     assert result["chrome"]["executable_sha256"] == CHROME_SHA256
     assert result["chrome"]["sandbox_sha256"] == CHROME_SANDBOX_SHA256
+    assert result["chrome"]["sandbox_present"] is True
+    assert result["chrome"]["sandbox_policy"] == "setuid"
+
+
+def test_syft_contract_proves_forbidden_chrome_sandbox_helper_is_absent() -> None:
+    payload = _syft_payload()
+    del payload["files"][1]
+
+    result = validate_syft_sbom(
+        payload,
+        image="scraper:test",
+        image_id=IMAGE_ID,
+        requirements=_required_packages(),
+        expected_chrome_executable_sha256=CHROME_SHA256,
+        forbid_chrome_sandbox=True,
+        forbid_setuid_setgid_files=True,
+    )
+
+    assert result["chrome"]["sandbox"] == "/opt/google/chrome/chrome-sandbox"
+    assert result["chrome"]["sandbox_present"] is False
+    assert result["chrome"]["sandbox_sha256"] is None
+    assert result["chrome"]["sandbox_policy"] == "forbidden"
+    assert result["setuid_setgid_files_forbidden"] is True
+
+
+@pytest.mark.parametrize("mode", [20000755, 40000755, 60000755])
+def test_syft_contract_rejects_any_setuid_or_setgid_file(mode: int) -> None:
+    payload = _syft_payload()
+    del payload["files"][1]
+    payload["files"][0]["location"]["path"] = "/usr/bin/unneeded-helper"
+    payload["files"][0]["metadata"]["mode"] = mode
+
+    with pytest.raises(ReleaseIntegrityError, match="setuid/setgid files"):
+        validate_syft_sbom(
+            payload,
+            image="scraper:test",
+            image_id=IMAGE_ID,
+            requirements=_required_packages(),
+            expected_chrome_executable_sha256=CHROME_SHA256,
+            forbid_chrome_sandbox=True,
+            forbid_setuid_setgid_files=True,
+        )
+
+
+def test_syft_contract_rejects_retained_forbidden_chrome_sandbox_helper() -> None:
+    with pytest.raises(ReleaseIntegrityError, match="retained the forbidden"):
+        validate_syft_sbom(
+            _syft_payload(),
+            image="scraper:test",
+            image_id=IMAGE_ID,
+            requirements=_required_packages(),
+            expected_chrome_executable_sha256=CHROME_SHA256,
+            forbid_chrome_sandbox=True,
+        )
+
+
+def test_syft_contract_rejects_conflicting_chrome_sandbox_policies() -> None:
+    with pytest.raises(ReleaseIntegrityError, match="mutually exclusive"):
+        validate_syft_sbom(
+            _syft_payload(),
+            image="scraper:test",
+            image_id=IMAGE_ID,
+            requirements=_required_packages(),
+            expected_chrome_executable_sha256=CHROME_SHA256,
+            expected_chrome_sandbox_sha256=CHROME_SANDBOX_SHA256,
+            forbid_chrome_sandbox=True,
+        )
+
+
+def _write_filesystem_tar(path: Path, entries: dict[str, int]) -> None:
+    with tarfile.open(path, mode="w") as archive:
+        for name, mode in entries.items():
+            info = tarfile.TarInfo(name)
+            info.mode = mode
+            info.size = 1
+            archive.addfile(info, io.BytesIO(b"x"))
+
+
+def test_final_filesystem_archive_proves_privilege_helpers_absent(tmp_path: Path) -> None:
+    archive = tmp_path / "filesystem.tar"
+    _write_filesystem_tar(
+        archive,
+        {
+            "opt/google/chrome/chrome": 0o755,
+            "usr/bin/python3": 0o755,
+        },
+    )
+
+    result = validate_final_filesystem_archive(
+        archive,
+        image_id=IMAGE_ID,
+        forbid_chrome_sandbox=True,
+        forbid_setuid_setgid_files=True,
+    )
+
+    assert result["chrome_sandbox_present"] is False
+    assert result["setuid_setgid_files"] == 0
+    assert result["chrome_sandbox_policy"] == "forbidden"
+    assert result["setuid_setgid_policy"] == "forbidden"
+    assert result["regular_files"] == 2
+
+
+def test_final_filesystem_archive_records_permitted_privilege_policy(tmp_path: Path) -> None:
+    archive = tmp_path / "filesystem.tar"
+    _write_filesystem_tar(
+        archive,
+        {
+            "opt/google/chrome/chrome": 0o755,
+            "opt/google/chrome/chrome-sandbox": 0o4755,
+        },
+    )
+
+    result = validate_final_filesystem_archive(
+        archive,
+        image_id=IMAGE_ID,
+        forbid_chrome_sandbox=False,
+        forbid_setuid_setgid_files=False,
+    )
+
+    assert result["chrome_sandbox_present"] is True
+    assert result["setuid_setgid_files"] == 1
+    assert result["chrome_sandbox_policy"] == "permitted"
+    assert result["setuid_setgid_policy"] == "permitted"
+
+
+@pytest.mark.parametrize(
+    ("path", "mode", "message"),
+    [
+        ("opt/google/chrome/chrome-sandbox", 0o755, "Chrome sandbox helper"),
+        ("usr/bin/unneeded-helper", 0o4755, "setuid/setgid files"),
+        ("usr/bin/unneeded-helper", 0o2755, "setuid/setgid files"),
+    ],
+)
+def test_final_filesystem_archive_rejects_privilege_surface(
+    tmp_path: Path,
+    path: str,
+    mode: int,
+    message: str,
+) -> None:
+    archive = tmp_path / "filesystem.tar"
+    _write_filesystem_tar(archive, {"usr/bin/python3": 0o755, path: mode})
+
+    with pytest.raises(ReleaseIntegrityError, match=message):
+        validate_final_filesystem_archive(
+            archive,
+            image_id=IMAGE_ID,
+            forbid_chrome_sandbox=True,
+            forbid_setuid_setgid_files=True,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1244,7 +1477,8 @@ def test_push_recipe_scans_and_pushes_exact_id_then_binds_remote_config() -> Non
     assert 'docker tag "${scanned_image_id}"' in recipe
     assert '--expected-image-id "${scanned_image_id}"' in recipe
     assert "--required-chrome-executable-sha256" in recipe
-    assert "--required-chrome-sandbox-sha256" in recipe
+    assert "{{aws_batch_scraper_chrome_sandbox_scan_args}}" in recipe
+    assert "--required-chrome-sandbox-sha256" not in recipe
     assert '--output-directory "${scan_output_directory}"' in recipe
     assert '"${scan_output_directory}/release.json"' in recipe
     assert "scraper-scan-container" in recipe

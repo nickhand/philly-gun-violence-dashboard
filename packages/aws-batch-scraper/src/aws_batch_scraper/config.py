@@ -22,6 +22,16 @@ _ECR_IMAGE_URI = re.compile(
     r"\.amazonaws\.com(?:\.cn)?/(?P<repository>"
     r"[a-z0-9]+(?:[._/-][a-z0-9]+)*)@sha256:[0-9a-f]{64}$"
 )
+_IAM_ROLE_ARN = re.compile(
+    r"^arn:aws:iam::(?P<account>[0-9]{12}):role/"
+    r"(?P<name>[A-Za-z0-9+=,.@_-](?:[A-Za-z0-9+=,.@_/-]{0,510}[A-Za-z0-9+=,.@_-])?)$"
+)
+_SECRETS_MANAGER_SECRET_ARN = re.compile(
+    r"^arn:aws:secretsmanager:(?P<region>[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+):"
+    r"(?P<account>[0-9]{12}):secret:"
+    r"(?P<name>[A-Za-z0-9/_+=.@-]{1,512})$"
+)
+_FARGATE_PLATFORM_VERSION = "1.4.0"
 
 
 def require_exact_task_definition(
@@ -77,6 +87,50 @@ def require_exact_ecr_image_uri(
             "ECR repository@sha256 digest produced by the release gate"
         )
     return match.string
+
+
+def require_exact_iam_role_arn(
+    value: str | None,
+    *,
+    account_id: str,
+    setting_name: str,
+) -> str:
+    """Require one exact same-account IAM role ARN for an ECS trust boundary."""
+    match = _IAM_ROLE_ARN.fullmatch(value) if isinstance(value, str) else None
+    if match is None or match.group("account") != account_id or "//" in match.group("name"):
+        raise ValueError(f"{setting_name} must be an exact same-account IAM role ARN")
+    return match.string
+
+
+def require_exact_secret_arn(
+    value: str | None,
+    *,
+    account_id: str,
+    region: str,
+    setting_name: str,
+) -> str:
+    """Require one exact same-account, same-region Secrets Manager ARN."""
+    match = _SECRETS_MANAGER_SECRET_ARN.fullmatch(value) if isinstance(value, str) else None
+    if (
+        match is None
+        or match.group("account") != account_id
+        or match.group("region") != region
+        or "//" in match.group("name")
+    ):
+        raise ValueError(
+            f"{setting_name} must be an exact same-account, same-region Secrets Manager ARN"
+        )
+    return match.string
+
+
+def require_exact_fargate_platform(value: str) -> str:
+    """Require the reviewed Fargate platform at each AWS mutation boundary."""
+    if value != _FARGATE_PLATFORM_VERSION:
+        raise ValueError(
+            f"ECS_PLATFORM_VERSION must be exactly {_FARGATE_PLATFORM_VERSION}; "
+            "LATEST can silently change the production isolation boundary"
+        )
+    return value
 
 
 def require_github_repository(value: str | None) -> str:
@@ -188,6 +242,22 @@ class SubmitterConfig(WorkerConfig):
         default=None,
         description="Exact ECR repository@sha256 URI approved by the release gate",
     )
+    ecs_expected_task_role_arn: str | None = Field(
+        default=None,
+        description="Exact reviewed task role ARN required by both task definitions",
+    )
+    ecs_expected_execution_role_arn: str | None = Field(
+        default=None,
+        description="Exact reviewed execution role ARN required by both task definitions",
+    )
+    ecs_expected_monitor_secret_arn: str | None = Field(
+        default=None,
+        description="Exact Secrets Manager ARN exposed only to the monitor definition",
+    )
+    ecs_platform_version: str = Field(
+        default=_FARGATE_PLATFORM_VERSION,
+        description="Exact reviewed Fargate platform version used for every task launch",
+    )
     ecs_container_name: str = Field(..., description="ECS container name for overrides")
     ecs_task_count: int = Field(default=1, ge=1, le=10)
     github_workflow_file: str | None = None
@@ -265,6 +335,24 @@ class SubmitterConfig(WorkerConfig):
                 account_id=self.aws_account_id,
                 region=self.aws_region,
             )
+        for value, setting_name in (
+            (self.ecs_expected_task_role_arn, "ECS_EXPECTED_TASK_ROLE_ARN"),
+            (self.ecs_expected_execution_role_arn, "ECS_EXPECTED_EXECUTION_ROLE_ARN"),
+        ):
+            if value is not None:
+                require_exact_iam_role_arn(
+                    value,
+                    account_id=self.aws_account_id,
+                    setting_name=setting_name,
+                )
+        if self.ecs_expected_monitor_secret_arn is not None:
+            require_exact_secret_arn(
+                self.ecs_expected_monitor_secret_arn,
+                account_id=self.aws_account_id,
+                region=self.aws_region,
+                setting_name="ECS_EXPECTED_MONITOR_SECRET_ARN",
+            )
+        require_exact_fargate_platform(self.ecs_platform_version)
         return self
 
     @property

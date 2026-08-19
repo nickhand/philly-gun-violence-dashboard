@@ -24,6 +24,9 @@ from aws_batch_scraper.config import (
     SubmitterConfig,
     WorkerConfig,
     require_exact_ecr_image_uri,
+    require_exact_fargate_platform,
+    require_exact_iam_role_arn,
+    require_exact_secret_arn,
     require_github_repository,
     require_github_workflow_file,
     require_split_task_definitions,
@@ -40,6 +43,7 @@ _ECS_TERMINAL = {"STOPPED"}
 _RUN_TASK_ATTEMPTS = 4
 _IMAGE_DIGEST = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 _DISPATCH_TOKEN_NAME = "GITHUB_DISPATCH_TOKEN"
+_MONITOR_SAFE_DEFAULT_COMMAND = ["/bin/false"]
 
 
 class QueueTerminalEvidenceError(RuntimeError):
@@ -224,6 +228,23 @@ def _monitor_env_vars(config: SubmitterConfig, run_id: str) -> list[KeyValuePair
         account_id=config.aws_account_id,
         region=config.aws_region,
     )
+    expected_task_role = require_exact_iam_role_arn(
+        config.ecs_expected_task_role_arn,
+        account_id=config.aws_account_id,
+        setting_name="ECS_EXPECTED_TASK_ROLE_ARN",
+    )
+    expected_execution_role = require_exact_iam_role_arn(
+        config.ecs_expected_execution_role_arn,
+        account_id=config.aws_account_id,
+        setting_name="ECS_EXPECTED_EXECUTION_ROLE_ARN",
+    )
+    expected_monitor_secret = require_exact_secret_arn(
+        config.ecs_expected_monitor_secret_arn,
+        account_id=config.aws_account_id,
+        region=config.aws_region,
+        setting_name="ECS_EXPECTED_MONITOR_SECRET_ARN",
+    )
+    platform_version = require_exact_fargate_platform(config.ecs_platform_version)
     return [
         *_base_env_vars(config, run_id),
         {"name": "ECS_CLUSTER_NAME", "value": config.ecs_cluster_name},
@@ -233,6 +254,13 @@ def _monitor_env_vars(config: SubmitterConfig, run_id: str) -> list[KeyValuePair
             "value": config.ecs_monitor_task_definition,
         },
         {"name": "ECS_EXPECTED_IMAGE_URI", "value": expected_image},
+        {"name": "ECS_EXPECTED_TASK_ROLE_ARN", "value": expected_task_role},
+        {
+            "name": "ECS_EXPECTED_EXECUTION_ROLE_ARN",
+            "value": expected_execution_role,
+        },
+        {"name": "ECS_EXPECTED_MONITOR_SECRET_ARN", "value": expected_monitor_secret},
+        {"name": "ECS_PLATFORM_VERSION", "value": platform_version},
         {"name": "ECS_CONTAINER_NAME", "value": config.ecs_container_name},
         {"name": "ECS_TASK_COUNT", "value": str(config.ecs_task_count)},
     ]
@@ -297,6 +325,41 @@ def _task_definition_container(
             raise ValueError(
                 f"Every {role} task-definition container must not override kernel parameters"
             )
+        if container.get("repositoryCredentials") not in (None, {}):
+            raise ValueError(
+                f"Every {role} task-definition container must not fetch repository credentials"
+            )
+        if container.get("credentialSpecs") not in (None, []):
+            raise ValueError(
+                f"Every {role} task-definition container must not load credential specs"
+            )
+        if container.get("firelensConfiguration") not in (None, {}):
+            raise ValueError(
+                f"Every {role} task-definition container must not configure a log router"
+            )
+        if container.get("dockerLabels") not in (None, {}):
+            raise ValueError(
+                f"Every {role} task-definition container must not include opaque labels"
+            )
+        if container.get("healthCheck") not in (None, {}):
+            raise ValueError(
+                f"Every {role} task-definition container must not run a static health command"
+            )
+        if container.get("portMappings") not in (None, []):
+            raise ValueError(
+                f"Every {role} task-definition container must not expose network ports"
+            )
+        if container.get("interactive") is True or container.get("pseudoTerminal") is True:
+            raise ValueError(f"Every {role} task-definition container must remain noninteractive")
+        log_configuration = container.get("logConfiguration")
+        if log_configuration not in (None, {}) and (
+            not isinstance(log_configuration, dict)
+            or log_configuration.get("logDriver") != "awslogs"
+            or log_configuration.get("secretOptions") not in (None, [])
+        ):
+            raise ValueError(
+                f"Every {role} task-definition container must use awslogs without secret options"
+            )
         if container.get("volumesFrom") not in (None, []):
             raise ValueError(
                 f"Every {role} task-definition container must not inherit opaque volumes"
@@ -314,26 +377,35 @@ def _task_definition_container(
                 f"Every {role} task-definition container must mount only a writable /tmp volume"
             )
         linux_parameters = container.get("linuxParameters")
-        if linux_parameters is not None and not isinstance(linux_parameters, dict):
+        if not isinstance(linux_parameters, dict):
             raise ValueError(f"Every {role} task-definition linuxParameters value must be a map")
-        if isinstance(linux_parameters, dict):
-            capabilities = linux_parameters.get("capabilities")
-            if capabilities is not None and not isinstance(capabilities, dict):
-                raise ValueError(f"Every {role} task-definition capabilities value must be a map")
-            if isinstance(capabilities, dict) and capabilities.get("add") not in (None, []):
+        capabilities = linux_parameters.get("capabilities")
+        if not isinstance(capabilities, dict):
+            raise ValueError(f"Every {role} task-definition capabilities value must be a map")
+        if capabilities.get("add") not in (None, []):
+            raise ValueError(
+                f"Every {role} task-definition container must not add Linux capabilities"
+            )
+        if capabilities.get("drop") != ["ALL"]:
+            raise ValueError(
+                f"Every {role} task-definition container must drop every Linux capability"
+            )
+        for unsupported in ("devices", "tmpfs"):
+            if linux_parameters.get(unsupported) not in (None, []):
                 raise ValueError(
-                    f"Every {role} task-definition container must not add Linux capabilities"
+                    f"Every {role} task-definition container must not configure {unsupported}"
                 )
-            for unsupported in ("devices", "tmpfs"):
-                if linux_parameters.get(unsupported) not in (None, []):
-                    raise ValueError(
-                        f"Every {role} task-definition container must not configure {unsupported}"
-                    )
     selected = matches[0]
     if selected.get("entryPoint"):
         raise ValueError(f"Resolved {role} container must not override the image entry point")
-    if role == "worker" and selected.get("command"):
+    command = selected.get("command")
+    if role == "worker" and command:
         raise ValueError("Resolved worker container must use the image's default worker command")
+    if role == "monitor" and command != _MONITOR_SAFE_DEFAULT_COMMAND:
+        raise ValueError(
+            "Resolved monitor container must default to ['/bin/false'] so a direct "
+            "no-override launch cannot start the browser with the dispatch token"
+        )
     # TypedDict is a structural mapping at runtime; a plain dict keeps the
     # contract helper independent of boto-stub input/output union variants.
     return dict(selected)
@@ -421,6 +493,23 @@ def resolve_split_task_definitions(
         account_id=config.aws_account_id,
         region=config.aws_region,
     )
+    expected_task_role = require_exact_iam_role_arn(
+        config.ecs_expected_task_role_arn,
+        account_id=config.aws_account_id,
+        setting_name="ECS_EXPECTED_TASK_ROLE_ARN",
+    )
+    expected_execution_role = require_exact_iam_role_arn(
+        config.ecs_expected_execution_role_arn,
+        account_id=config.aws_account_id,
+        setting_name="ECS_EXPECTED_EXECUTION_ROLE_ARN",
+    )
+    expected_monitor_secret = require_exact_secret_arn(
+        config.ecs_expected_monitor_secret_arn,
+        account_id=config.aws_account_id,
+        region=config.aws_region,
+        setting_name="ECS_EXPECTED_MONITOR_SECRET_ARN",
+    )
+    require_exact_fargate_platform(config.ecs_platform_version)
     _validate_cluster(ecs, config)
     worker_definition = ecs.describe_task_definition(taskDefinition=worker)["taskDefinition"]
     monitor_definition = ecs.describe_task_definition(taskDefinition=monitor)["taskDefinition"]
@@ -437,6 +526,16 @@ def resolve_split_task_definitions(
     )
     if worker_arn == monitor_arn:
         raise ValueError("ECS resolved worker and monitor to the same task definition")
+    for definition, role in (
+        (worker_definition, "worker"),
+        (monitor_definition, "monitor"),
+    ):
+        if definition.get("taskRoleArn") != expected_task_role:
+            raise ValueError(f"Resolved {role} task definition must use the reviewed task role")
+        if definition.get("executionRoleArn") != expected_execution_role:
+            raise ValueError(
+                f"Resolved {role} task definition must use the reviewed execution role"
+            )
 
     worker_temporary_volume = _task_definition_temporary_volume(
         worker_definition,
@@ -469,8 +568,10 @@ def resolve_split_task_definitions(
         container.get("environmentFiles") for container in worker_definition["containerDefinitions"]
     ):
         raise ValueError("Worker task definition must not use opaque environment files")
-    if _DISPATCH_TOKEN_NAME in worker_secrets | worker_environment:
-        raise ValueError("Worker task definition must not expose GITHUB_DISPATCH_TOKEN")
+    if worker_secrets:
+        raise ValueError("Worker task definition must not include any ECS secrets")
+    if worker_environment:
+        raise ValueError("Worker task definition must not include static environment values")
 
     monitor_environment = _container_setting_names(monitor_definition, "environment")
     if any(
@@ -478,16 +579,20 @@ def resolve_split_task_definitions(
         for container in monitor_definition["containerDefinitions"]
     ):
         raise ValueError("Monitor task definition must not use opaque environment files")
-    monitor_secrets = {
-        entry.get("name")
-        for entry in monitor_container.get("secrets", [])
-        if isinstance(entry, dict)
-    }
-    if _DISPATCH_TOKEN_NAME in monitor_environment:
-        raise ValueError("Monitor task definition must not store GITHUB_DISPATCH_TOKEN plaintext")
-    if _DISPATCH_TOKEN_NAME not in monitor_secrets:
+    monitor_secrets = monitor_container.get("secrets")
+    if monitor_environment:
+        raise ValueError("Monitor task definition must not include static environment values")
+    if (
+        not isinstance(monitor_secrets, list)
+        or len(monitor_secrets) != 1
+        or not isinstance(monitor_secrets[0], dict)
+        or set(monitor_secrets[0]) != {"name", "valueFrom"}
+        or monitor_secrets[0].get("name") != _DISPATCH_TOKEN_NAME
+        or monitor_secrets[0].get("valueFrom") != expected_monitor_secret
+    ):
         raise ValueError(
-            "Monitor task definition must inject GITHUB_DISPATCH_TOKEN from an ECS secret"
+            "Monitor task definition must inject only GITHUB_DISPATCH_TOKEN from the reviewed "
+            "ECS secret"
         )
 
     return worker, monitor
@@ -512,6 +617,7 @@ def launch_workers(
     if not 1 <= n <= 10:
         raise ValueError("ECS worker count must be between 1 and 10")
     task_definition, _ = resolve_split_task_definitions(ecs, config)
+    platform_version = require_exact_fargate_platform(config.ecs_platform_version)
     logger.info(f"Using exact worker task definition revision: {task_definition}")
 
     env_vars = _base_env_vars(config, run_id)
@@ -545,6 +651,7 @@ def launch_workers(
                 cluster=config.ecs_cluster_arn,
                 networkConfiguration=_network_config(config),
                 launchType="FARGATE",
+                platformVersion=platform_version,
                 overrides=overrides,
             )
         except Exception as exc:
@@ -602,6 +709,7 @@ def launch_monitor(
     repository = require_github_repository(config.github_repository)
     workflow_file = require_github_workflow_file(config.github_workflow_file)
     _, task_definition = resolve_split_task_definitions(ecs, config)
+    platform_version = require_exact_fargate_platform(config.ecs_platform_version)
     logger.info(f"Using exact monitor task definition revision: {task_definition}")
     env_vars = _monitor_env_vars(config, run_id)
     env_vars.append({"name": "GITHUB_REPOSITORY", "value": repository})
@@ -626,6 +734,7 @@ def launch_monitor(
                 cluster=config.ecs_cluster_arn,
                 networkConfiguration=_network_config(config),
                 launchType="FARGATE",
+                platformVersion=platform_version,
                 overrides=overrides,
             )
         except Exception as exc:
