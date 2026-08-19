@@ -85,7 +85,7 @@ def test_daily_homicide_workflow_installs_the_same_exact_chrome() -> None:
     assert PINNED_CHROME_SHA256 in source
     assert f"'{PINNED_CHROME_VERSION}'" in source
     assert f"'{product_version}'" in source
-    assert "PYTHONPATH=packages/etl/src python3 -m etl.chrome_release" in source
+    assert "python3 packages/etl/src/etl/chrome_release.py" in source
     assert "--retry 3 --retry-all-errors --max-time 120" in source
     assert "--allow-downgrades" in source
     assert "playwright install" not in source
@@ -105,6 +105,19 @@ def test_etl_quality_uses_the_signed_chrome_freshness_verifier() -> None:
     source = (repo_root / ".github/workflows/etl-quality.yml").read_text()
 
     assert "uv run python -m etl.chrome_release" in source
+
+
+def test_release_and_smoke_run_standalone_chrome_freshness_script() -> None:
+    """Release gates must not depend on separately installed ETL metadata."""
+    repo_root = Path(__file__).resolve().parents[3]
+    justfile = (repo_root / "Justfile").read_text()
+    recipe = (repo_root / "packages/aws-batch-scraper/just/aws-batch-scraper.just").read_text()
+    smoke = (repo_root / ".github/workflows/production-smoke.yml").read_text()
+
+    script = "packages/etl/src/etl/chrome_release.py"
+    assert f'aws_batch_scraper_browser_freshness_script := "{script}"' in justfile
+    assert 'python3 "{{aws_batch_scraper_browser_freshness_script}}"' in recipe
+    assert f"python3 {script}" in smoke
 
 
 def test_simple_scraper_example_imports_and_scrapes() -> None:

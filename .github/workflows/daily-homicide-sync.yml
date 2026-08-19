@@ -27,7 +27,7 @@ jobs:
         with:
           tool: just
       - name: Verify pinned Chrome is still the signed stable release
-        run: PYTHONPATH=packages/etl/src python3 -m etl.chrome_release
+        run: python3 packages/etl/src/etl/chrome_release.py
       - name: Install exact Google Chrome release
         run: |
           chrome_deb="${RUNNER_TEMP}/google-chrome-stable.deb"

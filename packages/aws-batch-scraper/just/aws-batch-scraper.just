@@ -6,7 +6,7 @@
 #   aws_batch_scraper_cli := "gv-dashboard-etl"
 #   aws_batch_scraper_cli_group := "courts"
 #   aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
-#   aws_batch_scraper_browser_freshness_pythonpath := "etl/src"
+#   aws_batch_scraper_browser_freshness_script := "etl/src/etl/chrome_release.py"
 #   aws_batch_scraper_required_sbom_packages := "python:playwright=..."
 #   aws_batch_scraper_chrome_executable_sha256 := "sha256:..."
 #   aws_batch_scraper_chrome_sandbox_sha256 := "sha256:..."
@@ -22,7 +22,7 @@ aws_batch_scraper_platform := "linux/amd64"
 # says its repo-controlled pin is no longer current.
 [private]
 scraper-check-browser-freshness:
-	PYTHONPATH="{{aws_batch_scraper_browser_freshness_pythonpath}}" python3 -m etl.chrome_release
+	python3 "{{aws_batch_scraper_browser_freshness_script}}"
 
 # Reject unsafe environment-derived shell arguments before login or Docker.
 # The Python preflight additionally proves clean-source identity and exact ECR
