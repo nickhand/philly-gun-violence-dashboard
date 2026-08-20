@@ -21,6 +21,9 @@ JOURNAL_SCHEMA_VERSION = 1
 DISPOSITION_SCHEMA_VERSION = 1
 DECISION_SCHEMA_VERSION = 1
 RESOLUTION_SCHEMA_VERSION = 1
+# This namespace is a security boundary: production IAM must grant workers and
+# workflow automation read access only. Human operators are the sole writers.
+TERMINAL_DECISION_RESOLUTION_PATH = "terminal-decision-resolutions/v1"
 TerminalKind = Literal["result", "failure"]
 DispositionOutcome = Literal["created", "duplicate", "conflict"]
 _CANDIDATE_FIELDS = frozenset(
@@ -784,7 +787,7 @@ def read_terminal_decision_conflicts(
 
 
 def _candidate_resolution_prefix(config: WorkerConfig, run_id: str) -> str:
-    return f"{config.s3_scraper_prefix}/runs/{run_id}/terminal-decision-resolutions/v1/"
+    return f"{config.s3_scraper_prefix}/runs/{run_id}/{TERMINAL_DECISION_RESOLUTION_PATH}/"
 
 
 def _decode_candidate_resolution(
@@ -1515,6 +1518,7 @@ __all__ = [
     "DISPOSITION_SCHEMA_VERSION",
     "JOURNAL_SCHEMA_VERSION",
     "RESOLUTION_SCHEMA_VERSION",
+    "TERMINAL_DECISION_RESOLUTION_PATH",
     "TerminalCandidate",
     "TerminalCandidateResolution",
     "TerminalDecision",

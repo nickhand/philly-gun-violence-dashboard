@@ -8,6 +8,7 @@ from io import BytesIO
 import pytest
 from aws_batch_scraper.config import WorkerConfig
 from aws_batch_scraper.terminal_journal import (
+    TERMINAL_DECISION_RESOLUTION_PATH,
     CandidateJournalError,
     claim_terminal_decision,
     read_terminal_candidate_resolutions,
@@ -204,6 +205,7 @@ def test_accept_decision_resolution_round_trip_binds_exact_retained_bodies() -> 
 
     assert resolution.candidate_key == rejected.key
     assert resolution.decision_key == decision.key
+    assert f"/{TERMINAL_DECISION_RESOLUTION_PATH}/" in resolution.key
     assert read_terminal_candidate_resolutions(  # ty: ignore[invalid-argument-type]
         s3,
         _config(),
