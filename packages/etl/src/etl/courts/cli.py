@@ -101,7 +101,11 @@ def smoke(
             QueueUrl=config.sqs_queue_url,
             AttributeNames=["QueueArn"],
         )
-        session.client("s3").head_bucket(Bucket=config.s3_bucket)
+        session.client("s3").list_objects_v2(
+            Bucket=config.s3_bucket,
+            Prefix=f"{config.s3_scraper_prefix}/",
+            MaxKeys=1,
+        )
         resolve_split_task_definitions(session.client("ecs"), config)
         logger.info("Courts AWS smoke checks passed.")
 
