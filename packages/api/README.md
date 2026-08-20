@@ -142,10 +142,15 @@ is still active. Then create/configure the isolated app, run
 `just fly-deploy-scheduler`. The deploy recipe refuses to proceed while any
 legacy API `cron` Machine exists, replaces scheduler Machines with Fly's
 `immediate` strategy and HA disabled, scales the `cron` group to one, and checks
-that exactly one Machine is started. This intentionally creates a short quiet
-gap; never deploy the new scheduler before stopping the old cron owner. The
-Machine guard cannot prove that an already-dispatched GitHub or ECS job is
-finished, which is why the operator check is a required first step.
+that exactly one Machine is started. Because Machine startup is asynchronous,
+the guard polls for up to two minutes. It counts every Machine in the scheduler
+app before validating that the sole Machine belongs to `cron`, and fails
+immediately for an extra, missing-process-group, mislabeled, down, terminal, or
+unexpected Machine. It also fails closed if startup times out. This
+intentionally creates a short quiet gap; never deploy the new scheduler before
+stopping the old cron owner. The Machine guard cannot prove that a previously
+dispatched GitHub or ECS job is finished, which is why the operator check is a
+required first step.
 
 Treat the scheduler deployment as enabling the current `main` writers. Observe
 exactly one expected natural dispatch, verify that it finishes successfully,

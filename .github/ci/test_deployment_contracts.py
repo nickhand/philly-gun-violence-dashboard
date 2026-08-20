@@ -152,6 +152,32 @@ class DeploymentContracts(unittest.TestCase):
         self.assertIn("fly-deploy-scheduler: fly-assert-legacy-scheduler-stopped", recipes)
         self.assertIn("--strategy immediate --ha=false", recipes)
         self.assertIn("fly-assert-single-scheduler", recipes)
+        scheduler_guard = recipes.split("fly-assert-single-scheduler:", maxsplit=1)[1].split(
+            "# Deploy the scheduler", maxsplit=1
+        )[0]
+        self.assertIn("scheduler_start_timeout_seconds=120", scheduler_guard)
+        self.assertIn("scheduler_start_poll_seconds=5", scheduler_guard)
+        self.assertIn('if type == "array" then length', scheduler_guard)
+        self.assertNotIn("cron_machines=", scheduler_guard)
+        total_guard = scheduler_guard.index('if [ "$total" -gt 1 ]')
+        process_group_guard = scheduler_guard.index('if [ "$process_group" != "cron" ]')
+        self.assertLess(total_guard, process_group_guard)
+        self.assertIn("created|creating|starting|restarting|updating|replacing", scheduler_guard)
+        self.assertIn(
+            "stopping|stopped|suspending|suspended|failed|destroying|destroyed",
+            scheduler_guard,
+        )
+        started_case = scheduler_guard.index("started) \\")
+        success_exit = scheduler_guard.index("exit 0", started_case)
+        self.assertEqual(scheduler_guard.count("exit 0"), 1)
+        self.assertLess(started_case, success_exit)
+        self.assertIn("Machine entered unexpected state", scheduler_guard)
+        self.assertEqual(scheduler_guard.count('="$(jq -er'), 3)
+        self.assertEqual(scheduler_guard.count('<<< "$machine_list")" || {'), 3)
+        self.assertIn(
+            'if [ "$elapsed_seconds" -ge "$scheduler_start_timeout_seconds" ]',
+            scheduler_guard,
+        )
         self.assertIn('flyctl secrets unset GITHUB_PAT --app "{{ fly_api_app }}"', recipes)
 
     def test_deployment_docs_put_reader_before_scheduler_and_token_removal(self) -> None:

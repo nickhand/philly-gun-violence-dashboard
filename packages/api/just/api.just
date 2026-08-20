@@ -44,15 +44,67 @@ fly-assert-legacy-scheduler-stopped:
 			exit 1; \
 		fi
 
-# Verify that exactly one scheduler Machine exists and is started.
+# Wait for Fly's asynchronous Machine start, then verify that exactly one
+# scheduler Machine exists and is started.
 [private]
 fly-assert-single-scheduler:
-	@counts="$(flyctl machine list --app "{{ fly_scheduler_app }}" --json | jq -r '[.[] | select((.config.metadata.fly_process_group // .config.env.FLY_PROCESS_GROUP // "") == "cron")] as $cron | "\($cron | length) \([$cron[] | select(.state == "started")] | length)"')"; \
-		read -r total started <<< "$counts"; \
-		if [ "$total" -ne 1 ] || [ "$started" -ne 1 ]; then \
-			echo "Unsafe scheduler topology: expected one started cron Machine, found $total total / $started started." >&2; \
-			exit 1; \
-		fi
+	@scheduler_start_timeout_seconds=120; \
+		scheduler_start_poll_seconds=5; \
+		scheduler_wait_started_at="$(date +%s)"; \
+		echo "Waiting up to ${scheduler_start_timeout_seconds}s for one scheduler cron Machine to start..."; \
+		while true; do \
+			machine_list="$(flyctl machine list --app "{{ fly_scheduler_app }}" --json)" || { \
+				echo "Unable to inspect scheduler Machines; refusing to continue." >&2; \
+				exit 1; \
+			}; \
+			total="$(jq -er 'if type == "array" then length else error("expected an array") end' <<< "$machine_list")" || { \
+				echo "Unable to parse the scheduler Machine list; refusing to continue." >&2; \
+				exit 1; \
+			}; \
+			if [ "$total" -gt 1 ]; then \
+				echo "Unsafe scheduler topology: expected at most one Machine in the scheduler app while starting, found $total." >&2; \
+				exit 1; \
+			fi; \
+			if [ "$total" -eq 1 ]; then \
+				process_group="$(jq -er '.[0] | (.config.metadata.fly_process_group // .config.env.FLY_PROCESS_GROUP // empty) | strings | select(length > 0)' <<< "$machine_list")" || { \
+					echo "The sole scheduler Machine has no valid process group; refusing to continue." >&2; \
+					exit 1; \
+				}; \
+				if [ "$process_group" != "cron" ]; then \
+					echo "The sole scheduler Machine belongs to process group '$process_group', not 'cron'; refusing to continue." >&2; \
+					exit 1; \
+				fi; \
+				state="$(jq -er '.[0].state | strings | select(length > 0)' <<< "$machine_list")" || { \
+					echo "The sole scheduler Machine has no valid state; refusing to continue." >&2; \
+					exit 1; \
+				}; \
+				case "$state" in \
+					started) \
+						echo "Verified exactly one started scheduler cron Machine."; \
+						exit 0 \
+						;; \
+					created|creating|starting|restarting|updating|replacing) \
+						;; \
+					stopping|stopped|suspending|suspended|failed|destroying|destroyed) \
+						echo "Scheduler cron Machine entered down or terminal state '$state'; refusing to continue." >&2; \
+						exit 1 \
+						;; \
+					*) \
+						echo "Scheduler cron Machine entered unexpected state '$state'; refusing to continue." >&2; \
+						exit 1 \
+						;; \
+				esac; \
+			fi; \
+			elapsed_seconds=$(( $(date +%s) - scheduler_wait_started_at )); \
+			if [ "$elapsed_seconds" -ge "$scheduler_start_timeout_seconds" ]; then \
+				echo "Timed out after ${scheduler_start_timeout_seconds}s waiting for exactly one started scheduler cron Machine; found $total Machine(s)." >&2; \
+				exit 1; \
+			fi; \
+			remaining_seconds=$(( scheduler_start_timeout_seconds - elapsed_seconds )); \
+			sleep_seconds="$scheduler_start_poll_seconds"; \
+			if [ "$remaining_seconds" -lt "$sleep_seconds" ]; then sleep_seconds="$remaining_seconds"; fi; \
+			sleep "$sleep_seconds"; \
+		done
 
 # Deploy the scheduler without an HTTP service or S3 credentials. The legacy
 # cron guard and immediate, non-HA replacement prevent two cron owners.
