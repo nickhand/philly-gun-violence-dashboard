@@ -350,10 +350,7 @@ describe("DashboardExplorer", () => {
     expect(wrapper.get('input[role="combobox"]').attributes("placeholder")).toBe(
       "Search address...",
     );
-    expect(wrapper.emitted("summary")?.at(-1)).toEqual([
-      { fatal: 2, mapped: 3, nonfatal: 2, total: 4 },
-    ]);
-    const loadedSummaryEventCount = wrapper.emitted("summary")?.length;
+    expect(wrapper.emitted("summary")).toBeUndefined();
     expect(
       wrapper.get(".civic-legacy-sidebar__note").classes(),
     ).not.toContain("civic-legacy-sidebar__note--empty");
@@ -377,7 +374,7 @@ describe("DashboardExplorer", () => {
 
     await wrapper.get("#dashboard-fatal-filter").setValue(true);
     await nextTick();
-    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "fatal only: true",
     );
@@ -388,7 +385,7 @@ describe("DashboardExplorer", () => {
 
     await wrapper.get("#dashboard-court-filter").setValue(true);
     await nextTick();
-    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "2 filtered map records",
     );
@@ -402,7 +399,7 @@ describe("DashboardExplorer", () => {
       .get('button[aria-label="Select only Female for Gender"]')
       .trigger("click");
     await nextTick();
-    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "1 filtered map records",
     );
@@ -424,14 +421,14 @@ describe("DashboardExplorer", () => {
     expect(ageFilter).toBeDefined();
     await ageFilter!.get('input[type="range"]').setValue(30);
     await nextTick();
-    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "3 filtered map records",
     );
 
     await ageFilter!.get('input[type="checkbox"]').setValue(true);
     await nextTick();
-    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "2 filtered map records",
     );
@@ -440,7 +437,7 @@ describe("DashboardExplorer", () => {
     expect(ageReset.element.closest("details")).toBeNull();
     await ageReset.trigger("click");
     await nextTick();
-    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "4 filtered map records",
     );
@@ -453,7 +450,7 @@ describe("DashboardExplorer", () => {
     expect(resetAll).toBeDefined();
     await resetAll!.trigger("click");
     await nextTick();
-    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "4 filtered map records",
     );
@@ -678,9 +675,7 @@ describe("DashboardExplorer", () => {
       "https://api.example.test/opaque/2026.ndjson",
       "https://api.example.test/opaque/2025.ndjson",
     ]);
-    expect(wrapper.emitted("summary")?.at(-1)).toEqual([
-      { fatal: 2, mapped: 3, nonfatal: 2, total: 4 },
-    ]);
+    expect(wrapper.emitted("summary")).toBeUndefined();
     wrapper.unmount();
   });
 });

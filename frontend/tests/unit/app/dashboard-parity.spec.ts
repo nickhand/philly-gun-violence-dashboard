@@ -683,6 +683,10 @@ describe("synchronized category charts", () => {
       ["Unknown", "2", "66.7%"],
     ]);
     expect(wrapper.find('[role="status"]').exists()).toBe(false);
+    expect(wrapper.findAll("[data-chart-definition]")).toHaveLength(0);
+    expect(wrapper.get("figcaption").text()).toContain(
+      "Fatal indicates whether the Philadelphia Police Department",
+    );
   });
 
   it("renders the five legacy breakdowns and updates from filtered rows", async () => {

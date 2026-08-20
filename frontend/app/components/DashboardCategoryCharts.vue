@@ -240,6 +240,7 @@ function chartStyle(chart: ChartDefinition): Record<string, string> {
               {{ chart.title }}
             </span>
             <CivicInfoTooltip
+              v-if="state === 'ready'"
               class="civic-dashboard-category-chart__definition"
               data-chart-definition
               :data-chart-definition-id="chart.className"
@@ -249,6 +250,13 @@ function chartStyle(chart: ChartDefinition): Record<string, string> {
             >
               {{ chart.description }}
             </CivicInfoTooltip>
+            <template v-else>
+              <span
+                class="civic-dashboard-category-chart__definition-placeholder"
+                aria-hidden="true"
+              ></span>
+              <span class="usa-sr-only">. {{ chart.description }}</span>
+            </template>
           </figcaption>
           <ul aria-hidden="true">
             <li v-for="item in chart.values" :key="String(item.value)">
@@ -312,5 +320,13 @@ function chartStyle(chart: ChartDefinition): Record<string, string> {
 <style scoped>
 .civic-dashboard-category-chart:has(.civic-info-tooltip--open) {
   z-index: 2;
+}
+
+.civic-dashboard-category-chart__definition-placeholder {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-inline-start: 0.4rem;
+  vertical-align: middle;
 }
 </style>

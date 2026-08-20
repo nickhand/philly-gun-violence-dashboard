@@ -63,6 +63,8 @@ test("keeps the complete shell while the lazy explorer module downloads", async 
   await page.waitForTimeout(300);
 
   const explorer = page.locator("#explorer");
+  let loadingOutcomeGeometry: Awaited<ReturnType<Locator["boundingBox"]>> =
+    null;
   try {
     await expect(
       explorer.locator(".civic-dashboard-map-filter-stage"),
@@ -71,12 +73,19 @@ test("keeps the complete shell while the lazy explorer module downloads", async 
     await expect(explorer.locator(".civic-legacy-sidebar")).toHaveCount(1);
     await expect(explorer.locator("#charts figure")).toHaveCount(5);
     await expect(
+      explorer.locator("[data-chart-definition]"),
+    ).toHaveCount(0);
+    await expect(
       explorer.locator(".civic-dashboard-browser-explorer"),
     ).toHaveCount(0);
     await expect(explorer.getByRole("status")).toHaveCount(1);
     await expect(
       page.locator(".civic-legacy-dashboard-header__summary--shooting"),
     ).toContainText("3 nonfatal and 3 fatal");
+    loadingOutcomeGeometry = await explorer
+      .locator(".civic-dashboard-category-chart--outcome")
+      .boundingBox();
+    expect(loadingOutcomeGeometry).not.toBeNull();
   } finally {
     releaseModule();
   }
@@ -84,6 +93,20 @@ test("keeps the complete shell while the lazy explorer module downloads", async 
   await expect(
     explorer.locator(".civic-dashboard-browser-explorer"),
   ).toHaveAttribute("aria-busy", "false");
+  await expect(explorer.locator("[data-chart-definition]")).toHaveCount(5);
+  const readyOutcomeGeometry = await explorer
+    .locator(".civic-dashboard-category-chart--outcome")
+    .boundingBox();
+  expect(readyOutcomeGeometry).not.toBeNull();
+  for (const dimension of ["x", "y", "width", "height"] as const) {
+    expect(
+      Math.abs(
+        readyOutcomeGeometry![dimension] -
+          loadingOutcomeGeometry![dimension],
+      ),
+      `outcome chart ${dimension} shifted when the lazy explorer loaded`,
+    ).toBeLessThanOrEqual(2);
+  }
 });
 
 async function assertStableAllYearsLoading(
@@ -189,6 +212,9 @@ async function assertStableAllYearsLoading(
     await expect(
       court.getByRole("row", { name: "Unknown 2 33.3%", exact: true }),
     ).toBeAttached();
+    await expect(
+      explorer.locator("[data-chart-definition]"),
+    ).toHaveCount(0);
 
     const reducedMotionAnimations = await loadingStage.evaluate((element) => {
       const spinner = element.querySelector<HTMLElement>(
@@ -221,6 +247,7 @@ async function assertStableAllYearsLoading(
   await expect(page.locator(".civic-dashboard-point-map")).toHaveClass(
     /civic-dashboard-point-map--ready/,
   );
+  await expect(explorer.locator("[data-chart-definition]")).toHaveCount(5);
 
   const readyGeometry = await mapFilterGeometry(stage);
   expect(loadingGeometry).toBeDefined();

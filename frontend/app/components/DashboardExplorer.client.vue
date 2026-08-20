@@ -58,17 +58,6 @@ const props = defineProps<{
   year: number | null;
 }>();
 
-const emit = defineEmits<{
-  summary: [
-    value: {
-      fatal: number;
-      mapped: number;
-      nonfatal: number;
-      total: number;
-    } | null,
-  ];
-}>();
-
 const route = useRoute();
 const router = useRouter();
 const { data: datasetMeta } = useDatasetMeta();
@@ -210,7 +199,6 @@ async function load(): Promise<void> {
   const currentLoadId = ++loadId;
   cancelRequest();
   state.value = "loading";
-  emit("summary", null);
   records.value = null;
   defaults.value = null;
   filters.value = null;
@@ -234,16 +222,6 @@ async function load(): Promise<void> {
     defaults.value = initialFilters;
     filters.value = cloneFilters(initialFilters);
     state.value = "ready";
-
-    // The page headline describes the selected year's complete dataset. Map
-    // filters intentionally affect only the explorer, charts, and downloads.
-    const summary = summarizeShootingRecords(loaded.rows);
-    emit("summary", {
-      fatal: summary.fatalRecordCount,
-      mapped: summary.points.features.length,
-      nonfatal: summary.nonfatalRecordCount,
-      total: summary.recordCount,
-    });
   } catch (error) {
     if (
       currentLoadId === loadId &&

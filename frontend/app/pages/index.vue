@@ -19,11 +19,9 @@ import {
   getDashboardEntityIds,
 } from "~/utils/structuredData";
 
-interface BrowserSummary {
+interface ShootingContext {
   fatal: number;
-  mapped: number;
   nonfatal: number;
-  total: number;
 }
 
 interface HomicideContext {
@@ -46,8 +44,6 @@ const {
   refresh,
   status,
 } = await useStatsSnapshot();
-
-const browserSummary = ref<BrowserSummary | null>(null);
 
 const availableYears = computed(() =>
   [...(stats.value?.years ?? [])].sort((left, right) => right.year - left.year),
@@ -156,24 +152,19 @@ const homicideContext = computed<HomicideContext | null>(() => {
   };
 });
 
-const shootingContext = computed<BrowserSummary | null>(() => {
-  if (browserSummary.value) return browserSummary.value;
+const shootingContext = computed<ShootingContext | null>(() => {
   const summary = selectedCategorySummary.value;
   if (summary) {
     return {
       fatal: summary.outcome.true ?? 0,
-      mapped: summary.total,
       nonfatal: summary.outcome.false ?? 0,
-      total: summary.total,
     };
   }
   const snapshot = stats.value;
   if (!snapshot || selectedYear.value !== snapshot.current_year) return null;
   return {
     fatal: snapshot.current_fatal,
-    mapped: snapshot.current_total,
     nonfatal: snapshot.current_nonfatal,
-    total: snapshot.current_total,
   };
 });
 
@@ -197,14 +188,6 @@ function changeYear(event: Event): void {
     },
   });
 }
-
-function updateBrowserSummary(value: BrowserSummary | null): void {
-  browserSummary.value = value;
-}
-
-watch(selectedYearValue, () => {
-  browserSummary.value = null;
-});
 
 const description = computed(() => {
   const snapshot = stats.value;
@@ -393,7 +376,6 @@ useHead(() => ({
             :initial-category-summary="selectedCategorySummary"
             :initial-view="selectedMapView"
             :layers="selectedMapLayers"
-            @summary="updateBrowserSummary"
           />
           <template #fallback>
             <DashboardExplorerFallback
