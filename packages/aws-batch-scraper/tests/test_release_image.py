@@ -34,9 +34,9 @@ VULNERABILITY_SOURCE_UPDATED_AT = "2026-08-19T13:45:00+00:00"
 IMAGE_PUSHED_AT = "2026-08-19T14:00:00+00:00"
 IMAGE_ID = "sha256:" + "c" * 64
 MANIFEST_DIGEST = "sha256:" + "d" * 64
-CHROME_PACKAGE_VERSION = "151.0.7922.169-1"
-CHROME_VERSION = "151.0.7922.169"
-CHROME_SHA256 = "sha256:3059e7448d906793a7116351739d3096d232d1516e8bf19209b1e2957d5e7662"
+CHROME_PACKAGE_VERSION = "151.0.7922.173-1"
+CHROME_VERSION = "151.0.7922.173"
+CHROME_SHA256 = "sha256:7bacb4ffdce01ef0f6a2a53123d5e9fb4817e2d50b5e3bd6be10642663669f50"
 CHROME_SANDBOX_SHA256 = "sha256:18391bf9d217ddbde9956347cbb1346d2808a73ade4baa3f88a610447cf946b4"
 NOW = datetime(2026, 8, 19, 14, 30, tzinfo=timezone.utc)
 
@@ -1135,7 +1135,7 @@ def test_package_contract_requires_actual_system_chrome_and_playwright_node() ->
 
     with pytest.raises(ValueError, match="google-chrome-stable"):
         parse_package_requirements(
-            "python:playwright=1.62.0,binary:chrome=151.0.7922.169,binary:node=24.18.1"
+            "python:playwright=1.62.0,binary:chrome=151.0.7922.173,binary:node=24.18.1"
         )
 
 

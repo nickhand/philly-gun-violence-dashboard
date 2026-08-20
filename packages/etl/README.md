@@ -216,7 +216,7 @@ project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
 same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
 date. It full-upgrades that snapshot before installing Ubuntu's native Python
-(3.13 or newer) and a checksum-pinned Google Chrome 151.0.7922.169 package.
+(3.13 or newer) and a checksum-pinned Google Chrome 151.0.7922.173 package.
 The Playwright client is pinned to 1.62.0, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly
 sets `chromium_sandbox=False`: Fargate's default seccomp profile does not permit

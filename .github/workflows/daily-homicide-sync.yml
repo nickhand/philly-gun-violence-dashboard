@@ -34,14 +34,14 @@ jobs:
           curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
             --retry 3 --retry-all-errors --max-time 120 \
             --output "${chrome_deb}" \
-            https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_151.0.7922.169-1_amd64.deb
+            https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_151.0.7922.173-1_amd64.deb
           printf '%s  %s\n' \
-            '6572478310553cb25fdcb4ba2fb5459b472c2c765f5f68e9837d4964e8a87f1e' \
+            '878e5ab495b8a694980fca61bc09b37e651ccedce2291c73434d16e48a2646fd' \
             "${chrome_deb}" | sha256sum --check --strict
           sudo apt-get install --yes --no-install-recommends --allow-downgrades "${chrome_deb}"
           test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" = \
-            '151.0.7922.169-1'
-          test "$(google-chrome --product-version)" = '151.0.7922.169'
+            '151.0.7922.173-1'
+          test "$(google-chrome --product-version)" = '151.0.7922.173'
           sudo rm -f \
             /etc/apt/sources.list.d/google-chrome.list \
             /etc/apt/trusted.gpg.d/google-chrome.gpg \

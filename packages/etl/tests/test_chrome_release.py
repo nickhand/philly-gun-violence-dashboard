@@ -131,9 +131,9 @@ def test_signed_current_stable_package_passes() -> None:
 
 
 def test_new_stable_version_fails_until_pin_is_updated() -> None:
-    inrelease, packages_gzip = _metadata(version="151.0.7922.170-1")
+    inrelease, packages_gzip = _metadata(version="151.0.7922.174-1")
 
-    with pytest.raises(ChromeReleaseError, match="no longer.*observed 151.0.7922.170-1"):
+    with pytest.raises(ChromeReleaseError, match="no longer.*observed 151.0.7922.174-1"):
         verify_pinned_chrome_release(
             fetcher=_fetcher(inrelease, packages_gzip),
             runner=StubRunner(),

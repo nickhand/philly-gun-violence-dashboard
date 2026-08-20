@@ -19,8 +19,8 @@ ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2
 # Fetch the exact signed Google Chrome package as a checksum-pinned build input.
 # Installing the local deb through apt lets Ubuntu resolve its runtime libraries
 # from the same signed snapshot as the rest of the image.
-ADD --checksum=sha256:6572478310553cb25fdcb4ba2fb5459b472c2c765f5f68e9837d4964e8a87f1e \
-    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_151.0.7922.169-1_amd64.deb \
+ADD --checksum=sha256:878e5ab495b8a694980fca61bc09b37e651ccedce2291c73434d16e48a2646fd \
+    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_151.0.7922.173-1_amd64.deb \
     /tmp/google-chrome-stable.deb
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
@@ -57,8 +57,8 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260819T160000Z" \
         tzdata \
         /tmp/google-chrome-stable.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
-        = "151.0.7922.169-1" \
-    && test "$(google-chrome --product-version)" = "151.0.7922.169" \
+        = "151.0.7922.173-1" \
+    && test "$(google-chrome --product-version)" = "151.0.7922.173" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
         /tmp/google-chrome-stable.deb \
@@ -127,7 +127,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
         "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'" \
-    && test "$(google-chrome --product-version)" = "151.0.7922.169" \
+    && test "$(google-chrome --product-version)" = "151.0.7922.173" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
 
