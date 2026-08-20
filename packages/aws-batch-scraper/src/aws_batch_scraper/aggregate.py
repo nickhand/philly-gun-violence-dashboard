@@ -3,10 +3,18 @@
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from typing import Literal
 
 from loguru import logger
 from mypy_boto3_s3.client import S3Client
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from aws_batch_scraper.config import WorkerConfig
 from aws_batch_scraper.types import ScrapeResult, WorkItem
@@ -14,12 +22,14 @@ from aws_batch_scraper.types import ScrapeResult, WorkItem
 _FETCH_WORKERS = 30
 
 
-class _RunManifest(BaseModel):
+class RunManifest(BaseModel):
     """Typed subset required to prove an exact run is safe to aggregate."""
 
     model_config = ConfigDict(extra="allow", frozen=True, strict=True)
 
     run_id: str = Field(min_length=1)
+    selection_mode: Literal["sample", "incremental", "full"]
+    candidate_count: int = Field(ge=1)
     input_size: int = Field(ge=1)
     completed_at: AwareDatetime | None = None
 
@@ -42,6 +52,14 @@ class _RunManifest(BaseModel):
         except ValueError as exc:
             raise ValueError("completed_at must be an ISO timestamp") from exc
 
+    @model_validator(mode="after")
+    def _selection_counts_are_consistent(self) -> "RunManifest":
+        if self.input_size > self.candidate_count:
+            raise ValueError("input_size cannot exceed candidate_count")
+        if self.selection_mode == "full" and self.input_size != self.candidate_count:
+            raise ValueError("a full run must select every candidate input")
+        return self
+
 
 class RunResultConflictError(RuntimeError):
     """Raised when durable evidence says an exact run has conflicting results."""
@@ -52,11 +70,13 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON constant is not allowed: {value}")
 
 
-def _read_run_manifest(
+def read_run_manifest(
     s3: S3Client,
     config: WorkerConfig,
     run_id: str,
-) -> _RunManifest:
+    *,
+    require_completed: bool = False,
+) -> RunManifest:
     """Read and validate the typed identity/count contract for one run."""
     key = f"{config.s3_scraper_prefix}/runs/{run_id}/manifest.json"
     body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
@@ -67,13 +87,15 @@ def _read_run_manifest(
     if not isinstance(decoded, dict):
         raise ValueError(f"Run manifest for {run_id} must be a JSON object")
     try:
-        manifest = _RunManifest.model_validate(decoded)
+        manifest = RunManifest.model_validate(decoded)
     except ValueError as exc:
         raise ValueError(f"Run manifest for {run_id} is invalid") from exc
     if manifest.run_id != run_id:
         raise ValueError(
             f"Run manifest identity {manifest.run_id!r} does not match requested run {run_id!r}"
         )
+    if require_completed and manifest.completed_at is None:
+        raise ValueError(f"Run {run_id} has not been completed by its task monitor")
     return manifest
 
 
@@ -206,9 +228,7 @@ def read_run_items(
     task monitor has finalized the exact run manifest. This prevents a manual
     or duplicated workflow dispatch from publishing while workers are live.
     """
-    manifest = _read_run_manifest(s3, config, run_id)
-    if require_completed and manifest.completed_at is None:
-        raise ValueError(f"Run {run_id} has not been completed by its task monitor")
+    manifest = read_run_manifest(s3, config, run_id, require_completed=require_completed)
 
     key = f"{config.s3_scraper_prefix}/runs/{run_id}/input.jsonl"
     body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()

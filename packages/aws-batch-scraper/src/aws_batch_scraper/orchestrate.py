@@ -5,7 +5,7 @@ import json
 import re
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
@@ -88,18 +88,33 @@ def write_run_manifest(
     run_id: str,
     items: list[WorkItem],
     worker_count: int,
+    *,
+    selection_mode: Literal["sample", "incremental", "full"],
+    candidate_count: int,
 ) -> None:
-    """Write manifest.json and input.jsonl to {s3_scraper_prefix}/runs/{run_id}/."""
+    """Write immutable selection provenance and inputs for one submitted run."""
     prefix = f"{config.s3_scraper_prefix}/runs/{run_id}"
     for item in items:
         item.validate()
     item_ids = [item.item_id for item in items]
     if len(set(item_ids)) != len(item_ids):
         raise ValueError("Run input contains duplicate item IDs")
+    if selection_mode not in {"sample", "incremental", "full"}:
+        raise ValueError(f"Unsupported run selection mode: {selection_mode!r}")
+    if not isinstance(candidate_count, int) or isinstance(candidate_count, bool):
+        raise ValueError("Run candidate count must be an integer")
+    if not items:
+        raise ValueError("Run input must contain at least one selected item")
+    if candidate_count < len(items):
+        raise ValueError("Run candidate count cannot be smaller than its selected input count")
+    if selection_mode == "full" and candidate_count != len(items):
+        raise ValueError("A full run must select every candidate input")
 
     manifest = {
         "run_id": run_id,
         "timestamp": datetime.now(UTC).isoformat(),
+        "selection_mode": selection_mode,
+        "candidate_count": candidate_count,
         "input_size": len(items),
         "queue_url": config.sqs_queue_url,
         "worker_count": worker_count,

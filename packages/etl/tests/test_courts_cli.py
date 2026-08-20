@@ -41,3 +41,43 @@ def test_aws_smoke_probes_only_the_scraper_s3_prefix(
         MaxKeys=1,
     )
     resolve.assert_called_once_with(ecs, config)
+
+
+def test_successful_nonpublishing_processing_releases_lease_as_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A validated sample/incremental no-op must not strand the active lease."""
+    from aws_batch_scraper import aggregate, lease
+
+    from etl.courts import pipeline
+
+    config = SimpleNamespace(run_id="sample-run")
+    s3 = MagicMock()
+    session = MagicMock()
+    session.client.return_value = s3
+    monkeypatch.setattr(cli, "CourtsWorkerConfig", lambda: config)
+    monkeypatch.setattr(cli, "make_boto3_session", lambda *, config: session)
+    completed_preflight = MagicMock()
+    claim = MagicMock()
+    release = MagicMock(return_value=True)
+    process_results = MagicMock(return_value=None)
+    monkeypatch.setattr(aggregate, "read_run_items", completed_preflight)
+    monkeypatch.setattr(lease, "claim_run_lease_for_processing", claim)
+    monkeypatch.setattr(lease, "release_run_lease", release)
+    monkeypatch.setattr(pipeline, "process_results", process_results)
+
+    cli.process()
+
+    completed_preflight.assert_called_once_with(
+        s3,
+        config,
+        "sample-run",
+        require_completed=True,
+    )
+    assert claim.call_args.args[:3] == (s3, config, "sample-run")
+    process_results.assert_called_once_with(s3, config)
+    assert release.call_args.args[:3] == (s3, config, "sample-run")
+    assert release.call_args.kwargs == {
+        "owner": claim.call_args.args[3],
+        "terminal_status": "success",
+    }

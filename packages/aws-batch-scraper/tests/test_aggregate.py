@@ -6,9 +6,11 @@ from unittest.mock import MagicMock
 
 import pytest
 from aws_batch_scraper.aggregate import (
+    RunManifest,
     RunResultConflictError,
     aggregate_results,
     read_run_items,
+    read_run_manifest,
     require_no_result_conflicts,
 )
 from aws_batch_scraper.config import WorkerConfig
@@ -40,6 +42,8 @@ def _s3_with_run(*, manifest: object, input_body: bytes) -> MagicMock:
 def _manifest(**overrides: object) -> dict[str, object]:
     return {
         "run_id": "run-1",
+        "selection_mode": "full",
+        "candidate_count": 1,
         "input_size": 1,
         "completed_at": "2026-08-18T12:00:00+00:00",
         **overrides,
@@ -57,6 +61,23 @@ def test_completed_run_items_require_exact_manifest_identity_and_count() -> None
     assert items == [WorkItem(item_id="100", extra={"source": "test"})]
 
 
+def test_manifest_reader_exposes_immutable_selection_provenance() -> None:
+    s3 = _s3_with_run(
+        manifest=_manifest(selection_mode="sample", candidate_count=10),
+        input_body=b'{"item_id":"100"}',
+    )
+
+    manifest = read_run_manifest(s3, _config(), "run-1", require_completed=True)
+
+    assert manifest == RunManifest(
+        run_id="run-1",
+        selection_mode="sample",
+        candidate_count=10,
+        input_size=1,
+        completed_at="2026-08-18T12:00:00+00:00",
+    )
+
+
 def test_incomplete_run_cannot_be_processed_while_workers_may_be_live() -> None:
     s3 = _s3_with_run(
         manifest=_manifest(completed_at=None),
@@ -71,8 +92,27 @@ def test_incomplete_run_cannot_be_processed_while_workers_may_be_live() -> None:
     ("manifest", "message"),
     [
         (_manifest(run_id="run-other"), "identity"),
-        (_manifest(input_size=2), "declares 2"),
+        (
+            _manifest(selection_mode="sample", candidate_count=2, input_size=2),
+            "declares 2",
+        ),
         (_manifest(completed_at="2026-08-18T12:00:00"), "manifest.*invalid"),
+        (
+            _manifest(selection_mode="full", candidate_count=2),
+            "manifest.*invalid",
+        ),
+        (
+            _manifest(selection_mode="sample", candidate_count=0),
+            "manifest.*invalid",
+        ),
+        (
+            _manifest(selection_mode="preview"),
+            "manifest.*invalid",
+        ),
+        (
+            {key: value for key, value in _manifest().items() if key != "selection_mode"},
+            "manifest.*invalid",
+        ),
     ],
 )
 def test_run_manifest_mismatch_fails_closed(

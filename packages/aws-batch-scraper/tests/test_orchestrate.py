@@ -13,7 +13,9 @@ from aws_batch_scraper.orchestrate import (
     launch_monitor,
     launch_workers,
     resolve_split_task_definitions,
+    write_run_manifest,
 )
+from aws_batch_scraper.types import WorkItem
 from botocore.exceptions import ClientError
 
 IMAGE_URI = "123456789012.dkr.ecr.us-east-1.amazonaws.com/ujs-scraper@sha256:" + "a" * 64
@@ -154,6 +156,81 @@ def _s3_with_body(body: bytes) -> MagicMock:
     s3 = MagicMock()
     s3.get_object.return_value = {"Body": stream}
     return s3
+
+
+@pytest.mark.parametrize(
+    ("selection_mode", "candidate_count"),
+    [("sample", 10), ("incremental", 10), ("full", 1)],
+)
+def test_run_manifest_persists_selection_provenance(
+    selection_mode: str,
+    candidate_count: int,
+) -> None:
+    s3 = MagicMock()
+
+    write_run_manifest(
+        s3,
+        _submitter_config(),
+        "run-1",
+        [WorkItem(item_id="100")],
+        worker_count=1,
+        selection_mode=selection_mode,  # ty: ignore[invalid-argument-type]
+        candidate_count=candidate_count,
+    )
+
+    manifest_put = s3.put_object.call_args_list[0].kwargs
+    manifest = json.loads(manifest_put["Body"])
+    assert manifest["selection_mode"] == selection_mode
+    assert manifest["candidate_count"] == candidate_count
+    assert manifest["input_size"] == 1
+
+
+@pytest.mark.parametrize(
+    ("selection_mode", "candidate_count", "message"),
+    [
+        ("sample", 0, "candidate count"),
+        ("incremental", 0, "candidate count"),
+        ("full", 2, "full run"),
+        ("preview", 1, "selection mode"),
+        ("sample", True, "integer"),
+    ],
+)
+def test_run_manifest_rejects_impossible_selection_provenance_before_writing(
+    selection_mode: str,
+    candidate_count: int,
+    message: str,
+) -> None:
+    s3 = MagicMock()
+
+    with pytest.raises(ValueError, match=message):
+        write_run_manifest(
+            s3,
+            _submitter_config(),
+            "run-1",
+            [WorkItem(item_id="100")],
+            worker_count=1,
+            selection_mode=selection_mode,  # ty: ignore[invalid-argument-type]
+            candidate_count=candidate_count,
+        )
+
+    s3.put_object.assert_not_called()
+
+
+def test_run_manifest_rejects_empty_selection_before_writing() -> None:
+    s3 = MagicMock()
+
+    with pytest.raises(ValueError, match="at least one"):
+        write_run_manifest(
+            s3,
+            _submitter_config(),
+            "run-1",
+            [],
+            worker_count=1,
+            selection_mode="sample",
+            candidate_count=1,
+        )
+
+    s3.put_object.assert_not_called()
 
 
 def test_missing_task_manifest_fails_closed() -> None:

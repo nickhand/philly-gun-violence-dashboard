@@ -1,5 +1,7 @@
 """Tests for courts post-processing helpers."""
 
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 from aws_batch_scraper.aggregate import RunResultConflictError
@@ -8,6 +10,24 @@ from aws_batch_scraper.types import ScrapeResult, ScrapeStatus, WorkItem
 from etl.courts import pipeline
 from etl.courts.config import CourtsWorkerConfig
 from etl.courts.pipeline import _merge_flags, _result_coverage, _results_to_flags
+from etl.courts.publication import (
+    COURTS_PUBLICATION_CONTRACT_VERSION,
+    court_flags_sha256,
+)
+
+
+@pytest.fixture(autouse=True)
+def _completed_full_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Existing publication tests exercise an explicitly full completed run."""
+    monkeypatch.setattr(
+        pipeline,
+        "read_run_manifest",
+        lambda *args, **kwargs: SimpleNamespace(
+            selection_mode="full",
+            candidate_count=1,
+            input_size=1,
+        ),
+    )
 
 
 def test_result_coverage_counts_missing_and_extra_results() -> None:
@@ -170,6 +190,14 @@ def test_forced_failure_uses_current_run_and_preserves_prior_known_flag(
     assert meta["failure_count"] == 1
     assert meta["unknown_result_count"] == 1
     assert meta["missing_result_count"] == 0
+    assert meta["publication_contract_version"] == COURTS_PUBLICATION_CONTRACT_VERSION
+    assert meta["selection_mode"] == "full"
+    assert meta["candidate_count"] == 1
+    assert meta["input_count"] == 1
+    assert meta["result_count"] == 1
+    assert meta["coverage_complete"] is True
+    assert meta["flags_row_count"] == len(flags)
+    assert meta["flags_sha256"] == court_flags_sha256(flags)
     assert meta["court_search_semantics_version"] == 2
 
 
@@ -181,6 +209,15 @@ def test_process_results_migrates_legacy_false_to_unknown(
         s3_bucket="bucket",
         aws_account_id="123456789012",
         run_id="run-new",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "read_run_manifest",
+        lambda *args, **kwargs: SimpleNamespace(
+            selection_mode="full",
+            candidate_count=2,
+            input_size=2,
+        ),
     )
     monkeypatch.setattr(
         pipeline,
@@ -333,3 +370,132 @@ def test_process_results_refuses_conflicted_run_before_aggregation_or_writes(
         pipeline.process_results(object(), config)  # ty: ignore[invalid-argument-type]
 
     assert calls == ["conflict-check"]
+
+
+@pytest.mark.parametrize("selection_mode", ["sample", "incremental"])
+def test_non_full_run_validates_results_without_mutating_stable_processed_objects(
+    monkeypatch: pytest.MonkeyPatch,
+    selection_mode: str,
+) -> None:
+    config = CourtsWorkerConfig(
+        _env_file=None,
+        s3_bucket="bucket",
+        aws_account_id="123456789012",
+        run_id="run-non-full",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "read_run_manifest",
+        lambda *args, **kwargs: SimpleNamespace(
+            selection_mode=selection_mode,
+            candidate_count=100,
+            input_size=1,
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "read_run_items",
+        lambda *args, **kwargs: [WorkItem(item_id="100")],
+    )
+    monkeypatch.setattr(pipeline, "require_no_result_conflicts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline,
+        "aggregate_results",
+        lambda *args, **kwargs: {
+            "100": ScrapeResult(
+                status=ScrapeStatus.NO_RESULTS,
+                item_id="100",
+                run_id="run-non-full",
+            )
+        },
+    )
+    monkeypatch.setattr(pipeline, "aggregate_failures", lambda *args, **kwargs: {})
+    stable_calls: list[str] = []
+    monkeypatch.setattr(
+        pipeline,
+        "_write_portal_results",
+        lambda *args, **kwargs: stable_calls.append("portal_results"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_read_existing_flags",
+        lambda *args, **kwargs: stable_calls.append("read_existing_flags"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "write_processed_csv",
+        lambda *args, **kwargs: stable_calls.append("courts_flags"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "write_meta",
+        lambda *args, **kwargs: stable_calls.append("courts_meta"),
+    )
+
+    pipeline.process_results(object(), config)  # ty: ignore[invalid-argument-type]
+
+    assert stable_calls == []
+
+
+def test_incomplete_full_run_cannot_replace_stable_processed_objects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = CourtsWorkerConfig(
+        _env_file=None,
+        s3_bucket="bucket",
+        aws_account_id="123456789012",
+        run_id="run-incomplete-full",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "read_run_manifest",
+        lambda *args, **kwargs: SimpleNamespace(
+            selection_mode="full",
+            candidate_count=2,
+            input_size=2,
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "read_run_items",
+        lambda *args, **kwargs: [WorkItem(item_id="100"), WorkItem(item_id="200")],
+    )
+    monkeypatch.setattr(pipeline, "require_no_result_conflicts", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline,
+        "aggregate_results",
+        lambda *args, **kwargs: {
+            "100": ScrapeResult(
+                status=ScrapeStatus.NO_RESULTS,
+                item_id="100",
+                run_id="run-incomplete-full",
+            )
+        },
+    )
+    monkeypatch.setattr(pipeline, "aggregate_failures", lambda *args, **kwargs: {})
+    stable_calls: list[str] = []
+    monkeypatch.setattr(
+        pipeline,
+        "_write_portal_results",
+        lambda *args, **kwargs: stable_calls.append("portal_results"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_read_existing_flags",
+        lambda *args, **kwargs: stable_calls.append("read_existing_flags"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "write_processed_csv",
+        lambda *args, **kwargs: stable_calls.append("courts_flags"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "write_meta",
+        lambda *args, **kwargs: stable_calls.append("courts_meta"),
+    )
+
+    with pytest.raises(ValueError, match="complete terminal result coverage"):
+        pipeline.process_results(object(), config)  # ty: ignore[invalid-argument-type]
+
+    assert stable_calls == []

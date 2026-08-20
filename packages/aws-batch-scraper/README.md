@@ -92,6 +92,7 @@ Typical local commands:
 my-scraper scraper bench --sample 20
 my-scraper scraper submit --dry-run --sample 10
 my-scraper scraper submit --monitor-in-ecs
+my-scraper scraper submit --force --monitor-in-ecs
 my-scraper scraper aggregate
 ```
 
@@ -99,6 +100,17 @@ Choose exactly one coordinator: use `submit --monitor-in-ecs` for the normal
 detached run, or `submit --wait` to coordinate synchronously. Do not also start
 `monitor --latest`; that command is only for manual recovery after proving no
 ECS monitor is active for the run.
+
+Every submitted run records immutable selection provenance in its manifest.
+`--sample` always records `selection_mode=sample`, even when the requested
+sample is as large as the source. A submission without `--sample` records
+`selection_mode=full` only when `--force` selects every source candidate;
+otherwise it records `selection_mode=incremental` after filtering cached
+results. `candidate_count` is the source count before sampling/filtering and
+`input_size` is the selected count. Typed manifest reads reject missing,
+invalid, or inconsistent provenance. Downstream publishers can therefore
+reserve stable dataset mutation for an explicitly full run instead of guessing
+from the selected row count.
 
 ## Work Message Contract
 
@@ -160,9 +172,10 @@ Each object validates as `ScrapeResult`:
 The stable global result is only an optimization for future submission. Exact
 run aggregation must use `runs/<run_id>/input.jsonl`, the matching manifest,
 and only that run's result/failure prefixes. Processing must require a valid
-`completed_at` in the manifest and an input count matching `input_size`; this
-prevents stale global data or an early manual dispatch from masquerading as the
-current run.
+`completed_at` in the manifest, valid `sample`/`incremental`/`full` selection
+provenance, and an input count matching `input_size`; this prevents stale global
+data, partial selection, or an early manual dispatch from masquerading as a
+publishable full run.
 
 ## Lease And Monitor Contract
 

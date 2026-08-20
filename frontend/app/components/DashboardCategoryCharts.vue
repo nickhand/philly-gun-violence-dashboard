@@ -47,7 +47,7 @@ const definitions: ChartDefinition[] = [
     accessor: "has_court_case",
     className: "court",
     description:
-      "Yes means the automated Pennsylvania court-portal search returned a result for the PPD incident number. No means a completed search returned an explicit no-results response. Unknown means the search was unavailable, incomplete, or inconclusive. This flag does not establish how a record relates to a victim or report a case outcome.",
+      "Yes means the automated Pennsylvania court-portal search returned a result for the PPD incident number. No means a completed search returned an explicit no-results response. Unknown means the incident has not yet been checked or the search was unavailable, incomplete, or inconclusive. New incidents remain Unknown until a later completed court search. This flag does not establish how a record relates to a victim or report a case outcome.",
     labelWidth: 100,
     responsiveLabelWidth: 100,
     categories: [

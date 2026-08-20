@@ -13,6 +13,7 @@ from dashboard_utils.constants import REFERENCE_CRS
 from dashboard_utils.processed import (
     read_processed_csv,
     read_processed_geojson,
+    read_processed_json,
 )
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "load_street_blocks",
     "load_homicide_database",
     "load_courts_flags",
+    "load_courts_metadata",
 ]
 
 
@@ -119,3 +121,8 @@ def load_homicide_database(*, s3: S3Client | None = None) -> pd.DataFrame:
 def load_courts_flags(*, s3: S3Client | None = None) -> pd.DataFrame:
     """Load the courts flags DataFrame."""
     return read_processed_csv("courts_flags", s3=_client(s3), dtype={"dc_key": str})
+
+
+def load_courts_metadata(*, s3: S3Client | None = None) -> Any:
+    """Load the provenance metadata paired with the stable courts flags."""
+    return read_processed_json("courts_meta", s3=_client(s3))

@@ -442,8 +442,17 @@ which wrote only global result objects. Before the first run after this change:
 4. Before enabling the full external Fly dispatch again, verify the sample run
    wrote `ujs-scraper/runs/<run-id>/results/*.json` (or run-scoped failure JSON),
    every object carries that run ID, the queue drained, processing completed,
-   the flags CSV and courts metadata record court-search semantics version 2,
-   and the active lease reached a terminal record.
+   and the active lease reached a successful terminal record. Its manifest must
+   record `selection_mode=sample`, the original `candidate_count`, and its
+   selected `input_size`. Sample and incremental processing validate their
+   completed exact-run artifacts but intentionally do not read or write stable
+   `processed/courts/portal_results.json`,
+   `processed/courts/scraped_courts_data.csv`, or courts metadata.
+
+5. Submit a no-sample forced run for production publication. Only this path is
+   recorded as `selection_mode=full`, and its manifest is accepted only when
+   `candidate_count == input_size`. Verify the resulting flags CSV and courts
+   metadata before allowing a shootings publication to consume them.
 
 Version 2 is also a data migration boundary. Historical `False` flags cannot be
 trusted because the former pipeline filled failed, missing, and unsearched rows
@@ -451,16 +460,37 @@ with false. On the first version-2 processing run, historical `True` evidence is
 retained, historical false becomes blank/unknown, and only a current run-scoped
 result produced from the portal's explicit no-results marker can write false.
 The flags CSV carries `court_search_semantics_version=2` on every row and the
-courts `meta.json` records the same version, so subsequent partial runs may
-safely preserve a versioned false without reviving legacy values.
+courts `meta.json` records the same version.
+
+Run selection is an explicit publication boundary. Every immutable run manifest
+records `selection_mode` (`sample`, `incremental`, or `full`), the complete
+pre-selection `candidate_count`, and its selected `input_size`. Sample and
+incremental processing validate their exact-run results but never replace
+`portal_results.json`, the stable flags CSV, or courts metadata. Only a forced,
+unsampled `full` run can publish them, and it must prove that candidate and input
+counts match and that every input has exactly one terminal result or failure
+record. Failed and inconclusive searches remain unknown; complete coverage means
+the full input snapshot was accounted for, not that every portal search was
+conclusive.
+
+The stable courts metadata binds that full run to its flags with
+`publication_contract_version`, `run_id`, `selection_mode`, `candidate_count`,
+`input_count`, `result_count`, `coverage_complete`, `flags_row_count`, and a
+canonical `flags_sha256`. The shootings transform checks all of these fields,
+requires semantics version 2 on every flags row, and recomputes the digest before
+it can publish. Missing, legacy, sampled, incomplete, or mismatched provenance
+fails closed before a shootings release is written. Shootings first reported
+after the full-run input snapshot are intentionally left unknown by the left
+join until a later full scrape; they do not invalidate the already proven full
+snapshot.
 
 This migration is a release gate for shootings, not for the API deployment.
 Deploy and verify the pointer-aware API first if desired, but do not run the
 first new shootings publication until a courts processing run has written and
-you have verified semantics version 2 in both the flags CSV and courts metadata.
-The shootings transform independently fails closed by converting any remaining
-unversioned false to unknown, but that safeguard is not a substitute for the
-ordered migration.
+you have verified a complete full-run publication contract in both the flags
+CSV and courts metadata. The shootings transform independently enforces this
+contract; there is no override that turns sampled or unproven court flags into a
+shootings release.
 
 The courts Actions workflows intentionally remain `workflow_dispatch`-driven.
 The external Fly scheduler starts `courts-scrape.yml`; after terminal queue and
@@ -468,11 +498,22 @@ task proof, the credential-isolated ECS monitor starts `courts-process.yml`
 with its required `run_id` input. The external scheduler avoids GitHub's
 inactivity shutdown for scheduled workflows.
 
-Court processing publishes the owned scrape run's flags and diagnostics; it
-does not rewrite or advance the authoritative shootings release. New court
-search observations therefore become public with the next shootings ETL
-publication. Restarting the API cannot make them visible sooner, so the courts
-process workflow does not require a Fly token or restart the API.
+Full courts submissions have a 24-hour duplicate guard. An already-active full
+run or a full run whose processing lease reached typed terminal success inside
+that interval exits cleanly before SQS, S3, or ECS mutation. Candidate-count
+drift is logged, while shootings added later that day remain unknown until the
+next weekly scrape. Sample, incremental, failed, legacy-untyped, and incomplete
+runs cannot suppress a full scrape. For an intentional emergency repeat,
+manually dispatch `courts-scrape.yml` with `allow_recent_full_run=true`; the
+override is rejected for sample runs.
+
+Court processing publishes the owned full scrape run's flags and diagnostics;
+sample and incremental runs terminate successfully without changing those
+stable processed objects. It does not rewrite or advance the authoritative
+shootings release. New court search observations therefore become public with
+the next shootings ETL publication. Restarting the API cannot make them visible
+sooner, so the courts process workflow does not require a Fly token or restart
+the API.
 
 ## Environment
 

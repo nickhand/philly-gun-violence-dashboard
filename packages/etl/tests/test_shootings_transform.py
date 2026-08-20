@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import Point
 
+from etl.courts.publication import court_flags_sha256
 from etl.courts.semantics import sanitize_court_search_flags
 from etl.shootings.transform import boundaries as boundary_transform
 from etl.shootings.transform import core
@@ -156,7 +157,7 @@ def test_schema_boundary_rejects_coercive_court_search_values(value: object) -> 
         core._validate_against_schema(_valid_schema_frame(value))
 
 
-def test_clean_shootings_allows_missing_cartodb_id_and_normalizes_flags(monkeypatch) -> None:
+def test_clean_shootings_keeps_post_scrape_incident_unknown(monkeypatch) -> None:
     raw = gpd.GeoDataFrame(
         {
             "officer_involved": ["N", "N"],
@@ -179,16 +180,31 @@ def test_clean_shootings_allows_missing_cartodb_id_and_normalizes_flags(monkeypa
     )
     monkeypatch.setattr(core, "join_with_boundary_datasets", lambda df: df)
     monkeypatch.setattr(core, "join_with_street_blocks", lambda df, **_kwargs: df)
+    courts_flags = pd.DataFrame(
+        {
+            "dc_key": ["1"],
+            "has_court_case": [True],
+            "court_search_semantics_version": [2],
+        }
+    )
+    monkeypatch.setattr(core, "load_courts_flags", lambda **_kwargs: courts_flags)
     monkeypatch.setattr(
         core,
-        "load_courts_flags",
-        lambda **_kwargs: pd.DataFrame(
-            {
-                "dc_key": ["1", "2"],
-                "has_court_case": [False, False],
-                "court_search_semantics_version": [pd.NA, 2],
-            }
-        ),
+        "load_courts_metadata",
+        lambda **_kwargs: {
+            "publication_contract_version": 1,
+            "run_id": "run-full",
+            "selection_mode": "full",
+            "coverage_complete": True,
+            "candidate_count": 1,
+            "input_count": 1,
+            "result_count": 1,
+            "missing_result_count": 0,
+            "extra_result_count": 0,
+            "flags_row_count": 1,
+            "flags_sha256": court_flags_sha256(courts_flags),
+            "court_search_semantics_version": 2,
+        },
     )
     monkeypatch.setattr(core, "_validate_against_schema", lambda df: df)
 
@@ -199,5 +215,5 @@ def test_clean_shootings_allows_missing_cartodb_id_and_normalizes_flags(monkeypa
     assert result["outside"].tolist() == [True, False]
     assert result["latino"].tolist() == [False, True]
     assert result["race"].tolist() == ["W", "H"]
-    assert pd.isna(result.loc[result["dc_key"] == "1", "has_court_case"].iloc[0])
-    assert bool(result.loc[result["dc_key"] == "2", "has_court_case"].iloc[0]) is False
+    assert bool(result.loc[result["dc_key"] == "1", "has_court_case"].iloc[0]) is True
+    assert pd.isna(result.loc[result["dc_key"] == "2", "has_court_case"].iloc[0])

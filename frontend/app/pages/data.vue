@@ -620,10 +620,11 @@ useHead(() => ({
               result for the police incident number in the public court portal.
               A negative flag means a completed search returned an explicit
               no-results response; it does not prove that no case exists. An
-              unknown flag means the search was unavailable, incomplete, or
-              inconclusive. None of these values proves that someone was
-              charged, shows how a case ended, or establishes how a record
-              relates to a victim.
+              unknown flag means the incident has not yet been checked or the
+              search was unavailable, incomplete, or inconclusive. New incidents
+              remain unknown until a later completed court search. None of these
+              values proves that someone was charged, shows how a case ended, or
+              establishes how a record relates to a victim.
             </li>
           </ul>
           <p>
@@ -719,9 +720,11 @@ useHead(() => ({
                     returned a result for the PPD incident number.
                     <code>false</code> means a completed search returned an
                     explicit no-results response. A blank CSV value or GeoJSON
-                    <code>null</code> means the search was unavailable,
-                    incomplete, or inconclusive. This field does not establish
-                    how a record relates to a victim or report a case outcome.
+                    <code>null</code> means the incident has not yet been checked
+                    or the search was unavailable, incomplete, or inconclusive.
+                    New incidents remain null until a later completed court
+                    search. This field does not establish how a record relates to
+                    a victim or report a case outcome.
                   </td>
                 </tr>
               </tbody>

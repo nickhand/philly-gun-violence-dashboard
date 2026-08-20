@@ -1,6 +1,7 @@
 """Tests for optimization-safe CLI run selection."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -50,14 +51,19 @@ class _SubmitConfig(SubmitterConfig):
 
 def _submit_app(
     config_class: type[SubmitterConfig] = _SubmitConfig,
+    *,
+    items: list[WorkItem] | None = None,
+    minimum_full_run_interval: timedelta | None = None,
 ) -> typer.Typer:
+    loaded_items = items if items is not None else [WorkItem(item_id="item-1")]
     return create_cli(
         name="test",
         script_name="test-etl",
         scraper_factory=MagicMock(),
-        input_loader=lambda _config: [WorkItem(item_id="item-1")],
+        input_loader=lambda _config: list(loaded_items),
         worker_config_class=config_class,
         submitter_config_class=config_class,
+        minimum_full_run_interval=minimum_full_run_interval,
     )
 
 
@@ -294,6 +300,121 @@ def test_submit_dry_run_has_no_aws_side_effects(monkeypatch: pytest.MonkeyPatch)
     seed.assert_not_called()
     manifest.assert_not_called()
     launch.assert_not_called()
+
+
+def test_full_submit_skips_cleanly_on_durable_suppression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recent or active full run must stop before any durable mutation."""
+    from aws_batch_scraper import lease, run_guard
+    from aws_batch_scraper.run_guard import FullRunSuppression
+
+    _patch_submit_session(monkeypatch)
+    suppression = FullRunSuppression(
+        run_id="run-existing",
+        reason="recent-success",
+        reference_at=datetime(2026, 8, 20, tzinfo=UTC),
+        prior_candidate_count=1,
+        current_candidate_count=1,
+    )
+    guard = MagicMock(return_value=suppression)
+    acquire = MagicMock()
+    monkeypatch.setattr(run_guard, "find_full_run_suppression", guard)
+    monkeypatch.setattr(lease, "acquire_run_lease", acquire)
+
+    result = CliRunner().invoke(
+        _submit_app(minimum_full_run_interval=timedelta(hours=24)),
+        ["submit", "--force", "--monitor-in-ecs"],
+    )
+
+    assert result.exit_code == 0, result.output
+    guard.assert_called_once()
+    acquire.assert_not_called()
+
+
+def test_explicit_full_run_override_bypasses_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import run_guard
+
+    _patch_submit_session(monkeypatch)
+    guard = MagicMock()
+    monkeypatch.setattr(run_guard, "find_full_run_suppression", guard)
+
+    result = CliRunner().invoke(
+        _submit_app(minimum_full_run_interval=timedelta(hours=24)),
+        ["submit", "--force", "--allow-recent-full-run", "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    guard.assert_not_called()
+
+
+def test_recent_full_run_override_is_rejected_for_a_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_submit_session(monkeypatch)
+
+    result = CliRunner().invoke(
+        _submit_app(minimum_full_run_interval=timedelta(hours=24)),
+        [
+            "submit",
+            "--force",
+            "--sample",
+            "1",
+            "--allow-recent-full-run",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "valid only for a full run" in result.output
+
+
+@pytest.mark.parametrize(
+    ("arguments", "existing", "selection_mode", "selected_count"),
+    [
+        (["--force", "--sample", "1", "--wait"], set(), "sample", 1),
+        (["--wait"], {"item-1"}, "incremental", 2),
+        (["--force", "--wait"], {"item-1"}, "full", 3),
+    ],
+)
+def test_submit_binds_selection_mode_and_candidate_count_into_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    existing: set[str],
+    selection_mode: str,
+    selected_count: int,
+) -> None:
+    from aws_batch_scraper import ids, lease, orchestrate, queue
+
+    _patch_submit_session(monkeypatch)
+    monkeypatch.setattr(ids, "make_run_id", lambda: "run-1")
+    monkeypatch.setattr(queue, "get_existing_items", lambda *args, **kwargs: existing)
+    monkeypatch.setattr(lease, "acquire_run_lease", lambda *args, **kwargs: None)
+    manifest = MagicMock()
+    monkeypatch.setattr(orchestrate, "write_run_manifest", manifest)
+    monkeypatch.setattr(
+        queue,
+        "seed_queue",
+        lambda _sqs, _config, selected, *args, **kwargs: len(selected),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "launch_workers",
+        lambda *args, **kwargs: ["arn:aws:ecs:us-east-1:123456789012:task/cluster/worker"],
+    )
+    monkeypatch.setattr(orchestrate, "write_task_arns", lambda *args, **kwargs: None)
+    monkeypatch.setattr(orchestrate, "monitor_run", lambda *args, **kwargs: None)
+    app = _submit_app(items=[WorkItem(item_id=f"item-{number}") for number in range(1, 4)])
+
+    result = CliRunner().invoke(app, ["submit", *arguments])
+
+    assert result.exit_code == 0, result.output
+    manifest.assert_called_once()
+    assert len(manifest.call_args.args[3]) == selected_count
+    assert manifest.call_args.kwargs["selection_mode"] == selection_mode
+    assert manifest.call_args.kwargs["candidate_count"] == 3
 
 
 def test_submit_seed_failure_retains_lease_after_manifest(

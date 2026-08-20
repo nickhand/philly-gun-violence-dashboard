@@ -5,6 +5,7 @@ from aws_batch_scraper.aggregate import (
     aggregate_failures,
     aggregate_results,
     read_run_items,
+    read_run_manifest,
     require_no_result_conflicts,
 )
 from aws_batch_scraper.types import ScrapeResult, ScrapeStatus
@@ -13,6 +14,10 @@ from mypy_boto3_s3.client import S3Client
 
 from dashboard_utils.processed import read_processed_csv, write_processed_csv, write_processed_json
 from etl.courts.config import CourtsWorkerConfig as WorkerConfig
+from etl.courts.publication import (
+    COURTS_PUBLICATION_CONTRACT_VERSION,
+    court_flags_sha256,
+)
 from etl.courts.semantics import (
     COURT_SEARCH_SEMANTICS_VERSION,
     COURT_SEARCH_SEMANTICS_VERSION_COLUMN,
@@ -107,12 +112,13 @@ def _result_coverage(
 
 
 def process_results(s3: S3Client, config: WorkerConfig) -> None:
-    """Aggregate one owned run's observations and write courts flags CSV."""
+    """Validate one owned run and publish stable flags only for a full run."""
     run_id = config.run_id.strip()
     if not run_id or run_id == "unknown":
         raise ValueError("Courts result processing requires a concrete run ID")
 
     logger.info(f"Step 1/4: fetching exact-run inputs and results for {run_id}...")
+    manifest = read_run_manifest(s3, config, run_id, require_completed=True)
     run_items = read_run_items(s3, config, run_id, require_completed=True)
     require_no_result_conflicts(s3, config, run_id)
     conclusive_results = aggregate_results(s3, config, run_id=run_id)
@@ -162,6 +168,28 @@ def process_results(s3: S3Client, config: WorkerConfig) -> None:
             status_counts[ScrapeStatus.INVALID_INPUT.value],
         )
 
+    if manifest.selection_mode != "full":
+        logger.info(
+            "Validated {} courts run {}; skipping all stable processed outputs "
+            "because only a full run may publish",
+            manifest.selection_mode,
+            run_id,
+        )
+        return
+
+    coverage_complete = (
+        manifest.input_size == manifest.candidate_count
+        and len(input_df) == manifest.input_size
+        and len(portal_results) == len(input_df)
+        and missing_result_count == 0
+        and extra_result_count == 0
+    )
+    if not coverage_complete:
+        raise ValueError(
+            f"Full courts run {run_id} does not have complete terminal result coverage; "
+            "refusing to replace the stable court-flags generation"
+        )
+
     logger.info("Step 3/4: writing portal_results.json...")
     _write_portal_results(s3, portal_results)
 
@@ -187,6 +215,12 @@ def process_results(s3: S3Client, config: WorkerConfig) -> None:
         extra_result_count=extra_result_count,
         unknown_result_count=unknown_result_count,
         has_partial_results=has_partial_results,
+        publication_contract_version=COURTS_PUBLICATION_CONTRACT_VERSION,
+        selection_mode=manifest.selection_mode,
+        candidate_count=manifest.candidate_count,
+        coverage_complete=coverage_complete,
+        flags_row_count=len(out),
+        flags_sha256=court_flags_sha256(out),
         court_search_semantics_version=COURT_SEARCH_SEMANTICS_VERSION,
         run_id=config.run_id if config.run_id != "unknown" else None,
     )

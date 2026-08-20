@@ -286,8 +286,10 @@ useHead(() => ({
               how a court record relates to a particular victim. A negative flag
               means a completed search returned an explicit no-results response;
               it does not prove that no case exists. An unknown flag means the
-              search was unavailable, incomplete, or inconclusive. None of these
-              values reports a case outcome.
+              incident has not yet been checked or the search was unavailable,
+              incomplete, or inconclusive. New incidents remain unknown until a
+              later completed court search. None of these values reports a case
+              outcome.
             </li>
           </ul>
         </section>

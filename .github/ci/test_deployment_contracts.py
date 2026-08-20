@@ -75,6 +75,22 @@ class DeploymentContracts(unittest.TestCase):
             crontab,
         )
 
+    def test_courts_schedule_defaults_to_full_run_deduplication(self) -> None:
+        source = (WORKFLOWS / "courts-scrape.yml").read_text()
+
+        self.assertIn("allow_recent_full_run:", source)
+        override_input = source.split("allow_recent_full_run:", maxsplit=1)[1].split(
+            "permissions:", maxsplit=1
+        )[0]
+        self.assertIn("type: boolean", override_input)
+        self.assertIn("default: false", override_input)
+        self.assertIn('submit_args=(--force --monitor-in-ecs)', source)
+        self.assertIn('submit_args+=(--allow-recent-full-run)', source)
+        self.assertIn(
+            'allow_recent_full_run is valid only when sample=0 selects a full run',
+            source,
+        )
+
     def test_external_schedule_targets_are_exact_and_dispatch_only(self) -> None:
         crontab = (REPOSITORY_ROOT / "packages/api/crontab").read_text()
         active_lines = tuple(

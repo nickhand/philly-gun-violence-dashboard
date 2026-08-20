@@ -13,6 +13,11 @@ on:
         type: number
         required: false
         default: 42
+      allow_recent_full_run:
+        description: "Explicitly bypass the 24-hour full-run duplicate guard."
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -30,10 +35,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate sample input
         env:
+          ALLOW_RECENT_FULL_RUN: ${{ inputs.allow_recent_full_run }}
           SAMPLE: ${{ inputs.sample }}
         run: |
           if ! [[ "$SAMPLE" =~ ^[0-9]+$ ]]; then
             echo "sample must be an integer greater than or equal to 0" >&2
+            exit 1
+          fi
+          if [[ "$ALLOW_RECENT_FULL_RUN" != "true" && "$ALLOW_RECENT_FULL_RUN" != "false" ]]; then
+            echo "allow_recent_full_run must be a boolean" >&2
+            exit 1
+          fi
+          if [[ "$SAMPLE" -gt 0 && "$ALLOW_RECENT_FULL_RUN" == "true" ]]; then
+            echo "allow_recent_full_run is valid only when sample=0 selects a full run" >&2
             exit 1
           fi
       - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -52,16 +66,20 @@ jobs:
         run: |
           cd packages/etl
           uv run gv-dashboard-etl courts smoke --skip-portal
+          submit_args=(--force --monitor-in-ecs)
+          if [ "$ALLOW_RECENT_FULL_RUN" = "true" ]; then
+            submit_args+=(--allow-recent-full-run)
+          fi
           if [ "${SAMPLE}" -gt 0 ]; then
             uv run gv-dashboard-etl courts submit \
-              --force \
-              --monitor-in-ecs \
+              "${submit_args[@]}" \
               --sample "${SAMPLE}" \
               --seed "${SEED}"
           else
-            uv run gv-dashboard-etl courts submit --force --monitor-in-ecs
+            uv run gv-dashboard-etl courts submit "${submit_args[@]}"
           fi
         env:
+          ALLOW_RECENT_FULL_RUN: ${{ inputs.allow_recent_full_run }}
           SAMPLE: ${{ inputs.sample }}
           SEED: ${{ inputs.seed }}
           ENV: prod

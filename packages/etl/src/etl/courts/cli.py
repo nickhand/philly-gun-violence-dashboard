@@ -1,5 +1,6 @@
 """Courts portal ETL CLI — built on the aws-batch-scraper framework."""
 
+from datetime import timedelta
 from typing import Annotated
 
 import typer
@@ -19,6 +20,7 @@ app = create_cli(
     input_loader=load_incidents,
     worker_config_class=CourtsWorkerConfig,
     submitter_config_class=CourtsSubmitterConfig,
+    minimum_full_run_interval=timedelta(hours=24),
 )
 
 

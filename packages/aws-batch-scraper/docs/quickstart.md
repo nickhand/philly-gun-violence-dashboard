@@ -144,4 +144,8 @@ recovery after proving that no ECS monitor is still active for that run; running
 both can duplicate finalization and downstream dispatch.
 
 Use `--sample N` while testing and `--force` when you want to ignore existing
-result objects.
+result objects. The immutable run manifest classifies every `--sample` run as
+`sample`, a no-sample/no-force run as `incremental`, and only a no-sample forced
+run as `full`. It also records the pre-selection `candidate_count` beside the
+selected `input_size`, allowing downstream publishers to fail closed unless
+the run explicitly covered every candidate.

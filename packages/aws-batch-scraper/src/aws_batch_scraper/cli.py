@@ -7,7 +7,7 @@ import random
 import threading
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, TypedDict
 
@@ -282,6 +282,7 @@ def create_cli(
     input_loader: Callable[[SubmitterConfig], list[WorkItem]],
     worker_config_class: type[WorkerConfig] = WorkerConfig,
     submitter_config_class: type[SubmitterConfig] = SubmitterConfig,
+    minimum_full_run_interval: timedelta | None = None,
 ) -> typer.Typer:
     """Build a Typer app with generic scraper commands.
 
@@ -301,6 +302,9 @@ def create_cli(
         Pydantic-settings class for worker/aggregate commands.
     submitter_config_class
         Pydantic-settings class for submit/monitor commands.
+    minimum_full_run_interval
+        Optional read-only guard interval for duplicate full submissions. Plugins
+        enabling this policy expose an explicit ``--allow-recent-full-run`` bypass.
 
     Returns
     -------
@@ -332,6 +336,13 @@ def create_cli(
             bool,
             typer.Option("--force", help="Re-scrape all items, including those already in S3."),
         ] = False,
+        allow_recent_full_run: Annotated[
+            bool,
+            typer.Option(
+                "--allow-recent-full-run",
+                help="Explicitly bypass the configured recent full-run guard.",
+            ),
+        ] = False,
         soft_blocked_delay: Annotated[
             int | None,
             typer.Option(help="Max soft-block requeue delay in seconds (default 900)."),
@@ -353,6 +364,8 @@ def create_cli(
             raise typer.BadParameter("Use either --wait or --monitor-in-ecs, not both.")
         if not dry_run and not wait and not monitor_in_ecs:
             raise typer.BadParameter("Use --wait or --monitor-in-ecs for terminal run ownership.")
+        if allow_recent_full_run and minimum_full_run_interval is None:
+            raise typer.BadParameter("This scraper does not configure a recent full-run guard.")
 
         from aws_batch_scraper.aws import make_boto3_session
         from aws_batch_scraper.ids import make_run_id
@@ -375,10 +388,18 @@ def create_cli(
         ecs = session.client("ecs")
 
         items = input_loader(config)
+        candidate_count = len(items)
 
         if sample is not None:
+            selection_mode = "sample"
             random.seed(seed)
             items = random.sample(items, min(sample, len(items)))
+        elif force:
+            selection_mode = "full"
+        else:
+            selection_mode = "incremental"
+        if allow_recent_full_run and selection_mode != "full":
+            raise typer.BadParameter("--allow-recent-full-run is valid only for a full run.")
 
         existing = get_existing_items(s3, config)
         if force:
@@ -393,6 +414,30 @@ def create_cli(
         if not items:
             logger.info("All items already scraped. Nothing to do.")
             return
+
+        if (
+            selection_mode == "full"
+            and minimum_full_run_interval is not None
+            and not allow_recent_full_run
+        ):
+            from aws_batch_scraper.run_guard import find_full_run_suppression
+
+            suppression = find_full_run_suppression(
+                s3,
+                config,
+                current_candidate_count=candidate_count,
+                minimum_interval=minimum_full_run_interval,
+            )
+            if suppression is not None:
+                logger.info(
+                    "Skipping duplicate full submission: {} run {} at {} already "
+                    "covers this minimum interval. Use --allow-recent-full-run only "
+                    "for an intentional override.",
+                    suppression.reason,
+                    suppression.run_id,
+                    suppression.reference_at.isoformat(),
+                )
+                return
 
         worker_count = workers if workers is not None else config.ecs_task_count
         if not 1 <= worker_count <= 10:
@@ -425,7 +470,15 @@ def create_cli(
             acquire_run_lease(s3, config, run_id)
             lease_acquired = True
             phase = _SubmitPhase.MANIFEST_WRITE_STARTED
-            write_run_manifest(s3, config, run_id, items, worker_count=worker_count)
+            write_run_manifest(
+                s3,
+                config,
+                run_id,
+                items,
+                worker_count=worker_count,
+                selection_mode=selection_mode,
+                candidate_count=candidate_count,
+            )
             phase = _SubmitPhase.MANIFEST_WRITTEN
             phase = _SubmitPhase.QUEUE_SEED_STARTED
             seeded_count = seed_queue(sqs, config, items, run_id, force_rescrape=force)

@@ -84,6 +84,12 @@ result, `False` is trusted only when the portal displayed an explicit no-results
 current semantics version, and `None` means unknown. A result does not establish identity,
 relationship to a victim, or case outcome.
 
+Only a forced, unsampled courts run may replace the stable flags and metadata. Run manifests
+record explicit `sample`/`incremental`/`full` selection provenance and pre-selection candidate
+counts. Shootings publication requires a complete full-run contract and a matching canonical
+flags digest; never infer full coverage from a large row count. New shootings after that snapshot
+remain unknown until the next full scrape.
+
 Court workers use validated run-scoped SQS envelopes/results and an S3 lease. Production uses
 distinct, exact `ECS_TASK_DEFINITION` (worker) and `ECS_MONITOR_TASK_DEFINITION` (monitor)
 revisions backed by the exact verified `ECS_EXPECTED_IMAGE_URI`. Never use `latest`, a bare
