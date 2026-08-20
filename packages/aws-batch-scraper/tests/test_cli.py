@@ -238,7 +238,8 @@ def test_resume_rejects_execute_only_flags_without_execute(flag: str) -> None:
     result = CliRunner().invoke(_submit_app(), ["resume", "run-1", flag])
 
     assert result.exit_code != 0
-    assert "require --execute" in result.output
+    output = " ".join(strip_ansi(result.output).split())
+    assert "require --execute" in output
 
 
 @pytest.mark.parametrize("delay", ["0", "43201"])
