@@ -955,3 +955,40 @@ test("hydrates the Nuxt explorer and shares filters with its map, histogram, cha
       .every(({ cors }) => cors === appOrigin),
   ).toBe(true);
 });
+
+test("keeps year headline totals independent from map filters @maplibre", async ({
+  page,
+}) => {
+  const { sidebar } = await openDashboard(page);
+  const homicideHeadline = page.locator(
+    ".civic-legacy-dashboard-header__summary--homicide",
+  );
+  const shootingHeadline = page.locator(
+    ".civic-legacy-dashboard-header__summary--shooting",
+  );
+  const initialHeadlines = await Promise.all([
+    homicideHeadline.textContent(),
+    shootingHeadline.textContent(),
+  ]);
+
+  await expect(homicideHeadline).toContainText("10 homicides");
+  await expect(shootingHeadline).toContainText("2 nonfatal");
+  await expect(shootingHeadline).toContainText("2 fatal");
+  await expect(
+    sidebar.getByText(/Showing locations for\s*3 shooting victims/),
+  ).toBeVisible();
+
+  await sidebar
+    .getByRole("checkbox", { name: "Fatal shootings only" })
+    .check();
+
+  await expect(
+    sidebar.getByText(/Showing locations for\s*1 shooting victim$/),
+  ).toBeVisible();
+  expect(
+    await Promise.all([
+      homicideHeadline.textContent(),
+      shootingHeadline.textContent(),
+    ]),
+  ).toEqual(initialHeadlines);
+});

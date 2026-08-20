@@ -789,6 +789,25 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
   }
 });
 
+test("dashboard SSR headline totals ignore map-only query parameters", async () => {
+  const baseline = await fetchDocument(basePath);
+  const mapFiltered = await fetchDocument(
+    `${basePath}?year=2023&outcome=fatal&layers=heat-map&map=12%2F39.95%2F-75.16`,
+  );
+
+  try {
+    assert.equal(baseline.response.status, 200);
+    assert.equal(mapFiltered.response.status, 200);
+    assert.deepEqual(
+      dashboardSummaries(mapFiltered.document),
+      dashboardSummaries(baseline.document),
+    );
+  } finally {
+    baseline.dom.window.close();
+    mapFiltered.dom.window.close();
+  }
+});
+
 test("dashboard year query drives truthful SSR summaries and category charts", async () => {
   resetRecordRequests();
   const cases = [

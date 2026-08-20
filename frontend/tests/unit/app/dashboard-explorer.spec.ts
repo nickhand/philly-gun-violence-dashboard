@@ -353,6 +353,7 @@ describe("DashboardExplorer", () => {
     expect(wrapper.emitted("summary")?.at(-1)).toEqual([
       { fatal: 2, mapped: 3, nonfatal: 2, total: 4 },
     ]);
+    const loadedSummaryEventCount = wrapper.emitted("summary")?.length;
     expect(
       wrapper.get(".civic-legacy-sidebar__note").classes(),
     ).not.toContain("civic-legacy-sidebar__note--empty");
@@ -376,20 +377,21 @@ describe("DashboardExplorer", () => {
 
     await wrapper.get("#dashboard-fatal-filter").setValue(true);
     await nextTick();
-    expect(wrapper.emitted("summary")?.at(-1)).toEqual([
-      { fatal: 2, mapped: 1, nonfatal: 0, total: 2 },
-    ]);
+    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "fatal only: true",
+    );
+    expect(wrapper.get('[data-test="point-map"]').text()).toContain(
+      "2 filtered map records",
     );
     await wrapper.get("#dashboard-fatal-filter").setValue(false);
 
     await wrapper.get("#dashboard-court-filter").setValue(true);
     await nextTick();
-    expect(wrapper.emitted("summary")?.at(-1)?.[0]).toMatchObject({
-      mapped: 1,
-      total: 2,
-    });
+    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.get('[data-test="point-map"]').text()).toContain(
+      "2 filtered map records",
+    );
     await wrapper.get("#dashboard-court-filter").setValue(false);
 
     const genderFilter = wrapper
@@ -400,9 +402,10 @@ describe("DashboardExplorer", () => {
       .get('button[aria-label="Select only Female for Gender"]')
       .trigger("click");
     await nextTick();
-    expect(wrapper.emitted("summary")?.at(-1)).toEqual([
-      { fatal: 0, mapped: 1, nonfatal: 1, total: 1 },
-    ]);
+    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.get('[data-test="point-map"]').text()).toContain(
+      "1 filtered map records",
+    );
     expect(wrapper.get(".civic-legacy-sidebar__note").classes()).toContain(
       "civic-legacy-sidebar__note--empty",
     );
@@ -421,29 +424,26 @@ describe("DashboardExplorer", () => {
     expect(ageFilter).toBeDefined();
     await ageFilter!.get('input[type="range"]').setValue(30);
     await nextTick();
-    expect(wrapper.emitted("summary")?.at(-1)?.[0]).toMatchObject({
-      mapped: 2,
-      total: 3,
-    });
+    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "3 filtered map records",
     );
 
     await ageFilter!.get('input[type="checkbox"]').setValue(true);
     await nextTick();
-    expect(wrapper.emitted("summary")?.at(-1)?.[0]).toMatchObject({
-      mapped: 1,
-      total: 2,
-    });
+    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.get('[data-test="point-map"]').text()).toContain(
+      "2 filtered map records",
+    );
 
     const ageReset = wrapper.get('button[aria-label="Reset Age filter"]');
     expect(ageReset.element.closest("details")).toBeNull();
     await ageReset.trigger("click");
     await nextTick();
-    expect(wrapper.emitted("summary")?.at(-1)?.[0]).toMatchObject({
-      mapped: 3,
-      total: 4,
-    });
+    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.get('[data-test="point-map"]').text()).toContain(
+      "4 filtered map records",
+    );
 
     await wrapper.get("#dashboard-fatal-filter").setValue(true);
     await nextTick();
@@ -453,10 +453,10 @@ describe("DashboardExplorer", () => {
     expect(resetAll).toBeDefined();
     await resetAll!.trigger("click");
     await nextTick();
-    expect(wrapper.emitted("summary")?.at(-1)?.[0]).toMatchObject({
-      mapped: 3,
-      total: 4,
-    });
+    expect(wrapper.emitted("summary")).toHaveLength(loadedSummaryEventCount!);
+    expect(wrapper.get('[data-test="point-map"]').text()).toContain(
+      "4 filtered map records",
+    );
     expect(fetcher).toHaveBeenCalledTimes(2);
 
     wrapper.unmount();

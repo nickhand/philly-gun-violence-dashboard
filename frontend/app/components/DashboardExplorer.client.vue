@@ -5,7 +5,6 @@ import {
   onMounted,
   ref,
   shallowRef,
-  watch,
 } from "vue";
 
 import CivicRangeField from "../../layers/civic-ui/app/components/CivicRangeField.vue";
@@ -235,6 +234,16 @@ async function load(): Promise<void> {
     defaults.value = initialFilters;
     filters.value = cloneFilters(initialFilters);
     state.value = "ready";
+
+    // The page headline describes the selected year's complete dataset. Map
+    // filters intentionally affect only the explorer, charts, and downloads.
+    const summary = summarizeShootingRecords(loaded.rows);
+    emit("summary", {
+      fatal: summary.fatalRecordCount,
+      mapped: summary.points.features.length,
+      nonfatal: summary.nonfatalRecordCount,
+      total: summary.recordCount,
+    });
   } catch (error) {
     if (
       currentLoadId === loadId &&
@@ -362,20 +371,6 @@ function clearAddress(): void {
   searchTimer = null;
   searchLocation.value = null;
 }
-
-watch(
-  [filteredRecords, state],
-  ([summary, currentState]) => {
-    if (currentState !== "ready") return;
-    emit("summary", {
-      fatal: summary.fatalRecordCount,
-      mapped: summary.points.features.length,
-      nonfatal: summary.nonfatalRecordCount,
-      total: summary.recordCount,
-    });
-  },
-  { immediate: true },
-);
 
 onMounted(load);
 
