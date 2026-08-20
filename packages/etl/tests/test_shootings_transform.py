@@ -102,6 +102,21 @@ def test_schema_boundary_preserves_unknown_court_search_result() -> None:
     assert pd.isna(result["has_court_case"].iloc[0])
 
 
+def test_schema_boundary_does_not_publish_unexpected_raw_fields() -> None:
+    raw = _valid_schema_frame(False).assign(unexpected_source_field="source-only")
+
+    result = core._validate_against_schema(raw)
+
+    assert "unexpected_source_field" not in result.columns
+
+
+def test_schema_boundary_still_rejects_missing_required_fields() -> None:
+    raw = _valid_schema_frame(False).drop(columns="sex")
+
+    with pytest.raises(ValueError, match=r"Missing columns for schema validation: \['sex'\]"):
+        core._validate_against_schema(raw)
+
+
 def test_unversioned_court_flags_keep_true_but_invalidate_false() -> None:
     result = sanitize_court_search_flags(
         pd.DataFrame(
@@ -141,7 +156,7 @@ def test_schema_boundary_rejects_coercive_court_search_values(value: object) -> 
         core._validate_against_schema(_valid_schema_frame(value))
 
 
-def test_clean_shootings_uses_normalized_flags_before_race_mapping(monkeypatch) -> None:
+def test_clean_shootings_allows_missing_cartodb_id_and_normalizes_flags(monkeypatch) -> None:
     raw = gpd.GeoDataFrame(
         {
             "officer_involved": ["N", "N"],
@@ -158,7 +173,6 @@ def test_clean_shootings_uses_normalized_flags_before_race_mapping(monkeypatch) 
             "point_x": [0, 0],
             "point_y": [0, 0],
             "objectid": [1, 2],
-            "cartodb_id": [1, 2],
         },
         geometry=[Point(-75.1, 40.0), Point(-75.2, 40.1)],
         crs="EPSG:4326",

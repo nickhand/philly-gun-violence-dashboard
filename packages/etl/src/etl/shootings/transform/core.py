@@ -222,10 +222,9 @@ def clean_shootings(
         .assign(
             race=lambda df: df.race.where(~df.latino, other="H"),
         )
-        .drop(
-            labels=["point_x", "point_y", "date_", "time", "objectid", "cartodb_id"],
-            axis=1,
-        )
+        .drop(columns=["point_x", "point_y", "date_", "time", "objectid"])
+        # The extractor explicitly requests that CARTO omit this source-only field.
+        .drop(columns=["cartodb_id"], errors="ignore")
         .sort_values("date", ascending=False)
         .reset_index(drop=True)
         .assign(date=lambda df: df.date.dt.strftime(DATE_FORMAT))

@@ -70,6 +70,7 @@ def test_query_carto_does_not_mutate_fields_and_uses_injected_client() -> None:
     assert len(requests) == 1
     assert str(requests[0].url).startswith(CARTO)
     assert requests[0].url.params["q"] == "SELECT id,the_geom FROM shootings LIMIT 1"
+    assert requests[0].url.params["skipfields"] == "cartodb_id"
 
 
 def test_query_carto_zero_limit_is_empty_without_network() -> None:
