@@ -484,6 +484,16 @@ after the full-run input snapshot are intentionally left unknown by the left
 join until a later full scrape; they do not invalidate the already proven full
 snapshot.
 
+Courts metadata also records `result_conflict_policy_version`, total/resolved/
+unresolved result-conflict counts, and a deterministic
+`result_conflict_evidence_sha256`. Publication contract version 2 requires the
+supported conflict policy, reconciled nonnegative counts, zero unresolved
+conflicts, zero invalid/orphan resolution objects, and a lowercase SHA-256
+evidence digest. A resolved count never means evidence was removed: it requires
+an explicit reviewed, append-only accept-canonical record bound to the exact
+conflict and canonical bodies. Missing, malformed, tampered, or merely inferred
+resolution evidence remains a hard publication block.
+
 This migration is a release gate for shootings, not for the API deployment.
 Deploy and verify the pointer-aware API first if desired, but do not run the
 first new shootings publication until a courts processing run has written and

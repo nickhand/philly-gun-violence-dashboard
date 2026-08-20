@@ -192,7 +192,7 @@ def test_clean_shootings_keeps_post_scrape_incident_unknown(monkeypatch) -> None
         core,
         "load_courts_metadata",
         lambda **_kwargs: {
-            "publication_contract_version": 1,
+            "publication_contract_version": 2,
             "run_id": "run-full",
             "selection_mode": "full",
             "coverage_complete": True,
@@ -204,6 +204,12 @@ def test_clean_shootings_keeps_post_scrape_incident_unknown(monkeypatch) -> None
             "flags_row_count": 1,
             "flags_sha256": court_flags_sha256(courts_flags),
             "court_search_semantics_version": 2,
+            "result_conflict_policy_version": 1,
+            "result_conflict_count": 0,
+            "resolved_result_conflict_count": 0,
+            "unresolved_result_conflict_count": 0,
+            "invalid_result_conflict_resolution_count": 0,
+            "result_conflict_evidence_sha256": "a" * 64,
         },
     )
     monkeypatch.setattr(core, "_validate_against_schema", lambda df: df)

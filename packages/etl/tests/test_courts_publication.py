@@ -39,6 +39,12 @@ def _metadata(flags: pd.DataFrame) -> dict[str, object]:
         "flags_row_count": len(flags),
         "flags_sha256": court_flags_sha256(flags),
         "court_search_semantics_version": COURT_SEARCH_SEMANTICS_VERSION,
+        "result_conflict_policy_version": 1,
+        "result_conflict_count": 1,
+        "resolved_result_conflict_count": 1,
+        "unresolved_result_conflict_count": 0,
+        "invalid_result_conflict_resolution_count": 0,
+        "result_conflict_evidence_sha256": "a" * 64,
     }
 
 
@@ -110,6 +116,42 @@ def test_flags_must_match_metadata_generation_digest() -> None:
 
     with pytest.raises(CourtsPublicationError, match="do not match.*generation"):
         require_publishable_court_flags(changed, metadata)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("result_conflict_policy_version", 2, "policy version"),
+        ("result_conflict_count", 2, "counts do not reconcile"),
+        ("resolved_result_conflict_count", 0, "counts do not reconcile"),
+        ("invalid_result_conflict_resolution_count", 1, "invalid resolution"),
+        ("result_conflict_evidence_sha256", "A" * 64, "not a SHA-256"),
+    ],
+)
+def test_conflict_publication_evidence_fails_closed(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    flags = _flags()
+    metadata = _metadata(flags)
+    metadata[field] = value
+
+    with pytest.raises(CourtsPublicationError, match=message):
+        require_publishable_court_flags(flags, metadata)
+
+
+def test_reconciled_but_unresolved_conflict_count_still_blocks() -> None:
+    flags = _flags()
+    metadata = _metadata(flags)
+    metadata.update(
+        result_conflict_count=2,
+        resolved_result_conflict_count=1,
+        unresolved_result_conflict_count=1,
+    )
+
+    with pytest.raises(CourtsPublicationError, match="unresolved conflicts"):
+        require_publishable_court_flags(flags, metadata)
 
 
 def test_every_flag_requires_current_semantics_even_with_matching_metadata() -> None:

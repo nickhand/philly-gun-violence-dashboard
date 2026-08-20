@@ -153,12 +153,32 @@ Permanent failures are run-scoped and never replace the global conclusive cache:
 s3://<bucket>/<s3_scraper_prefix>/runs/<run_id>/failures/<item_id>.json
 ```
 
-Exact-run conclusive results are conditional first-writer-wins objects. A
-duplicate observation may reuse the first canonical body, but a disagreement
-cannot overwrite it. The worker records durable terminal evidence at
-`runs/<run_id>/result-conflicts/<item_id>.json`, moves the duplicate message to
-the DLQ only after that write succeeds, and exact-run aggregation and downstream
-publication fail closed while any such evidence exists.
+Exact-run conclusive results are conditional first-writer-wins objects. Duplicate
+equivalence uses an explicit semantic projection: `status`, `data`,
+`classification`, `subreason`, retry-hint flags, final URL, and error state. Only
+demonstrably attempt-local `extra`, retry counts, and timing are excluded from
+generic comparison. Conclusive results carrying soft-block or network-retry
+hints are also rejected separately.
+
+A semantic disagreement cannot overwrite the canonical result. Schema-v2
+conflict evidence is append-only and candidate-addressed at
+`runs/<run_id>/result-conflicts/v2/<item_id>/<candidate_sha256>.json`, so later
+distinct candidates cannot hide behind an earlier marker. It retains the full
+candidate body, both semantic projections, canonical identity/digests, and a
+non-secret allowlist of SQS delivery metadata; receipt handles and raw work
+messages are not persisted. The worker moves the duplicate message to the DLQ
+only after durable evidence exists.
+
+Aggregation audits every conflict and resolution object under a versioned policy;
+all conflicts are unresolved by default. Accepting the immutable canonical result
+requires an explicit, reviewed, append-only record at
+`result-conflict-resolutions/v1/<conflict_sha256>/<resolution_sha256>.json`. It is
+bound to the exact run, item, conflict key/body, existing and candidate digests,
+canonical key/body/status, reviewer, note, and timestamp. Conditional writes are
+verified by exact readback. Missing, malformed, tampered, mismatched, or orphan
+resolution evidence fails closed. Neither review nor aggregation edits or deletes
+the original conflict. The report exposes resolved/unresolved counts, the
+conflict-policy version, and a deterministic policy-bound evidence digest.
 
 Each object validates as `ScrapeResult`:
 

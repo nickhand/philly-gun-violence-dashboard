@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-from aws_batch_scraper.aggregate import RunResultConflictError
+from aws_batch_scraper.aggregate import ResultConflictReport, RunResultConflictError
 from aws_batch_scraper.types import ScrapeResult, ScrapeStatus, WorkItem
 
 from etl.courts import pipeline
@@ -27,6 +27,11 @@ def _completed_full_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
             candidate_count=1,
             input_size=1,
         ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "require_no_result_conflicts",
+        lambda *args, **kwargs: ResultConflictReport.empty(),
     )
 
 
@@ -146,7 +151,19 @@ def test_forced_failure_uses_current_run_and_preserves_prior_known_flag(
         return [WorkItem(item_id="100")]
 
     monkeypatch.setattr(pipeline, "read_run_items", read_completed_run)
-    monkeypatch.setattr(pipeline, "require_no_result_conflicts", lambda *args, **kwargs: None)
+    conflict_report = ResultConflictReport(
+        conflict_policy_version=1,
+        total_count=1,
+        resolved_count=1,
+        unresolved_count=0,
+        evidence_sha256="a" * 64,
+        resolved_keys=("scraper/runs/run-new/result-conflicts/100.json",),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "require_no_result_conflicts",
+        lambda *args, **kwargs: conflict_report,
+    )
     aggregate_calls: list[str | None] = []
 
     def aggregate_current(*args, run_id=None, **kwargs):
@@ -199,6 +216,12 @@ def test_forced_failure_uses_current_run_and_preserves_prior_known_flag(
     assert meta["flags_row_count"] == len(flags)
     assert meta["flags_sha256"] == court_flags_sha256(flags)
     assert meta["court_search_semantics_version"] == 2
+    assert meta["result_conflict_policy_version"] == 1
+    assert meta["result_conflict_count"] == 1
+    assert meta["resolved_result_conflict_count"] == 1
+    assert meta["unresolved_result_conflict_count"] == 0
+    assert meta["invalid_result_conflict_resolution_count"] == 0
+    assert meta["result_conflict_evidence_sha256"] == "a" * 64
 
 
 def test_process_results_migrates_legacy_false_to_unknown(
@@ -224,7 +247,6 @@ def test_process_results_migrates_legacy_false_to_unknown(
         "read_run_items",
         lambda *args, **kwargs: [WorkItem(item_id="100"), WorkItem(item_id="400")],
     )
-    monkeypatch.setattr(pipeline, "require_no_result_conflicts", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         pipeline,
         "aggregate_results",
@@ -292,7 +314,6 @@ def test_process_results_rejects_records_outside_immutable_input(
         "read_run_items",
         lambda *args, **kwargs: [WorkItem(item_id="100")],
     )
-    monkeypatch.setattr(pipeline, "require_no_result_conflicts", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         pipeline,
         "aggregate_results",
@@ -397,7 +418,6 @@ def test_non_full_run_validates_results_without_mutating_stable_processed_object
         "read_run_items",
         lambda *args, **kwargs: [WorkItem(item_id="100")],
     )
-    monkeypatch.setattr(pipeline, "require_no_result_conflicts", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         pipeline,
         "aggregate_results",
@@ -460,7 +480,6 @@ def test_incomplete_full_run_cannot_replace_stable_processed_objects(
         "read_run_items",
         lambda *args, **kwargs: [WorkItem(item_id="100"), WorkItem(item_id="200")],
     )
-    monkeypatch.setattr(pipeline, "require_no_result_conflicts", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         pipeline,
         "aggregate_results",

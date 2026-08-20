@@ -1,5 +1,7 @@
 """Tests for queue-envelope validation and message-scoped behavior."""
 
+import base64
+import hashlib
 import json
 import math
 import threading
@@ -20,6 +22,7 @@ from aws_batch_scraper.worker import (
     _quarantine_result_conflict,
     _queue_is_empty,
     _read_work_message,
+    _sqs_delivery_metadata,
     _write_failure,
     _write_result,
 )
@@ -86,6 +89,10 @@ class ConditionalFakeS3:
         with self._lock:
             body = self.objects[Key]
         return {"Body": BytesIO(body)}
+
+
+def _result_conflict_keys(s3: ConditionalFakeS3) -> list[str]:
+    return sorted(key for key in s3.objects if "/result-conflicts/" in key)
 
 
 def test_seed_queue_carries_force_on_each_message() -> None:
@@ -322,6 +329,34 @@ def test_worker_queue_empty_requires_zero_delayed_messages() -> None:
     )
 
 
+def test_sqs_delivery_evidence_excludes_receipt_handle_and_raw_body() -> None:
+    raw_body = json.dumps({"item_id": "100", "run_id": "run-new"})
+
+    evidence = _sqs_delivery_metadata(  # ty: ignore[invalid-argument-type]
+        {
+            "MessageId": "message-1",
+            "MD5OfBody": "body-md5",
+            "Body": raw_body,
+            "ReceiptHandle": "secret-capability",
+            "Attributes": {
+                "ApproximateReceiveCount": "2",
+                "SentTimestamp": "1234",
+                "AWSTraceHeader": "not-persisted",
+            },
+        }
+    )
+
+    assert evidence == {
+        "message_id": "message-1",
+        "md5_of_body": "body-md5",
+        "body_sha256": hashlib.sha256(raw_body.encode()).hexdigest(),
+        "system_attributes": {
+            "ApproximateReceiveCount": "2",
+            "SentTimestamp": "1234",
+        },
+    }
+
+
 def test_conclusive_result_is_written_to_run_scope_before_global_cache() -> None:
     s3 = ConditionalFakeS3()
     result = ScrapeResult(status=ScrapeStatus.NO_RESULTS)
@@ -375,12 +410,14 @@ def test_identical_duplicate_keeps_first_exact_body_and_refreshes_cache_from_it(
         classification="explicit-no-results",
         attempt_count=1,
         scrape_duration_s=0.1,
+        extra={"status_histogram": {"200": 10}},
     )
     duplicate = ScrapeResult(
         status=ScrapeStatus.NO_RESULTS,
         classification="explicit-no-results",
         attempt_count=4,
         scrape_duration_s=9.9,
+        extra={"status_histogram": {"200": 12}},
     )
 
     assert (
@@ -411,7 +448,82 @@ def test_identical_duplicate_keeps_first_exact_body_and_refreshes_cache_from_it(
 
     assert s3.objects[exact_key] == first_body
     assert s3.objects["scraper/results/100.json"] == first_body
-    assert "scraper/runs/run-new/result-conflicts/100.json" not in s3.objects
+    assert _result_conflict_keys(s3) == []
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        ScrapeResult(status=ScrapeStatus.NO_RESULTS, is_soft_blocked=True),
+        ScrapeResult(status=ScrapeStatus.NO_RESULTS, is_network_error=True),
+    ],
+)
+def test_conclusive_result_with_retry_hint_is_rejected(result: ScrapeResult) -> None:
+    s3 = ConditionalFakeS3()
+
+    with pytest.raises(ValueError, match="still carries a retry hint"):
+        _write_result(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "100",
+            "run-new",
+            result,
+            "scraper/results/100.json",
+        )
+
+    assert s3.objects == {}
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        ScrapeResult(
+            status=ScrapeStatus.SUCCESS,
+            data={"results": [{"case": "2"}]},
+            classification="found",
+            subreason="exact",
+        ),
+        ScrapeResult(
+            status=ScrapeStatus.SUCCESS,
+            data={"results": [{"case": "1"}]},
+            classification="different",
+            subreason="exact",
+        ),
+        ScrapeResult(
+            status=ScrapeStatus.SUCCESS,
+            data={"results": [{"case": "1"}]},
+            classification="found",
+            subreason="different",
+        ),
+    ],
+)
+def test_each_semantic_field_mismatch_remains_a_conflict(candidate: ScrapeResult) -> None:
+    s3 = ConditionalFakeS3()
+    _write_result(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        "100",
+        "run-new",
+        ScrapeResult(
+            status=ScrapeStatus.SUCCESS,
+            data={"results": [{"case": "1"}]},
+            classification="found",
+            subreason="exact",
+        ),
+        "scraper/results/100.json",
+    )
+
+    with pytest.raises(ResultPublicationConflict):
+        _write_result(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "100",
+            "run-new",
+            candidate,
+            "scraper/results/100.json",
+        )
+
+    assert len(_result_conflict_keys(s3)) == 1
 
 
 def test_conflicting_duplicate_is_durable_and_cannot_replace_first_result() -> None:
@@ -440,18 +552,32 @@ def test_conflicting_duplicate_is_durable_and_cannot_replace_first_result() -> N
             "run-new",
             conflicting,
             "scraper/results/100.json",
+            delivery_metadata={
+                "message_id": "message-2",
+                "system_attributes": {"ApproximateReceiveCount": "2"},
+            },
         )
 
     assert s3.objects[exact_key] == first_body
     assert s3.objects["scraper/results/100.json"] == first_body
-    conflict = json.loads(s3.objects["scraper/runs/run-new/result-conflicts/100.json"])
+    conflict_key = _result_conflict_keys(s3)[0]
+    assert conflict_key.startswith("scraper/runs/run-new/result-conflicts/v2/100/")
+    conflict = json.loads(s3.objects[conflict_key])
+    assert conflict["schema_version"] == 2
     assert conflict["terminal_status"] == "result-conflict"
     assert conflict["existing_status"] == "NO_RESULTS"
     assert conflict["candidate_status"] == "SUCCESS"
     assert {"status", "data"}.issubset(conflict["differing_fields"])
-    conflict_put = next(
-        put for put in s3.puts if put["Key"] == "scraper/runs/run-new/result-conflicts/100.json"
-    )
+    assert conflict["existing_evidence"]["semantic_observation"]["status"] == "NO_RESULTS"
+    assert conflict["candidate_evidence"]["semantic_observation"]["status"] == "SUCCESS"
+    candidate_body = base64.b64decode(conflict["candidate_evidence"]["body_base64"])
+    assert hashlib.sha256(candidate_body).hexdigest() == conflict["candidate_sha256"]
+    assert json.loads(candidate_body)["status"] == "SUCCESS"
+    assert conflict["sqs_delivery"] == {
+        "message_id": "message-2",
+        "system_attributes": {"ApproximateReceiveCount": "2"},
+    }
+    conflict_put = next(put for put in s3.puts if put["Key"] == conflict_key)
     assert conflict_put["IfNoneMatch"] == "*"
 
 
@@ -483,13 +609,54 @@ def test_opposite_results_racing_for_one_item_have_one_winner_and_one_conflict()
     cached = ScrapeResult.model_validate_json(s3.objects["scraper/results/100.json"])
     assert cached.status == exact.status
     assert cached.data == exact.data
-    assert "scraper/runs/run-new/result-conflicts/100.json" in s3.objects
+    assert len(_result_conflict_keys(s3)) == 1
 
 
-def test_invalid_preexisting_exact_result_records_terminal_conflict() -> None:
+def test_distinct_candidate_conflicts_are_each_preserved_append_only() -> None:
+    s3 = ConditionalFakeS3()
+    _write_result(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        "100",
+        "run-new",
+        ScrapeResult(status=ScrapeStatus.NO_RESULTS),
+        "scraper/results/100.json",
+    )
+
+    for case in ("1", "2"):
+        with pytest.raises(ResultPublicationConflict):
+            _write_result(  # ty: ignore[invalid-argument-type]
+                s3,
+                _config(),
+                "100",
+                "run-new",
+                ScrapeResult(
+                    status=ScrapeStatus.SUCCESS,
+                    data={"results": [{"case": case}]},
+                ),
+                "scraper/results/100.json",
+            )
+
+    conflict_keys = _result_conflict_keys(s3)
+    assert len(conflict_keys) == 2
+    assert all("/result-conflicts/v2/100/" in key for key in conflict_keys)
+    assert len({json.loads(s3.objects[key])["candidate_sha256"] for key in conflict_keys}) == 2
+
+
+@pytest.mark.parametrize(
+    "existing_body",
+    [
+        b"not-json",
+        b'{"status":"NO_RESULTS","status":"SUCCESS","item_id":"100","run_id":"run-new"}',
+        b'{"status":"NO_RESULTS","data":{"results":[],"results":[1]},"item_id":"100","run_id":"run-new"}',
+    ],
+)
+def test_invalid_preexisting_exact_result_records_terminal_conflict(
+    existing_body: bytes,
+) -> None:
     s3 = ConditionalFakeS3()
     exact_key = "scraper/runs/run-new/results/100.json"
-    s3.objects[exact_key] = b"not-json"
+    s3.objects[exact_key] = existing_body
 
     with pytest.raises(ResultPublicationConflict, match="durable conflict evidence"):
         _write_result(  # ty: ignore[invalid-argument-type]
@@ -501,8 +668,8 @@ def test_invalid_preexisting_exact_result_records_terminal_conflict() -> None:
             "scraper/results/100.json",
         )
 
-    assert s3.objects[exact_key] == b"not-json"
-    conflict = json.loads(s3.objects["scraper/runs/run-new/result-conflicts/100.json"])
+    assert s3.objects[exact_key] == existing_body
+    conflict = json.loads(s3.objects[_result_conflict_keys(s3)[0]])
     assert conflict["reason"] == "existing exact-run result is invalid"
     assert conflict["differing_fields"] == ["existing_result_invalid"]
 
@@ -562,7 +729,7 @@ def test_worker_terminalizes_conflicting_duplicate_only_after_evidence(
     )
 
     assert s3.objects[exact_key] == first_body
-    assert "scraper/runs/run-new/result-conflicts/100.json" in s3.objects
+    assert len(_result_conflict_keys(s3)) == 1
     assert sqs.sent_messages == [
         {"QueueUrl": _config().sqs_dlq_url, "MessageBody": message["Body"]}
     ]

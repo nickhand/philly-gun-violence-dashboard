@@ -123,6 +123,10 @@ def process_results(s3: S3Client, config: WorkerConfig) -> None:
     require_no_result_conflicts(s3, config, run_id)
     conclusive_results = aggregate_results(s3, config, run_id=run_id)
     failed_results = aggregate_failures(s3, config, run_id)
+    # Capture the report after aggregation as well as checking before it.  This
+    # keeps published metadata bound to the final conflict inventory while any
+    # newly visible unresolved evidence still fails closed before stable writes.
+    conflict_report = require_no_result_conflicts(s3, config, run_id)
     unexpected_failure_statuses = {
         item_id: result.status.value
         for item_id, result in failed_results.items()
@@ -222,6 +226,12 @@ def process_results(s3: S3Client, config: WorkerConfig) -> None:
         flags_row_count=len(out),
         flags_sha256=court_flags_sha256(out),
         court_search_semantics_version=COURT_SEARCH_SEMANTICS_VERSION,
+        result_conflict_policy_version=conflict_report.conflict_policy_version,
+        result_conflict_count=conflict_report.total_count,
+        resolved_result_conflict_count=conflict_report.resolved_count,
+        unresolved_result_conflict_count=conflict_report.unresolved_count,
+        invalid_result_conflict_resolution_count=(conflict_report.invalid_resolution_count),
+        result_conflict_evidence_sha256=conflict_report.evidence_sha256,
         run_id=config.run_id if config.run_id != "unknown" else None,
     )
     logger.info(f"Done. {len(out)} incidents written.")

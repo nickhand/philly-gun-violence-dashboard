@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
+from aws_batch_scraper.aggregate import RESULT_CONFLICT_POLICY_VERSION
 
 from etl.courts.semantics import (
     COURT_SEARCH_SEMANTICS_VERSION,
@@ -14,7 +15,7 @@ from etl.courts.semantics import (
     sanitize_court_search_flags,
 )
 
-COURTS_PUBLICATION_CONTRACT_VERSION = 1
+COURTS_PUBLICATION_CONTRACT_VERSION = 2
 COURTS_FULL_SELECTION_MODE = "full"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -125,6 +126,27 @@ def require_publishable_court_flags(
     missing_result_count = _require_exact_int(metadata, "missing_result_count", minimum=0)
     extra_result_count = _require_exact_int(metadata, "extra_result_count", minimum=0)
     flags_row_count = _require_exact_int(metadata, "flags_row_count", minimum=1)
+    conflict_policy_version = _require_exact_int(
+        metadata,
+        "result_conflict_policy_version",
+        minimum=1,
+    )
+    conflict_count = _require_exact_int(metadata, "result_conflict_count", minimum=0)
+    resolved_conflict_count = _require_exact_int(
+        metadata,
+        "resolved_result_conflict_count",
+        minimum=0,
+    )
+    unresolved_conflict_count = _require_exact_int(
+        metadata,
+        "unresolved_result_conflict_count",
+        minimum=0,
+    )
+    invalid_resolution_count = _require_exact_int(
+        metadata,
+        "invalid_result_conflict_resolution_count",
+        minimum=0,
+    )
 
     if input_count != candidate_count:
         raise CourtsPublicationError(
@@ -139,6 +161,24 @@ def require_publishable_court_flags(
         raise CourtsPublicationError(
             "Courts flags row count does not match its metadata: "
             f"{len(flags)} rows, expected {flags_row_count}"
+        )
+    if conflict_policy_version != RESULT_CONFLICT_POLICY_VERSION:
+        raise CourtsPublicationError(
+            "Unsupported courts result-conflict policy version "
+            f"{conflict_policy_version}; expected {RESULT_CONFLICT_POLICY_VERSION}"
+        )
+    if conflict_count != resolved_conflict_count + unresolved_conflict_count:
+        raise CourtsPublicationError(
+            "Courts conflict counts do not reconcile to the total evidence count"
+        )
+    if unresolved_conflict_count != 0 or invalid_resolution_count != 0:
+        raise CourtsPublicationError(
+            "Courts metadata contains unresolved conflicts or invalid resolution evidence"
+        )
+    conflict_digest = metadata.get("result_conflict_evidence_sha256")
+    if not isinstance(conflict_digest, str) or _SHA256_RE.fullmatch(conflict_digest) is None:
+        raise CourtsPublicationError(
+            "Courts metadata result_conflict_evidence_sha256 is not a SHA-256 digest"
         )
 
     metadata_semantics = _require_exact_int(

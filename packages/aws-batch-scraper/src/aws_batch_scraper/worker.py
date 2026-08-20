@@ -1,5 +1,6 @@
 """Generic SQS worker: long-poll the queue and scrape one item per message."""
 
+import base64
 import contextlib
 import hashlib
 import json
@@ -21,6 +22,11 @@ from mypy_boto3_sqs.type_defs import MessageTypeDef
 
 from aws_batch_scraper.aws import make_boto3_session
 from aws_batch_scraper.config import WorkerConfig
+from aws_batch_scraper.result_semantics import (
+    SEMANTIC_OBSERVATION_FIELDS,
+    semantic_observation,
+)
+from aws_batch_scraper.strict_json import decode_strict_json_object
 from aws_batch_scraper.types import (
     FailureArtifact,
     Scraper,
@@ -37,17 +43,20 @@ _MESSAGE_VISIBILITY_TIMEOUT_S = _SCRAPE_TIMEOUT_S + 120
 _MAX_MESSAGE_NESTING = 100
 
 _CONCLUSIVE_STATUSES = frozenset({ScrapeStatus.SUCCESS, ScrapeStatus.NO_RESULTS})
-_OBSERVATION_FIELDS = {
-    "status",
-    "data",
-    "classification",
-    "subreason",
-    "is_soft_blocked",
-    "is_network_error",
-    "final_url",
-    "error_message",
-    "extra",
-}
+# Only fields that can change the meaning or trustworthiness of a conclusive
+# scrape belong here.  Attempt telemetry (``extra``, timing, and retry counts)
+# is intentionally excluded: Standard SQS can redeliver a message, and a second
+# browser attempt need not produce byte-identical diagnostics to prove the same
+# court-search conclusion.
+_SQS_DELIVERY_ATTRIBUTES = frozenset(
+    {
+        "ApproximateFirstReceiveTimestamp",
+        "ApproximateReceiveCount",
+        "SenderId",
+        "SentTimestamp",
+        "SequenceNumber",
+    }
+)
 
 
 class ResultPublicationConflict(RuntimeError):
@@ -75,8 +84,40 @@ def _proves_object_already_exists(exc: ClientError) -> bool:
 
 
 def _observation(result: ScrapeResult) -> dict[str, object]:
-    """Return stable scraper output, excluding per-attempt timing metadata."""
-    return result.model_dump(mode="json", include=_OBSERVATION_FIELDS)
+    """Return the explicit semantic projection used for duplicate comparison."""
+    return semantic_observation(result)
+
+
+def _sqs_delivery_metadata(message: MessageTypeDef) -> dict[str, object]:
+    """Return a non-secret allowlist of delivery evidence for conflict records.
+
+    Receipt handles are capabilities and are deliberately never persisted.  The
+    message body is represented only by its digest because the validated work
+    identity is already present in the result-conflict record.
+    """
+    metadata: dict[str, object] = {}
+    for source, target in (
+        ("MessageId", "message_id"),
+        ("MD5OfBody", "md5_of_body"),
+    ):
+        value = message.get(source)
+        if isinstance(value, str) and value:
+            metadata[target] = value
+
+    body = message.get("Body")
+    if isinstance(body, str):
+        metadata["body_sha256"] = hashlib.sha256(body.encode()).hexdigest()
+
+    attributes = message.get("Attributes")
+    if isinstance(attributes, dict):
+        allowed_attributes = {
+            key: value
+            for key, value in sorted(attributes.items())
+            if key in _SQS_DELIVERY_ATTRIBUTES and isinstance(value, str)
+        }
+        if allowed_attributes:
+            metadata["system_attributes"] = allowed_attributes
+    return metadata
 
 
 def _write_result_conflict(
@@ -90,6 +131,7 @@ def _write_result_conflict(
     candidate: ScrapeResult,
     existing: ScrapeResult | None,
     reason: str,
+    delivery_metadata: dict[str, object] | None,
 ) -> None:
     """Persist fail-closed evidence before a conflicting message is terminalized."""
     existing_observation = _observation(existing) if existing is not None else None
@@ -97,7 +139,7 @@ def _write_result_conflict(
     differing_fields = (
         sorted(
             field
-            for field in _OBSERVATION_FIELDS
+            for field in SEMANTIC_OBSERVATION_FIELDS
             if existing_observation is None
             or existing_observation.get(field) != candidate_observation.get(field)
         )
@@ -110,25 +152,47 @@ def _write_result_conflict(
         if existing.run_id != run_id:
             differing_fields.append("run_id")
         differing_fields.sort()
+    existing_sha256 = hashlib.sha256(existing_body).hexdigest()
+    candidate_sha256 = hashlib.sha256(candidate_body).hexdigest()
     record = {
-        "schema_version": 1,
+        "schema_version": 2,
         "terminal_status": "result-conflict",
         "run_id": run_id,
         "item_id": item_id,
         "detected_at": datetime.now(UTC).isoformat(),
         "reason": reason,
-        "existing_sha256": hashlib.sha256(existing_body).hexdigest(),
-        "candidate_sha256": hashlib.sha256(candidate_body).hexdigest(),
+        "existing_sha256": existing_sha256,
+        "candidate_sha256": candidate_sha256,
         "existing_status": existing.status.value if existing is not None else None,
         "candidate_status": candidate.status.value,
         "differing_fields": differing_fields,
+        "canonical_result_key": (
+            f"{config.s3_scraper_prefix}/runs/{run_id}/results/{item_id}.json"
+        ),
+        "existing_evidence": {
+            "body_sha256": existing_sha256,
+            "semantic_observation": existing_observation,
+            "result": existing.model_dump(mode="json") if existing is not None else None,
+        },
+        "candidate_evidence": {
+            "body_sha256": candidate_sha256,
+            "body_base64": base64.b64encode(candidate_body).decode("ascii"),
+            "semantic_observation": candidate_observation,
+            "result": candidate.model_dump(mode="json"),
+        },
+        "sqs_delivery": delivery_metadata or {},
     }
-    key = f"{config.s3_scraper_prefix}/runs/{run_id}/result-conflicts/{item_id}.json"
+    # Candidate-addressed keys preserve every distinct observation rather than
+    # letting a later disagreement disappear behind one marker per item.
+    key = (
+        f"{config.s3_scraper_prefix}/runs/{run_id}/result-conflicts/"
+        f"v2/{item_id}/{candidate_sha256}.json"
+    )
     try:
         s3.put_object(
             Bucket=config.s3_bucket,
             Key=key,
-            Body=json.dumps(record, indent=2, allow_nan=False).encode(),
+            Body=json.dumps(record, indent=2, sort_keys=True, allow_nan=False).encode(),
             ContentType="application/json",
             IfNoneMatch="*",
         )
@@ -146,10 +210,14 @@ def _write_result(
     run_id: str,
     result: ScrapeResult,
     result_key: str,
+    *,
+    delivery_metadata: dict[str, object] | None = None,
 ) -> Literal["created", "duplicate"]:
     """Publish one exact-run observation with first-writer-wins semantics."""
     if result.status not in _CONCLUSIVE_STATUSES:
         raise ValueError(f"Cannot publish inconclusive result status {result.status.value}")
+    if result.is_soft_blocked or result.is_network_error:
+        raise ValueError("Cannot publish a conclusive result that still carries a retry hint")
     result.item_id = item_id
     result.scraped_at = datetime.now(UTC)
     result.run_id = run_id
@@ -177,7 +245,11 @@ def _write_result(
         existing: ScrapeResult | None = None
         reason = "existing exact-run result is invalid"
         try:
-            existing = ScrapeResult.model_validate_json(canonical_body)
+            existing_object = decode_strict_json_object(
+                canonical_body,
+                label=f"Canonical result {run_result_key}",
+            )
+            existing = ScrapeResult.model_validate(existing_object)
         except (ValueError, TypeError):
             pass
         else:
@@ -185,6 +257,8 @@ def _write_result(
                 reason = "existing exact-run result has mismatched identity"
             elif existing.status not in _CONCLUSIVE_STATUSES:
                 reason = "existing exact-run result is not conclusive"
+            elif existing.is_soft_blocked or existing.is_network_error:
+                reason = "existing exact-run result carries a retry hint"
             elif _observation(existing) == _observation(result):
                 outcome = "duplicate"
             else:
@@ -201,6 +275,7 @@ def _write_result(
                 candidate=result,
                 existing=existing,
                 reason=reason,
+                delivery_metadata=delivery_metadata,
             )
             raise ResultPublicationConflict(
                 f"Conflicting exact-run result for run={run_id}, item={item_id}; "
@@ -283,6 +358,13 @@ def _receive_message(sqs: SQSClient, config: WorkerConfig) -> MessageTypeDef | N
         MaxNumberOfMessages=1,
         WaitTimeSeconds=20,
         VisibilityTimeout=_MESSAGE_VISIBILITY_TIMEOUT_S,
+        MessageSystemAttributeNames=[
+            "ApproximateFirstReceiveTimestamp",
+            "ApproximateReceiveCount",
+            "SenderId",
+            "SentTimestamp",
+            "SequenceNumber",
+        ],
     )
     messages = response.get("Messages", [])
     return messages[0] if messages else None
@@ -540,6 +622,7 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
                         msg_run_id,
                         result,
                         result_key,
+                        delivery_metadata=_sqs_delivery_metadata(msg),
                     )
                 except ResultPublicationConflict as exc:
                     stats.permanent_failure_count += 1
