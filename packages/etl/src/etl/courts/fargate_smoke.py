@@ -54,6 +54,7 @@ class FargateSmokeError(RuntimeError):
 @dataclass(frozen=True)
 class _Mount:
     mount_id: int
+    parent_mount_id: int
     mount_point: str
     options: frozenset[str]
 
@@ -123,6 +124,7 @@ def _decode_mount_field(value: str) -> str:
 
 def _parse_mountinfo(payload: str) -> list[_Mount]:
     mounts: list[_Mount] = []
+    mount_ids: set[int] = set()
     for line in payload.splitlines():
         before_separator, separator, after_separator = line.partition(" - ")
         fields = before_separator.split()
@@ -131,12 +133,17 @@ def _parse_mountinfo(payload: str) -> list[_Mount]:
             raise FargateSmokeError("Kernel mount information was malformed")
         try:
             mount_id = int(fields[0], 10)
+            parent_mount_id = int(fields[1], 10)
         except ValueError as exc:
-            raise FargateSmokeError("Kernel mount ID was malformed") from exc
+            raise FargateSmokeError("Kernel mount IDs were malformed") from exc
+        if mount_id <= 0 or parent_mount_id < 0 or mount_id in mount_ids:
+            raise FargateSmokeError("Kernel mount IDs were malformed")
+        mount_ids.add(mount_id)
         options = frozenset(option for option in fields[5].split(",") if option)
         mounts.append(
             _Mount(
                 mount_id=mount_id,
+                parent_mount_id=parent_mount_id,
                 mount_point=_decode_mount_field(fields[4]),
                 options=options,
             )
@@ -146,11 +153,42 @@ def _parse_mountinfo(payload: str) -> list[_Mount]:
     return mounts
 
 
-def _one_mount(mounts: list[_Mount], mount_point: str) -> _Mount:
+def _single_mount(mounts: list[_Mount], mount_point: str) -> _Mount:
     matches = [mount for mount in mounts if mount.mount_point == mount_point]
     if len(matches) != 1:
         raise FargateSmokeError(f"Expected exactly one {mount_point} mount")
     return matches[0]
+
+
+def _visible_mount(mounts: list[_Mount], mount_point: str) -> _Mount:
+    matches = [mount for mount in mounts if mount.mount_point == mount_point]
+    if not matches:
+        raise FargateSmokeError(f"Expected a {mount_point} mount")
+    if len(matches) == 1:
+        return matches[0]
+
+    by_id = {mount.mount_id: mount for mount in matches}
+    children: dict[int, list[int]] = {mount_id: [] for mount_id in by_id}
+    bases: list[int] = []
+    for mount in matches:
+        if mount.parent_mount_id in by_id:
+            children[mount.parent_mount_id].append(mount.mount_id)
+        else:
+            bases.append(mount.mount_id)
+    if len(bases) != 1 or any(len(mount_children) > 1 for mount_children in children.values()):
+        raise FargateSmokeError(f"{mount_point} mount stack was ambiguous")
+
+    current_id = bases[0]
+    visited: set[int] = set()
+    while current_id not in visited:
+        visited.add(current_id)
+        mount_children = children[current_id]
+        if not mount_children:
+            break
+        current_id = mount_children[0]
+    if len(visited) != len(matches):
+        raise FargateSmokeError(f"{mount_point} mount stack was malformed")
+    return by_id[current_id]
 
 
 def _assert_mount_contract() -> None:
@@ -159,8 +197,8 @@ def _assert_mount_contract() -> None:
     except UnicodeDecodeError as exc:
         raise FargateSmokeError("Kernel mount information was not UTF-8") from exc
     mounts = _parse_mountinfo(payload)
-    root_mount = _one_mount(mounts, "/")
-    temporary_mount = _one_mount(mounts, "/tmp")
+    root_mount = _single_mount(mounts, "/")
+    temporary_mount = _visible_mount(mounts, "/tmp")
     if root_mount.mount_id == temporary_mount.mount_id:
         raise FargateSmokeError("/tmp must be a mount separate from the read-only root")
     if "ro" not in root_mount.options or "rw" in root_mount.options:

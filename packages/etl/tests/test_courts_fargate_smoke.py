@@ -27,6 +27,14 @@ def _valid_mountinfo() -> bytes:
     )
 
 
+def _live_stacked_mountinfo() -> bytes:
+    return (
+        b"1003 995 0:101 / / ro,relatime - overlay overlay ro\n"
+        b"1023 1003 259:1 / /tmp rw,nosuid,nodev,noexec - ext4 /dev/nvme1n1 rw\n"
+        b"1024 1023 259:1 / /tmp rw,nosuid,nodev,noexec - ext4 /dev/nvme1n1 rw\n"
+    )
+
+
 def _metadata_environment() -> dict[str, str]:
     return {
         "ECS_CONTAINER_METADATA_URI_V4": "http://169.254.170.2/v4/task-id",
@@ -148,7 +156,103 @@ def test_mount_contract_requires_readonly_root_and_separate_sticky_tmp(
         smoke._assert_mount_contract()
 
 
-def test_mount_contract_rejects_tmp_on_root_mount(
+def test_mount_contract_accepts_live_parented_tmp_stack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mounts = smoke._parse_mountinfo(_live_stacked_mountinfo().decode("utf-8"))
+    assert smoke._visible_mount(mounts, "/tmp").mount_id == 1024
+
+    monkeypatch.setattr(
+        smoke,
+        "_read_bounded",
+        lambda *_args, **_kwargs: _live_stacked_mountinfo(),
+    )
+    monkeypatch.setattr(
+        smoke.os,
+        "statvfs",
+        lambda path: SimpleNamespace(f_flag=os.ST_RDONLY if path == "/" else 0),
+    )
+    monkeypatch.setattr(
+        smoke.os,
+        "lstat",
+        lambda _path: SimpleNamespace(st_mode=stat.S_IFDIR | 0o1777),
+    )
+
+    smoke._assert_mount_contract()
+
+
+def test_mount_parser_accepts_namespace_root_parent_zero() -> None:
+    mounts = smoke._parse_mountinfo(
+        "29 0 0:1 / / ro,relatime - overlay overlay ro\n"
+        "30 29 0:2 / /tmp rw,relatime - ext4 /dev/nvme1n1 rw\n"
+    )
+
+    assert mounts[0].mount_id == 29
+    assert mounts[0].parent_mount_id == 0
+
+
+def test_mount_contract_rejects_ambiguous_tmp_stack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _live_stacked_mountinfo() + (
+        b"1025 1023 259:1 / /tmp rw,nosuid,nodev,noexec - ext4 /dev/nvme1n1 rw\n"
+    )
+    monkeypatch.setattr(smoke, "_read_bounded", lambda *_args, **_kwargs: payload)
+
+    with pytest.raises(smoke.FargateSmokeError, match="stack was ambiguous"):
+        smoke._assert_mount_contract()
+
+
+def test_mount_contract_checks_visible_tmp_mount_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _live_stacked_mountinfo().replace(
+        b"1024 1023 259:1 / /tmp rw,nosuid,nodev,noexec",
+        b"1024 1023 259:1 / /tmp ro,nosuid,nodev,noexec",
+    )
+    monkeypatch.setattr(smoke, "_read_bounded", lambda *_args, **_kwargs: payload)
+
+    with pytest.raises(smoke.FargateSmokeError, match="/tmp mount is not writable"):
+        smoke._assert_mount_contract()
+
+
+def test_mount_contract_ignores_hidden_tmp_mount_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _live_stacked_mountinfo().replace(
+        b"1023 1003 259:1 / /tmp rw,nosuid,nodev,noexec",
+        b"1023 1003 259:1 / /tmp ro,nosuid,nodev,noexec",
+    )
+    monkeypatch.setattr(smoke, "_read_bounded", lambda *_args, **_kwargs: payload)
+    monkeypatch.setattr(
+        smoke.os,
+        "statvfs",
+        lambda path: SimpleNamespace(f_flag=os.ST_RDONLY if path == "/" else 0),
+    )
+    monkeypatch.setattr(
+        smoke.os,
+        "lstat",
+        lambda _path: SimpleNamespace(st_mode=stat.S_IFDIR | 0o1777),
+    )
+
+    smoke._assert_mount_contract()
+
+
+def test_mount_contract_still_requires_exactly_one_root_mount(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _live_stacked_mountinfo().replace(
+        b"1003 995 0:101 / / ro,relatime - overlay overlay ro\n",
+        b"1002 995 0:101 / / ro,relatime - overlay overlay ro\n"
+        b"1003 1002 0:101 / / ro,relatime - overlay overlay ro\n",
+    )
+    monkeypatch.setattr(smoke, "_read_bounded", lambda *_args, **_kwargs: payload)
+
+    with pytest.raises(smoke.FargateSmokeError, match="exactly one / mount"):
+        smoke._assert_mount_contract()
+
+
+def test_mount_contract_rejects_duplicate_mount_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = (
@@ -156,7 +260,7 @@ def test_mount_contract_rejects_tmp_on_root_mount(
     )
     monkeypatch.setattr(smoke, "_read_bounded", lambda *_args, **_kwargs: payload)
 
-    with pytest.raises(smoke.FargateSmokeError, match="separate"):
+    with pytest.raises(smoke.FargateSmokeError, match="mount IDs were malformed"):
         smoke._assert_mount_contract()
 
 
