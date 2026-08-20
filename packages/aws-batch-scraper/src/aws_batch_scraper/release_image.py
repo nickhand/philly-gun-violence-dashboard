@@ -34,6 +34,9 @@ GRYPE_IMAGE = (
 )
 GRYPE_DB_SCHEMA_MAJOR = 6
 GRYPE_DB_MAX_AGE = timedelta(hours=24)
+# Provider captures are build inputs, so their freshness is anchored to the
+# checksum-pinned DB build. Together these bounds cap provider age at 48 hours.
+GRYPE_PROVIDER_MAX_AGE_AT_BUILD = timedelta(hours=24)
 SYFT_VERSION = "1.50.0"
 SYFT_SCHEMA_VERSION = "16.1.10"
 SYFT_IMAGE = (
@@ -1104,12 +1107,19 @@ def _require_grype_database(
             raise ReleaseIntegrityError(
                 f"Grype database omitted required {provider_name} provider metadata"
             )
-        _require_fresh_timestamp(
+        captured = _aware_timestamp(
             provider.get("captured"),
             label=f"Grype {provider_name} provider capture",
-            now=now,
-            max_age=GRYPE_DB_MAX_AGE,
         )
+        if captured > built:
+            raise ReleaseIntegrityError(
+                f"Grype {provider_name} provider capture timestamp postdated the database build"
+            )
+        if built - captured > GRYPE_PROVIDER_MAX_AGE_AT_BUILD:
+            raise ReleaseIntegrityError(
+                f"Grype {provider_name} provider capture timestamp was stale when the database "
+                "was built"
+            )
     return {
         "schema": schema,
         "built": built.isoformat(),

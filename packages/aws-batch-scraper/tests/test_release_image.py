@@ -1365,6 +1365,82 @@ def test_image_grype_report_accepts_real_omitted_empty_ignored_matches() -> None
     assert result["severity_counts"]["High"] == 0
 
 
+def test_grype_provider_capture_accepts_exact_age_boundary_at_database_build() -> None:
+    payload = _grype_payload(
+        source={
+            "type": "image",
+            "target": {"imageID": IMAGE_ID, "manifestDigest": MANIFEST_DIGEST},
+        },
+        distro="ubuntu",
+    )
+    payload["descriptor"]["db"]["providers"]["ubuntu"]["captured"] = "2026-08-18T13:00:00Z"
+
+    validate_grype_report(
+        payload,
+        image_id=IMAGE_ID,
+        manifest_digest=MANIFEST_DIGEST,
+        expected_distro_name="ubuntu",
+        expected_distro_version="26.04",
+        now=NOW,
+        scanner_returncode=0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("captured", "message"),
+    [
+        ("2026-08-18T12:59:59Z", "stale when the database was built"),
+        ("2026-08-19T13:00:01Z", "postdated the database build"),
+        ("not-a-timestamp", "timestamp was invalid"),
+    ],
+)
+def test_grype_provider_capture_rejects_invalid_database_build_relationship(
+    captured: str,
+    message: str,
+) -> None:
+    payload = _grype_payload(
+        source={
+            "type": "image",
+            "target": {"imageID": IMAGE_ID, "manifestDigest": MANIFEST_DIGEST},
+        },
+        distro="ubuntu",
+    )
+    payload["descriptor"]["db"]["providers"]["ubuntu"]["captured"] = captured
+
+    with pytest.raises(ReleaseIntegrityError, match=message):
+        validate_grype_report(
+            payload,
+            image_id=IMAGE_ID,
+            manifest_digest=MANIFEST_DIGEST,
+            expected_distro_name="ubuntu",
+            expected_distro_version="26.04",
+            now=NOW,
+            scanner_returncode=0,
+        )
+
+
+def test_grype_provider_capture_rejects_malformed_provider_metadata() -> None:
+    payload = _grype_payload(
+        source={
+            "type": "image",
+            "target": {"imageID": IMAGE_ID, "manifestDigest": MANIFEST_DIGEST},
+        },
+        distro="ubuntu",
+    )
+    payload["descriptor"]["db"]["providers"]["ubuntu"] = "malformed"
+
+    with pytest.raises(ReleaseIntegrityError, match="required ubuntu provider metadata"):
+        validate_grype_report(
+            payload,
+            image_id=IMAGE_ID,
+            manifest_digest=MANIFEST_DIGEST,
+            expected_distro_name="ubuntu",
+            expected_distro_version="26.04",
+            now=NOW,
+            scanner_returncode=0,
+        )
+
+
 @pytest.mark.parametrize(("name", "version"), [("debian", "26.04"), ("ubuntu", "25.10")])
 def test_image_grype_report_rejects_wrong_distribution_release(
     name: str,
