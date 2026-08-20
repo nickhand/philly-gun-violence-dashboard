@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 10
     env:
       API_BASE_URL: https://philly-gun-violence-dashboard-api.fly.dev
+      SITE_ORIGIN_URL: https://www.nickhand.dev
       APP_BASE_URL: https://www.nickhand.dev/philly-gun-violence-map
       DOWNLOADS_BASE_URL: https://d2cemhjkwenjmb.cloudfront.net
       # Omission must fail closed after migration. Set the repository variable
@@ -71,6 +72,15 @@ jobs:
             grep -Eiq '^x-content-type-options:[[:space:]]*nosniff[[:space:]]*$' "${headers}"
             grep -Eiq '^x-frame-options:[[:space:]]*DENY[[:space:]]*$' "${headers}"
           done
+      - name: Check crawler discovery contracts
+        run: |
+          set -euo pipefail
+          # These read-only probes exercise the deployed response and WAF for
+          # representative User-Agent strings. They do not prove access from a
+          # vendor's published crawler IP ranges or that a vendor indexed a page.
+          python3 .github/ci/check_crawler_discovery.py \
+            --site-origin "${SITE_ORIGIN_URL}" \
+            --app-base-url "${APP_BASE_URL}"
       - name: Check immutable public downloads
         run: |
           set -euo pipefail

@@ -631,6 +631,60 @@ describe("synchronized category charts", () => {
     );
   });
 
+  it("adds complete full-run coverage to the existing court tooltip", () => {
+    const wrapper = mount(DashboardCategoryCharts, {
+      props: {
+        courtCoverageNote:
+          "The last published full run was processed August 20, 2026, with terminal results accounting for all 15,753 eligible incident numbers.",
+        rows: shootingRows as ShootingRow[],
+      },
+    });
+
+    const tooltip = wrapper
+      .get(".civic-dashboard-category-chart--court")
+      .get(".civic-info-tooltip__panel")
+      .text();
+    expect(tooltip).toContain("last published full run");
+    expect(tooltip).toContain("15,753 eligible incident numbers");
+  });
+
+  it("renders precomputed counts before detailed browser records load", () => {
+    const wrapper = mount(DashboardCategoryCharts, {
+      props: {
+        rows: [],
+        state: "loading",
+        summary: {
+          year: 2026,
+          total: 3,
+          outcome: { true: 1, false: 2 },
+          court: { true: 1, false: 0, null: 2 },
+          gender: { M: 2, F: 1 },
+          race: { W: 0, B: 2, H: 1, A: 0, "Other/Unknown": 0 },
+          age: {
+            "Younger than 18": 0,
+            "18 to 30": 2,
+            "31 to 45": 0,
+            "Older than 45": 1,
+            Unknown: 0,
+          },
+        },
+      },
+    });
+
+    expect(wrapper.findAll("figure")).toHaveLength(5);
+    expect(
+      wrapper
+        .get('table[aria-label="Court Search Result distribution breakdown"]')
+        .findAll("tbody tr")
+        .map((row) => row.findAll("td").map((cell) => cell.text())),
+    ).toEqual([
+      ["Yes", "1", "33.3%"],
+      ["No", "0", "0%"],
+      ["Unknown", "2", "66.7%"],
+    ]);
+    expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  });
+
   it("renders the five legacy breakdowns and updates from filtered rows", async () => {
     const wrapper = mount(DashboardCategoryCharts, {
       props: { rows: shootingRows as ShootingRow[] },

@@ -1,14 +1,10 @@
-export interface DatasetMeta {
-  data_through: string;
-  last_updated: string;
-  row_count?: number;
-}
+import type { AllDatasetsMeta } from "../types/datasetMeta";
 
-export interface AllDatasetsMeta {
-  shootings: DatasetMeta;
-  homicides: DatasetMeta;
-  courts: DatasetMeta;
-}
+export type {
+  AllDatasetsMeta,
+  CourtDatasetMeta,
+  DatasetMeta,
+} from "../types/datasetMeta";
 
 export function useDatasetMeta() {
   const config = useRuntimeConfig();

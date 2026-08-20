@@ -2,7 +2,10 @@
 import { computed } from "vue";
 
 import CivicInfoTooltip from "../../layers/civic-ui/app/components/CivicInfoTooltip.vue";
+import type { CategorySummary } from "~/composables/useStatsSnapshot";
 import type { ShootingRow } from "~/utils/shootingRecords";
+
+type CategorySummaryKey = Exclude<keyof CategorySummary, "total" | "year">;
 
 interface CategoryDefinition {
   label: string;
@@ -13,7 +16,7 @@ interface CategoryDefinition {
 interface ChartDefinition {
   accessor: keyof ShootingRow;
   categories: CategoryDefinition[];
-  className: string;
+  className: CategorySummaryKey;
   description: string;
   labelWidth: number;
   responsiveLabelWidth: number;
@@ -22,8 +25,10 @@ interface ChartDefinition {
 
 const props = withDefaults(
   defineProps<{
+    courtCoverageNote?: string;
     rows: ShootingRow[];
     state?: "error" | "loading" | "ready";
+    summary?: CategorySummary;
   }>(),
   { state: "ready" },
 );
@@ -140,24 +145,38 @@ function formatPercents(counts: number[], total: number): string[] {
 
 const charts = computed(() =>
   definitions.map((definition) => {
+    const useSummary = props.state === "loading" && Boolean(props.summary);
     const values = definition.categories.map((category) => {
-      const count = props.rows.reduce(
-        (total, row) =>
-          row[definition.accessor] === category.value ? total + 1 : total,
-        0,
-      );
+      const key =
+        category.value === null
+          ? "null"
+          : typeof category.value === "boolean"
+            ? String(category.value)
+            : category.value;
+      const count = useSummary
+        ? (props.summary?.[definition.className][key] ?? 0)
+        : props.rows.reduce(
+            (total, row) =>
+              row[definition.accessor] === category.value ? total + 1 : total,
+            0,
+          );
       return {
         ...category,
         count,
       };
     });
+    const total = useSummary ? (props.summary?.total ?? 0) : props.rows.length;
     const percents = formatPercents(
       values.map((value) => value.count),
-      props.rows.length,
+      total,
     );
     const max = Math.max(0, ...values.map((value) => value.count));
     return {
       ...definition,
+      description:
+        definition.className === "court" && props.courtCoverageNote
+          ? `${definition.description} ${props.courtCoverageNote}`
+          : definition.description,
       max,
       values: values.map((value, index) => ({
         ...value,
@@ -165,6 +184,12 @@ const charts = computed(() =>
       })),
     };
   }),
+);
+
+const hasChartData = computed(
+  () =>
+    props.rows.length > 0 ||
+    (props.state === "loading" && (props.summary?.total ?? 0) > 0),
 );
 
 const emptyMessage = computed(() => {
@@ -195,7 +220,7 @@ function chartStyle(chart: ChartDefinition): Record<string, string> {
   >
     <h2 class="usa-sr-only">Shooting Victim Statistics by Category</h2>
     <p
-      v-if="rows.length === 0"
+      v-if="!hasChartData"
       class="civic-dashboard-category-charts__empty"
       role="status"
     >

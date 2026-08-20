@@ -22,10 +22,12 @@ FastAPI service for the Philadelphia Gun Violence Dashboard. Provides versioned,
 - `GET /meta` — Last updated timestamps for all datasets
 - `GET /meta/shootings`, `GET /meta/homicides`, `GET /meta/courts`
 
-### Crawler-visible statistics
-- `GET /stats` — Current server-rendered statistics, year table, and FAQ HTML
-- `GET /stats.json` — The same statistics snapshot as typed JSON for SSR clients
-- `GET /sitemap.xml` — Sitemap with modification dates from the loaded datasets
+### Statistics compatibility endpoints
+- `GET /stats` — Legacy, non-indexable server-rendered statistics and FAQ HTML;
+  canonical crawler content lives on the Nuxt dashboard
+- `GET /stats.json` — The same statistics snapshot as typed JSON for SSR clients,
+  including unfiltered category counts by year and for all years
+- `GET /sitemap.xml` — Legacy redirect to the canonical Nuxt sitemap
 
 ### Health
 - `GET /health` — Process liveness used by Fly; never calls S3
@@ -39,10 +41,11 @@ The API uses a versioned, content-addressed caching strategy:
 2. **Year-specific endpoints** include the version in the URL path, making them immutable
 3. Frontend caches versioned URLs for 1 year (`Cache-Control: public, max-age=31536000, immutable`)
 
-The statistics JSON, HTML, and sitemap share one snapshot rendered after
-startup. They are invalidated when either the shooting or homicide cache
-refreshes, use ETags for revalidation, and preserve the distinct freshness date
-for each dataset.
+The statistics JSON and legacy HTML share one snapshot rendered after startup.
+They are invalidated when either the shooting or homicide cache refreshes, use
+ETags for revalidation, and preserve the distinct freshness date for each
+dataset. Nuxt owns the canonical indexable HTML and sitemap; the legacy API
+routes point crawlers there instead of competing as a second authority.
 
 All request handlers capture one frozen application snapshot. Refreshes are
 serialized, build and validate a complete candidate off-state, and swap one
@@ -93,8 +96,8 @@ Optional:
 just api-dev
 ```
 
-Audit every visible stats-page figure, table row, freshness date, JSON-LD answer,
-and sitemap date against the API payloads:
+Audit every visible compatibility-page figure, table row, freshness date, and
+JSON-LD answer against the API payloads:
 
 ```bash
 uv run python scripts/audit_stats_consistency.py http://127.0.0.1:8000
@@ -196,9 +199,24 @@ instances and rollback builds.
 
 The Fly Supercronic process also dispatches `production-smoke.yml` daily after
 the data jobs. That externally triggered workflow checks API liveness and
-freshness, indexable public pages, the manifest contract, and every immutable
-download URL. Its schedule remains outside GitHub so the same inactivity rule
-cannot silently disable monitoring.
+freshness, indexable public pages, the authoritative host-root robots policy,
+the app sitemap and `llms.txt`, the manifest contract, and every immutable
+download URL. It also requests one canonical server-rendered page using
+representative OAI-SearchBot, Claude-SearchBot, and PerplexityBot User-Agent
+strings and rejects redirects, challenge pages, incorrect canonicals, or
+`noindex`. All discovery probes are read-only GETs with retry, timeout, and
+response-size bounds.
+
+The User-Agent probes are an HTTP and WAF regression check, not proof that the
+vendors' published crawler IP ranges can reach the site or that any vendor has
+indexed or cited a page. Confirm real crawler visits with Cloudflare request
+logs and track actual discovery/citation through vendor tools or an independent
+AI-visibility monitor. The fixed prompts, scoring metrics, and operator triage
+are documented in
+[`docs/ai-discoverability-monitoring.md`](../../docs/ai-discoverability-monitoring.md).
+The smoke workflow intentionally makes no indexing submissions and holds no
+search-provider credentials. Its schedule remains outside GitHub so the same
+inactivity rule cannot silently disable monitoring.
 
 The same scheduler dispatches `security-quality.yml` every Tuesday. Dependency
 audits use a changing advisory database, so they run weekly even when lockfiles

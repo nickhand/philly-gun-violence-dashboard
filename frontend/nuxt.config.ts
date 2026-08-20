@@ -34,7 +34,16 @@ export default defineNuxtConfig({
     name: "Philadelphia Gun Violence Dashboard",
   },
   sitemap: {
-    zeroRuntime: true,
+    // These URLs are resolved at request time so their optional `lastmod`
+    // values can come from dataset and download publication timestamps. A
+    // failed upstream freshness lookup still returns the complete undated URL
+    // set rather than inventing a build timestamp or a data-coverage date.
+    excludeAppSources: true,
+    cacheMaxAgeSeconds: 300,
+    credits: false,
+    sources: [
+      `${appBaseUrl.replace(/\/$/, "")}/api/__sitemap-urls`,
+    ],
   },
   routeRules: {
     "/**": {

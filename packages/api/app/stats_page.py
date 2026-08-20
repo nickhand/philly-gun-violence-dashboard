@@ -34,6 +34,19 @@ class YearStats:
 
 
 @dataclass(frozen=True)
+class CategorySummary:
+    """Crawler-visible category counts for one dashboard year selection."""
+
+    year: int | None
+    total: int
+    outcome: dict[str, int]
+    court: dict[str, int]
+    gender: dict[str, int]
+    race: dict[str, int]
+    age: dict[str, int]
+
+
+@dataclass(frozen=True)
 class StatsSnapshot:
     """All values used by the human-readable statistics page."""
 
@@ -53,6 +66,7 @@ class StatsSnapshot:
     homicide_percent_change: int | None
     peak: YearStats
     years: tuple[YearStats, ...]
+    category_summaries: tuple[CategorySummary, ...]
 
 
 @dataclass(frozen=True)
@@ -62,7 +76,6 @@ class StatsPageCache:
     source_key: tuple[str, ...]
     snapshot: StatsSnapshot
     html: str
-    sitemap: str
     etag: str
 
 
@@ -79,6 +92,44 @@ def _is_fatal(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "t", "yes", "y"}
     return bool(value)
+
+
+def _category_summary(
+    rows: Sequence[dict[str, Any]],
+    *,
+    year: int | None,
+) -> CategorySummary:
+    """Match the dashboard's five category charts without loading a browser."""
+
+    def count(field: str, value: object) -> int:
+        return sum(row.get(field) == value for row in rows)
+
+    fatal = sum(_is_fatal(row.get("fatal")) for row in rows)
+    return CategorySummary(
+        year=year,
+        total=len(rows),
+        outcome={"true": fatal, "false": len(rows) - fatal},
+        court={
+            "true": count("has_court_case", True),
+            "false": count("has_court_case", False),
+            "null": count("has_court_case", None),
+        },
+        gender={"M": count("sex", "M"), "F": count("sex", "F")},
+        race={
+            "W": count("race", "W"),
+            "B": count("race", "B"),
+            "H": count("race", "H"),
+            "A": count("race", "A"),
+            "Other/Unknown": count("race", "Other/Unknown"),
+        },
+        age={
+            "Younger than 18": count("age_group", "Younger than 18"),
+            "18 to 30": count("age_group", "18 to 30"),
+            "31 to 45": count("age_group", "31 to 45"),
+            "Older than 45": count("age_group", "Older than 45"),
+            "Unknown": count("age_group", "Unknown"),
+        },
+    )
 
 
 RowsByYear = Mapping[int, Sequence[dict[str, Any]]]
@@ -233,6 +284,14 @@ def build_stats_snapshot(
         )
         for year in years
     )
+    category_summaries = tuple(
+        _category_summary(rows_by_year[year], year=year) for year in years
+    ) + (
+        _category_summary(
+            tuple(row for year in years for row in rows_by_year[year]),
+            year=None,
+        ),
+    )
     completed_years = tuple(item for item in yearly if item.year != current_year)
     peak = max(completed_years or yearly, key=lambda item: item.victims)
 
@@ -284,6 +343,7 @@ def build_stats_snapshot(
         homicide_percent_change=percent_change,
         peak=peak,
         years=yearly,
+        category_summaries=category_summaries,
     )
 
 
@@ -443,16 +503,11 @@ def render_stats_page(snapshot: StatsSnapshot) -> str:
                 "@type": "WebPage",
                 "name": "Philadelphia Gun Violence Statistics",
                 "url": f"{CANONICAL_BASE}/stats",
-                "dateModified": max(
-                    snapshot.shootings_data_through,
-                    snapshot.homicides_data_through,
-                ),
             },
             {
                 "@type": "Dataset",
                 "name": "Philadelphia Shooting Victims Data",
                 "url": f"{CANONICAL_BASE}/stats",
-                "dateModified": snapshot.shootings_data_through,
                 "temporalCoverage": f"{snapshot.minimum_year}/{snapshot.current_year}",
                 "isAccessibleForFree": True,
             },
@@ -537,32 +592,6 @@ def render_stats_page(snapshot: StatsSnapshot) -> str:
     return html
 
 
-def render_sitemap(snapshot: StatsSnapshot) -> str:
-    """Render a data-aware sitemap for the canonical dashboard URLs."""
-    latest = max(snapshot.shootings_data_through, snapshot.homicides_data_through)
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>{CANONICAL_BASE}/</loc>
-    <lastmod>{latest}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>{CANONICAL_BASE}/stats</loc>
-    <lastmod>{latest}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>{CANONICAL_BASE}/about</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-</urlset>
-"""
-
-
 def stats_source_key(
     app: FastAPI,
     data_snapshot: AppDataSnapshot | None = None,
@@ -609,14 +638,12 @@ def render_and_cache_stats_page(app: FastAPI) -> StatsPageCache:
     source_key = stats_source_key(app, data_snapshot)
     snapshot = build_stats_snapshot(app, data_snapshot)
     html = render_stats_page(snapshot)
-    sitemap = render_sitemap(snapshot)
     snapshot_json = json.dumps(asdict(snapshot), sort_keys=True, separators=(",", ":"))
-    etag = hashlib.sha256(f"{snapshot_json}\n{html}\n{sitemap}".encode()).hexdigest()[:16]
+    etag = hashlib.sha256(f"{snapshot_json}\n{html}".encode()).hexdigest()[:16]
     cached = StatsPageCache(
         source_key=source_key,
         snapshot=snapshot,
         html=html,
-        sitemap=sitemap,
         etag=etag,
     )
     app.state.stats_page_cache = cached
@@ -638,14 +665,12 @@ def get_stats_page_cache(app: FastAPI) -> StatsPageCache:
     source_key = stats_source_key(app, data_snapshot)
     snapshot = build_stats_snapshot(app, data_snapshot)
     html = render_stats_page(snapshot)
-    sitemap = render_sitemap(snapshot)
     snapshot_json = json.dumps(asdict(snapshot), sort_keys=True, separators=(",", ":"))
-    etag = hashlib.sha256(f"{snapshot_json}\n{html}\n{sitemap}".encode()).hexdigest()[:16]
+    etag = hashlib.sha256(f"{snapshot_json}\n{html}".encode()).hexdigest()[:16]
     fresh = StatsPageCache(
         source_key=source_key,
         snapshot=snapshot,
         html=html,
-        sitemap=sitemap,
         etag=etag,
     )
     app.state.stats_page_cache = fresh

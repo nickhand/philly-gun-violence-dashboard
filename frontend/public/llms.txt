@@ -10,17 +10,17 @@ PPD homicide totals are a separate citywide measure. They include homicides not 
 
 ## Canonical pages
 
-- Explorer: https://www.nickhand.dev/philly-gun-violence-map/
-- Current and annual statistics: https://www.nickhand.dev/philly-gun-violence-map/stats
-- Data access, fields, sources, and terms: https://www.nickhand.dev/philly-gun-violence-map/data
-- Scope, transformations, checks, and limitations: https://www.nickhand.dev/philly-gun-violence-map/methodology
-- Project ownership and corrections: https://www.nickhand.dev/philly-gun-violence-map/about
+- [Explorer](https://www.nickhand.dev/philly-gun-violence-map): Interactive map, filters, charts, and filtered downloads.
+- [Current and annual statistics](https://www.nickhand.dev/philly-gun-violence-map/stats): Citywide shooting-victim and homicide counts with source-specific data-through dates.
+- [Data access, fields, sources, and terms](https://www.nickhand.dev/philly-gun-violence-map/data): Public downloads, field definitions, source dates, citation guidance, and licensing notes.
+- [Scope, transformations, checks, and limitations](https://www.nickhand.dev/philly-gun-violence-map/methodology): Inclusion rules, processing steps, quality checks, court-search semantics, and limitations.
+- [Project ownership and corrections](https://www.nickhand.dev/philly-gun-violence-map/about): Independent stewardship, project history, appropriate use, and corrections.
 
 ## Primary sources
 
-- PPD shooting-victim records: https://opendataphilly.org/datasets/shooting-victims/
-- PPD homicide statistics: https://www.phillypolice.com/crime-data/crime-statistics/
-- Pennsylvania public court search: https://ujsportal.pacourts.us/CaseSearch
+- [PPD shooting-victim records](https://opendataphilly.org/datasets/shooting-victims/): Victim-level source records published through OpenDataPhilly.
+- [PPD homicide statistics](https://www.phillypolice.com/crime-data/crime-statistics/): Separate official citywide homicide totals.
+- [Pennsylvania public court search](https://ujsportal.pacourts.us/CaseSearch): Portal queried by incident number for the dashboard's three-value court-search field.
 
 ## Using and citing the information
 

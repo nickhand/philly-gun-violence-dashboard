@@ -57,13 +57,53 @@ def test_snapshot_matches_loaded_api_data() -> None:
     assert snapshot.peak.victims == 3
 
 
+def test_snapshot_exposes_the_existing_dashboard_category_counts() -> None:
+    app = _app_with_data()
+    app.state.shootings_rows_by_year[2023] = [
+        {
+            "date": "2023-04-01 12:00:00",
+            "fatal": True,
+            "has_court_case": True,
+            "sex": "M",
+            "race": "B",
+            "age_group": "18 to 30",
+        },
+        {
+            "date": "2023-04-02 12:00:00",
+            "fatal": False,
+            "has_court_case": None,
+            "sex": "F",
+            "race": "H",
+            "age_group": "Older than 45",
+        },
+    ]
+
+    summaries = build_stats_snapshot(app).category_summaries
+    current = next(summary for summary in summaries if summary.year == 2023)
+    all_years = next(summary for summary in summaries if summary.year is None)
+
+    assert current.total == 2
+    assert current.outcome == {"true": 1, "false": 1}
+    assert current.court == {"true": 1, "false": 0, "null": 1}
+    assert current.gender == {"M": 1, "F": 1}
+    assert current.race == {"W": 0, "B": 1, "H": 1, "A": 0, "Other/Unknown": 0}
+    assert current.age == {
+        "Younger than 18": 0,
+        "18 to 30": 1,
+        "31 to 45": 0,
+        "Older than 45": 1,
+        "Unknown": 0,
+    }
+    assert all_years.total == 5
+
+
 def test_rendered_page_preserves_distinct_dataset_dates() -> None:
     html = render_stats_page(build_stats_snapshot(_app_with_data()))
 
     assert "Shootings through April 2, 2023 · Homicides through April 3, 2023" in html
     assert "As of April 2, 2023, there have been 2 shooting victims" in html
     assert "As of April 3, 2023, Philadelphia has recorded 80 homicides" in html
-    assert '"dateModified": "2023-04-02"' in html
+    assert '"dateModified"' not in html
     assert "dashboard data page" in html
     assert "public JSON API" not in html
     assert "/docs" not in html

@@ -1,15 +1,13 @@
-"""Crawler-visible HTML and XML endpoints backed by loaded dashboard data."""
+"""Statistics JSON and legacy crawler-compatibility endpoints."""
 
 from fastapi import APIRouter, Depends, Header, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.data_loader import make_refresh_dependency
-from app.stats_page import StatsSnapshot, get_stats_page_cache
+from app.stats_page import CANONICAL_BASE, StatsSnapshot, get_stats_page_cache
 
-router = APIRouter(
-    tags=["statistics"],
-    dependencies=[Depends(make_refresh_dependency(["shootings", "homicides"]))],
-)
+router = APIRouter(tags=["statistics"])
+refresh_datasets = Depends(make_refresh_dependency(["shootings", "homicides"]))
 
 CACHE_CONTROL = "public, max-age=0, must-revalidate"
 
@@ -25,11 +23,17 @@ def _headers(etag: str) -> dict[str, str]:
     return {
         "Cache-Control": CACHE_CONTROL,
         "ETag": f'"{etag}"',
-        "X-Robots-Tag": "index, follow",
+        "X-Robots-Tag": "noindex, follow",
     }
 
 
-@router.get("/stats", response_class=HTMLResponse, response_model=None)
+@router.get(
+    "/stats",
+    response_class=HTMLResponse,
+    response_model=None,
+    dependencies=[refresh_datasets],
+    include_in_schema=False,
+)
 def get_stats_page(
     request: Request,
     if_none_match: str | None = Header(None),
@@ -42,7 +46,11 @@ def get_stats_page(
     return HTMLResponse(cached.html, headers=headers)
 
 
-@router.get("/stats.json", response_model=StatsSnapshot)
+@router.get(
+    "/stats.json",
+    response_model=StatsSnapshot,
+    dependencies=[refresh_datasets],
+)
 def get_stats_json(
     request: Request,
     response: Response,
@@ -59,15 +67,11 @@ def get_stats_json(
     return cached.snapshot
 
 
-@router.get("/sitemap.xml", response_model=None)
-def get_sitemap(
-    request: Request,
-    if_none_match: str | None = Header(None),
-) -> Response:
-    """Return a sitemap whose modification dates track the loaded data."""
-    cached = get_stats_page_cache(request.app)
-    etag = f"{cached.etag}-sitemap"
-    headers = _headers(etag)
-    if _not_modified(if_none_match, etag):
-        return Response(status_code=304, headers=headers)
-    return Response(cached.sitemap, media_type="application/xml", headers=headers)
+@router.get("/sitemap.xml", response_model=None, include_in_schema=False)
+def get_sitemap() -> RedirectResponse:
+    """Redirect legacy crawlers to the canonical Nuxt sitemap."""
+    return RedirectResponse(
+        f"{CANONICAL_BASE}/sitemap.xml",
+        status_code=308,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )

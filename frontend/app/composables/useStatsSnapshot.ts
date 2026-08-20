@@ -4,6 +4,16 @@ export interface YearStats {
   homicides: number | null;
 }
 
+export interface CategorySummary {
+  age: Record<string, number>;
+  court: Record<string, number>;
+  gender: Record<string, number>;
+  outcome: Record<string, number>;
+  race: Record<string, number>;
+  total: number;
+  year: number | null;
+}
+
 export interface StatsSnapshot {
   shootings_data_through: string;
   homicides_data_through: string;
@@ -21,6 +31,7 @@ export interface StatsSnapshot {
   homicide_percent_change: number | null;
   peak: YearStats;
   years: YearStats[];
+  category_summaries: CategorySummary[];
 }
 
 export function useStatsSnapshot() {

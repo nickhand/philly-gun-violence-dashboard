@@ -7,8 +7,10 @@ import {
 
 import {
   formatDataDate,
+  formatDataNumber,
   formatIsoDateInTimeZone,
 } from "~/utils/formatData";
+import { getCompleteCourtCoverage } from "~/utils/courtCoverage";
 
 const { apiBaseUrl, canonicalBaseUrl, downloadsBaseUrl } =
   useRuntimeConfig().public;
@@ -88,6 +90,19 @@ const [metaRequest, manifestRequest] = await Promise.all([
 ]);
 const { data: meta, error: metaError } = metaRequest;
 const { data: publicDownloadManifest } = manifestRequest;
+
+const completeCourtCoverage = computed(() =>
+  getCompleteCourtCoverage(meta.value?.courts),
+);
+const courtCoverageText = computed(() => {
+  const coverage = completeCourtCoverage.value;
+  if (!coverage) return null;
+  const candidateCount = formatDataNumber(coverage.candidateCount);
+  if (coverage.unknownResultCount === 0) {
+    return `Full court-search run processed ${formatDataDate(coverage.processedAt)}; all ${candidateCount} full-run inputs produced conclusive search results.`;
+  }
+  return `Full court-search run processed ${formatDataDate(coverage.processedAt)}. All ${candidateCount} full-run inputs produced terminal records; ${formatDataNumber(coverage.unknownResultCount)} could not be conclusively searched.`;
+});
 
 const parsedPublicDownloadManifest = computed(() =>
   parsePublicDownloadManifest(publicDownloadManifest.value),
@@ -274,83 +289,119 @@ useSeoMeta({
   twitterImage: `${siteUrl}/og-image.png`,
 });
 
-useHead(() => ({
-  link: [{ rel: "canonical", href: canonicalUrl }],
-  script: [
-    {
-      type: "application/ld+json",
-      innerHTML: JSON.stringify({
-        "@context": "https://schema.org",
-        "@graph": [
-          {
-            "@type": "WebPage",
-            "@id": `${canonicalUrl}#webpage`,
-            name: "Philadelphia shooting-victim data and downloads",
-            url: canonicalUrl,
-            description,
-            mainEntity: { "@id": `${canonicalUrl}#dataset` },
-          },
-          {
-            "@type": "Dataset",
-            "@id": `${canonicalUrl}#dataset`,
-            name: "Philadelphia shooting-victim data",
-            description:
-              "Public Philadelphia Police Department shooting-victim records prepared for the Philadelphia Gun Violence Dashboard. Each row represents one person reported by the Philadelphia Police Department as a shooting victim. The dashboard does not include records that the source identifies as officer-involved.",
-            url: canonicalUrl,
-            spatialCoverage: "Philadelphia, Pennsylvania",
-            ...(meta.value?.shootings?.last_updated
-              ? { dateModified: meta.value.shootings.last_updated }
-              : {}),
-            ...(meta.value?.shootings?.data_through
-              ? {
-                  temporalCoverage: `2015-01-01/${meta.value.shootings.data_through}`,
-                }
-              : {}),
-            ...(publicRecordDownload.value
-              ? {
-                  distribution: {
-                    "@type": "DataDownload",
-                    name: "All Philadelphia shooting-victim records",
-                    description: publicDownloadDescription.value,
-                    contentUrl: publicRecordDownload.value.url,
-                    contentSize: publicDownloadContentSize(
-                      publicRecordDownload.value.sizeBytes,
+useHead(() => {
+  const entityIds = getDashboardEntityIds(siteUrl);
+  const downloadManifest = publicRecordDownload.value
+    ? parsedPublicDownloadManifest.value
+    : null;
+
+  return {
+    link: [{ rel: "canonical", href: canonicalUrl }],
+    script: [
+      {
+        type: "application/ld+json",
+        innerHTML: JSON.stringify({
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "WebPage",
+              "@id": entityIds.dataPage,
+              name: "Philadelphia shooting-victim data and downloads",
+              url: canonicalUrl,
+              description,
+              ...createDashboardPageProvenance(entityIds),
+              mainEntity: { "@id": entityIds.dashboardDataset },
+              about: { "@id": entityIds.dashboardDataset },
+            },
+            {
+              "@type": "Dataset",
+              "@id": entityIds.dashboardDataset,
+              name: "Philadelphia shooting-victim data",
+              description:
+                "Public Philadelphia Police Department shooting-victim records prepared for the Philadelphia Gun Violence Dashboard. Each row represents one person reported by the Philadelphia Police Department as a shooting victim. The dashboard does not include records that the source identifies as officer-involved.",
+              url: canonicalUrl,
+              ...createDashboardDatasetProvenance(entityIds),
+              spatialCoverage: "Philadelphia, Pennsylvania",
+              ...(meta.value?.shootings?.last_updated
+                ? { dateModified: meta.value.shootings.last_updated }
+                : {}),
+              ...(meta.value?.shootings?.data_through
+                ? {
+                    temporalCoverage: `2015-01-01/${meta.value.shootings.data_through}`,
+                  }
+                : {}),
+              ...(downloadManifest?.version
+                ? { version: downloadManifest.version }
+                : {}),
+              ...(publicRecordDownload.value
+                ? {
+                    distribution: {
+                      "@type": "DataDownload",
+                      name: "All Philadelphia shooting-victim records",
+                      description: publicDownloadDescription.value,
+                      contentUrl: publicRecordDownload.value.url,
+                      contentSize: publicDownloadContentSize(
+                        publicRecordDownload.value.sizeBytes,
+                      ),
+                      encodingFormat: "text/csv",
+                    },
+                  }
+                : {}),
+              measurementTechnique: `${siteUrl}/methodology`,
+              variableMeasured: [
+                "Date and time",
+                "Fatal or nonfatal outcome",
+                "Reported demographics",
+                "Location and derived geographic areas",
+                "Court-search result status",
+              ].map((name) => ({ "@type": "PropertyValue", name })),
+              isBasedOn: [
+                { "@id": entityIds.shootingSourceDataset },
+                { "@id": entityIds.courtSourcePage },
+              ],
+              citation: citationText.value,
+              keywords: [
+                "Philadelphia gun violence",
+                "shooting victims",
+                "public safety data",
+                "geospatial data",
+              ],
+              isAccessibleForFree: true,
+            },
+            ...(geographicReferenceDownloads.value.length
+              ? [
+                  {
+                    "@type": "Dataset",
+                    "@id": `${canonicalUrl}#geographic-reference-data`,
+                    name: "Philadelphia geographic reference files used by the dashboard",
+                    description:
+                      "Current boundary and street-block GeoJSON files that match geographic join fields in the Philadelphia shooting-victim record download.",
+                    url: `${canonicalUrl}#geographic-reference-downloads`,
+                    ...createDashboardDatasetProvenance(entityIds),
+                    spatialCoverage: "Philadelphia, Pennsylvania",
+                    measurementTechnique: `${siteUrl}/methodology`,
+                    isAccessibleForFree: true,
+                    distribution: geographicReferenceDownloads.value.map(
+                      (item) => ({
+                        "@type": "DataDownload",
+                        name: item.label,
+                        description: `GeoJSON reference file matched with the ${item.joinField} field.`,
+                        contentUrl: item.url,
+                        contentSize: publicDownloadContentSize(item.sizeBytes),
+                        encodingFormat: "application/geo+json",
+                      }),
                     ),
-                    encodingFormat: "text/csv",
                   },
-                }
-              : {}),
-            isBasedOn:
-              "https://opendataphilly.org/datasets/shooting-victims/",
-            isAccessibleForFree: true,
-          },
-          ...(geographicReferenceDownloads.value.length
-            ? [
-                {
-                  "@type": "Dataset",
-                  "@id": `${canonicalUrl}#geographic-reference-data`,
-                  name: "Philadelphia geographic reference files used by the dashboard",
-                  description:
-                    "Current boundary and street-block GeoJSON files that match geographic join fields in the Philadelphia shooting-victim record download.",
-                  url: `${canonicalUrl}#geographic-reference-downloads`,
-                  spatialCoverage: "Philadelphia, Pennsylvania",
-                  isAccessibleForFree: true,
-                  distribution: geographicReferenceDownloads.value.map((item) => ({
-                    "@type": "DataDownload",
-                    name: item.label,
-                    description: `GeoJSON reference file matched with the ${item.joinField} field.`,
-                    contentUrl: item.url,
-                    contentSize: publicDownloadContentSize(item.sizeBytes),
-                    encodingFormat: "application/geo+json",
-                  })),
-                },
-              ]
-            : []),
-        ],
-      }).replace(/</g, "\\u003c"),
-    },
-  ],
-}));
+                ]
+              : []),
+            ...createPublicSourceEntities(entityIds),
+            createCourtSourceEntity(entityIds),
+          ],
+        }).replace(/</g, "\\u003c"),
+      },
+    ],
+  };
+});
 </script>
 
 <template>
@@ -591,11 +642,12 @@ useHead(() => ({
                       class="civic-data-stacked-table__label"
                       aria-hidden="true"
                     >Dates in this dashboard:</span>
-                    <template v-if="meta?.courts?.last_updated">
-                      Court search checked
-                      {{ formatDataDate(meta.courts.last_updated) }}.
+                    <template v-if="courtCoverageText">
+                      {{ courtCoverageText }}
                     </template>
-                    <template v-else>Date unavailable.</template>
+                    <template v-else>
+                      Complete full-run coverage unavailable.
+                    </template>
                   </td>
                 </tr>
               </tbody>

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, watch } from "vue";
 
-const { indexable } = useRuntimeConfig().public;
+const { canonicalBaseUrl, indexable } = useRuntimeConfig().public;
 const route = useRoute();
 let focusFrame: number | null = null;
+
+const llmsGuideUrl = `${String(canonicalBaseUrl).replace(/\/$/, "")}/llms.txt`;
 
 watch(
   () => route.path,
@@ -28,6 +30,16 @@ useSeoMeta({
     String(indexable) === "false"
       ? "noindex, nofollow"
       : "index, follow",
+});
+
+useHead({
+  link: [
+    {
+      rel: "describedby",
+      href: llmsGuideUrl,
+      type: "text/plain",
+    },
+  ],
 });
 </script>
 

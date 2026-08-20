@@ -1,8 +1,14 @@
 <script setup lang="ts">
+import {
+  createDashboardPageProvenance,
+  getDashboardEntityIds,
+} from "~/utils/structuredData";
+
 const { canonicalBaseUrl } = useRuntimeConfig().public;
 const siteUrl = String(canonicalBaseUrl).replace(/\/$/, "");
 
 const canonicalUrl = `${siteUrl}/about`;
+const entityIds = getDashboardEntityIds(siteUrl);
 const description =
   "Purpose, stewardship, appropriate use, and corrections for the independent Philadelphia Gun Violence Dashboard.";
 
@@ -22,6 +28,25 @@ useSeoMeta({
 
 useHead({
   link: [{ rel: "canonical", href: canonicalUrl }],
+  script: [
+    {
+      type: "application/ld+json",
+      innerHTML: JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "AboutPage",
+        "@id": entityIds.aboutPage,
+        name: "About the Philadelphia Gun Violence Dashboard",
+        url: canonicalUrl,
+        description,
+        ...createDashboardPageProvenance(entityIds),
+        mainEntity: { "@id": entityIds.website },
+        about: [
+          { "@id": entityIds.website },
+          { "@id": entityIds.person },
+        ],
+      }).replace(/</g, "\\u003c"),
+    },
+  ],
 });
 </script>
 

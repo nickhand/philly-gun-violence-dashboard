@@ -14,6 +14,10 @@ import {
   parseMapViewParam,
   type MapView,
 } from "~/utils/mapView";
+import {
+  createDashboardPageProvenance,
+  getDashboardEntityIds,
+} from "~/utils/structuredData";
 
 interface BrowserSummary {
   fatal: number;
@@ -34,6 +38,7 @@ const router = useRouter();
 const { canonicalBaseUrl } = useRuntimeConfig().public;
 const siteUrl = String(canonicalBaseUrl).replace(/\/$/, "");
 const canonicalUrl = siteUrl;
+const entityIds = getDashboardEntityIds(siteUrl);
 
 const {
   data: stats,
@@ -81,6 +86,13 @@ const selectedMapLayers = computed<MapLayerId[]>(() => {
   const queryValue = route.query.layers;
   if (Array.isArray(queryValue)) return [...DEFAULT_MAP_LAYERS];
   return parseMapLayersParam(queryValue);
+});
+
+const selectedCategorySummary = computed(() => {
+  const snapshot = stats.value;
+  const year = selectedYear.value;
+  if (!snapshot || year === undefined) return undefined;
+  return snapshot.category_summaries?.find((summary) => summary.year === year);
 });
 
 function comparisonText(current: number, previous: number | null): string | null {
@@ -215,9 +227,13 @@ useHead(() => ({
       innerHTML: JSON.stringify({
         "@context": "https://schema.org",
         "@type": "WebPage",
+        "@id": `${canonicalUrl}#webpage`,
         name: "Philadelphia Gun Violence Dashboard",
         url: canonicalUrl,
         description: description.value,
+        ...createDashboardPageProvenance(entityIds),
+        mainEntity: { "@id": entityIds.dashboardDataset },
+        about: { "@id": entityIds.dashboardDataset },
       }).replace(/</g, "\\u003c"),
     },
   ],
@@ -364,6 +380,7 @@ useHead(() => ({
         <LazyDashboardExplorer
           :key="selectedYearValue"
           :year="selectedYear"
+          :initial-category-summary="selectedCategorySummary"
           :initial-view="selectedMapView"
           :layers="selectedMapLayers"
           @summary="updateBrowserSummary"
@@ -393,7 +410,11 @@ useHead(() => ({
                 <p class="civic-legacy-explorer-state">Loading filters…</p>
               </aside>
             </div>
-            <DashboardCategoryCharts :rows="[]" state="loading" />
+            <DashboardCategoryCharts
+              :rows="[]"
+              :summary="selectedCategorySummary"
+              state="loading"
+            />
           </div>
         </template>
       </ClientOnly>

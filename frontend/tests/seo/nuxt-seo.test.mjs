@@ -111,8 +111,24 @@ const meta = {
     last_updated: "2023-01-16T09:00:00Z",
   },
   courts: {
+    candidate_count: 5,
+    court_search_semantics_version: 2,
+    coverage_complete: true,
     data_through: "2023-01-14",
+    extra_result_count: 0,
+    failure_count: 0,
+    flags_row_count: 5,
+    flags_sha256: "a".repeat(64),
+    has_partial_results: false,
+    input_count: 5,
+    invalid_input_count: 0,
     last_updated: "2023-01-14T10:00:00Z",
+    missing_result_count: 0,
+    publication_contract_version: 1,
+    result_count: 5,
+    selection_mode: "full",
+    status: "success",
+    unknown_result_count: 0,
   },
 };
 
@@ -135,6 +151,53 @@ const stats = {
   years: [
     { year: 2022, victims: 3, homicides: 500 },
     { year: 2023, victims: 2, homicides: 80 },
+  ],
+  category_summaries: [
+    {
+      year: 2022,
+      total: 3,
+      outcome: { true: 1, false: 2 },
+      court: { true: 0, false: 0, null: 3 },
+      gender: { M: 2, F: 1 },
+      race: { W: 0, B: 2, H: 0, A: 0, "Other/Unknown": 1 },
+      age: {
+        "Younger than 18": 0,
+        "18 to 30": 1,
+        "31 to 45": 1,
+        "Older than 45": 0,
+        Unknown: 1,
+      },
+    },
+    {
+      year: 2023,
+      total: 2,
+      outcome: { true: 1, false: 1 },
+      court: { true: 1, false: 0, null: 1 },
+      gender: { M: 1, F: 1 },
+      race: { W: 0, B: 1, H: 1, A: 0, "Other/Unknown": 0 },
+      age: {
+        "Younger than 18": 0,
+        "18 to 30": 1,
+        "31 to 45": 0,
+        "Older than 45": 1,
+        Unknown: 0,
+      },
+    },
+    {
+      year: null,
+      total: 5,
+      outcome: { true: 2, false: 3 },
+      court: { true: 1, false: 0, null: 4 },
+      gender: { M: 3, F: 2 },
+      race: { W: 0, B: 3, H: 1, A: 0, "Other/Unknown": 1 },
+      age: {
+        "Younger than 18": 0,
+        "18 to 30": 2,
+        "31 to 45": 1,
+        "Older than 45": 1,
+        Unknown: 1,
+      },
+    },
   ],
 };
 
@@ -599,6 +662,25 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
       `${basePath}data`,
     );
     assert.equal(document.querySelector(".civic-dashboard-browser-explorer"), null);
+    assert.equal(document.querySelectorAll("#charts figure").length, 5);
+    assert.deepEqual(
+      [
+        ...document.querySelectorAll(
+          'table[aria-label="Court Search Result distribution breakdown"] tbody tr',
+        ),
+      ].map((row) =>
+        [...row.querySelectorAll("td")].map((cell) => normalizedText(cell)),
+      ),
+      [
+        ["Yes", "1", "50%"],
+        ["No", "0", "0%"],
+        ["Unknown", "1", "50%"],
+      ],
+    );
+    assert.doesNotMatch(
+      normalizedText(document.querySelector("#charts")),
+      /Charts will appear after the detailed records load/i,
+    );
 
     assert.equal(
       document.querySelector("title")?.textContent?.trim(),
@@ -613,6 +695,10 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
       document.querySelector('link[rel="canonical"]')?.getAttribute("href"),
       canonicalBase,
     );
+    const llmsGuide = document.querySelector('link[rel="describedby"]');
+    assert.equal(document.querySelectorAll('link[rel="describedby"]').length, 1);
+    assert.equal(llmsGuide?.getAttribute("href"), `${canonicalBase}/llms.txt`);
+    assert.equal(llmsGuide?.getAttribute("type"), "text/plain");
     assert.equal(
       document.querySelector('meta[property="og:url"]')?.getAttribute("content"),
       canonicalBase,
@@ -693,7 +779,7 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
   }
 });
 
-test("dashboard year query drives truthful SSR summaries and a client loading shell", async () => {
+test("dashboard year query drives truthful SSR summaries and category charts", async () => {
   resetRecordRequests();
   const cases = [
     {
@@ -786,6 +872,7 @@ test("dashboard year query drives truthful SSR summaries and a client loading sh
       );
       assert.match(normalizedText(clientFallback), /Loading filters…/);
       assert.equal(document.querySelector(".civic-dashboard-browser-explorer"), null);
+      assert.equal(document.querySelectorAll("#charts figure").length, 5);
     } finally {
       dom.window.close();
     }
@@ -1282,6 +1369,10 @@ test("content routes render complete, unique crawler responses", async () => {
     const canonicalLinks = document.querySelectorAll('link[rel="canonical"]');
     assert.equal(canonicalLinks.length, 1);
     assert.equal(canonicalLinks[0].getAttribute("href"), canonical);
+    const llmsGuide = document.querySelector('link[rel="describedby"]');
+    assert.equal(document.querySelectorAll('link[rel="describedby"]').length, 1);
+    assert.equal(llmsGuide?.getAttribute("href"), `${canonicalBase}/llms.txt`);
+    assert.equal(llmsGuide?.getAttribute("type"), "text/plain");
     assert.equal(document.querySelector('meta[property="og:url"]')?.getAttribute("content"), canonical);
 
     const title = document.querySelector("title")?.textContent?.trim();
@@ -1304,6 +1395,27 @@ test("content routes render complete, unique crawler responses", async () => {
     for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
       assert.doesNotThrow(() => JSON.parse(script.textContent ?? ""));
     }
+
+    const structuredDocuments = [
+      ...document.querySelectorAll('script[type="application/ld+json"]'),
+    ].map((script) => JSON.parse(script.textContent ?? "{}"));
+    const website = structuredDocuments.find(
+      (entry) => entry["@type"] === "WebSite",
+    );
+    const maintainer = structuredDocuments.find(
+      (entry) => entry["@type"] === "Person",
+    );
+    assert.equal(
+      website?.["@id"],
+      `${canonicalBase}#website`,
+      "Expected one stable dashboard identity on every page",
+    );
+    assert.deepEqual(website?.creator, {
+      "@id": "https://www.nickhand.dev/#person",
+    });
+    assert.deepEqual(website?.maintainer, website?.creator);
+    assert.equal(maintainer?.name, "Nick Hand");
+    assert.equal(maintainer?.url, "https://www.nickhand.dev/");
 
     if (page.route === "stats") {
       assertVisibleAbbreviationDefinition(
@@ -1379,9 +1491,41 @@ test("content routes render complete, unique crawler responses", async () => {
         "Philadelphia shooting-victim and homicide statistics",
       );
       assert.deepEqual(dataset?.isBasedOn, [
-        "https://opendataphilly.org/datasets/shooting-victims/",
-        "https://www.phillypolice.com/crime-data/crime-statistics/",
+        {
+          "@id":
+            "https://opendataphilly.org/datasets/shooting-victims/#dataset",
+        },
+        {
+          "@id":
+            "https://www.phillypolice.com/crime-data/crime-statistics/#dataset",
+        },
       ]);
+      assert.deepEqual(dataset?.maintainer, {
+        "@id": "https://www.nickhand.dev/#person",
+      });
+      assert.equal(dataset?.temporalCoverage, "2022-01-01/2023-01-16");
+      assert.equal(dataset?.measurementTechnique, `${canonicalBase}/methodology`);
+      assert.deepEqual(
+        dataset?.variableMeasured?.map((item) => item.name),
+        [
+          "Shooting victims",
+          "Fatal shooting victims",
+          "Nonfatal shooting victims",
+          "Homicides",
+        ],
+      );
+      const shootingSource = structuredData?.["@graph"].find(
+        (entry) =>
+          entry["@id"] ===
+          "https://opendataphilly.org/datasets/shooting-victims/#dataset",
+      );
+      assert.deepEqual(shootingSource?.publisher, {
+        "@id":
+          "https://www.phila.gov/departments/philadelphia-police-department/#organization",
+      });
+      assert.deepEqual(shootingSource?.includedInDataCatalog, {
+        "@id": "https://opendataphilly.org/#catalog",
+      });
       assert.equal("distribution" in dataset, false);
     }
 
@@ -1426,6 +1570,13 @@ test("content routes render complete, unique crawler responses", async () => {
         normalizedText(corrections),
         /do not include sensitive personal information/i,
       );
+      const aboutPage = structuredDocuments.find(
+        (entry) => entry["@type"] === "AboutPage",
+      );
+      assert.equal(aboutPage?.["@id"], `${canonicalBase}/about#webpage`);
+      assert.deepEqual(aboutPage?.mainEntity, {
+        "@id": `${canonicalBase}#website`,
+      });
     }
 
     if (page.route === "data") {
@@ -1457,6 +1608,7 @@ test("content routes render complete, unique crawler responses", async () => {
       );
       const shootingSourceRow = sourceRecords?.querySelector("tbody tr");
       const homicideSourceRow = sourceRecords?.querySelectorAll("tbody tr")[1];
+      const courtSourceRow = sourceRecords?.querySelectorAll("tbody tr")[2];
       const allRecordsDownload = downloadGuide?.querySelector(
         `a[href="${allRecordsDownloadUrl}"]`,
       );
@@ -1567,6 +1719,10 @@ test("content routes render complete, unique crawler responses", async () => {
         /all homicides citywide.*whether or not a gun was involved/i,
       );
       assert.match(
+        normalizedText(courtSourceRow),
+        /Full court-search run processed January 14, 2023.*all 5 full-run inputs produced conclusive search results/i,
+      );
+      assert.match(
         normalizedText(considerations),
         /without usable coordinates remain in totals and downloads/i,
       );
@@ -1669,7 +1825,21 @@ test("content routes render complete, unique crawler responses", async () => {
           entry["@id"] === `${canonicalBase}/data#geographic-reference-data`,
       );
       assert.equal(dataset?.dateModified, "2023-01-16T08:00:00Z");
+      assert.equal(dataset?.version, `sha256:${publicDownloadReleaseId}`);
       assert.equal(dataset?.temporalCoverage, "2015-01-01/2023-01-15");
+      assert.deepEqual(dataset?.maintainer, {
+        "@id": "https://www.nickhand.dev/#person",
+      });
+      assert.deepEqual(dataset?.isBasedOn, [
+        {
+          "@id":
+            "https://opendataphilly.org/datasets/shooting-victims/#dataset",
+        },
+        {
+          "@id": "https://ujsportal.pacourts.us/CaseSearch#webpage",
+        },
+      ]);
+      assert.match(dataset?.citation ?? "", /Philadelphia Police Department via OpenDataPhilly/);
       assert.match(dataset?.description ?? "", /Each row represents one person/i);
       assert.match(
         dataset?.description ?? "",
@@ -1727,6 +1897,18 @@ test("content routes render complete, unique crawler responses", async () => {
         .map((script) => JSON.parse(script.textContent ?? "{}"))
         .find((value) => value["@type"] === "WebPage");
       assert.equal("dateModified" in structuredData, false);
+      assert.equal(structuredData?.["@id"], `${canonicalBase}/methodology#webpage`);
+      assert.deepEqual(structuredData?.mainEntity, {
+        "@id": `${canonicalBase}/data#dataset`,
+      });
+      assert.deepEqual(
+        structuredData?.citation?.map((entry) => entry["@id"]),
+        [
+          "https://opendataphilly.org/datasets/shooting-victims/#dataset",
+          "https://www.phillypolice.com/crime-data/crime-statistics/#dataset",
+          "https://ujsportal.pacourts.us/CaseSearch#webpage",
+        ],
+      );
       const mainText = normalizedText(document.querySelector("main"));
       const recordScope = document.querySelector(
         '[aria-labelledby="record-scope"]',
@@ -2120,6 +2302,17 @@ test("the AI-readable guide is concise, sourced, and stack-agnostic", async () =
   assert.match(body, /Use the Explorer's Download Data control/i);
   assert.match(body, /identify the measure, period or year, original publisher/i);
   assert.match(body, /not an official City of Philadelphia website/i);
+  const linkedResourceLines = body
+    .split("\n")
+    .filter((line) => line.includes("https://"));
+  assert.equal(linkedResourceLines.length, 8);
+  for (const line of linkedResourceLines) {
+    assert.match(
+      line,
+      /^- \[[^\]]+\]\(https:\/\/[^)]+\): \S/,
+      `Expected an llms.txt Markdown resource link: ${line}`,
+    );
+  }
   assert.doesNotMatch(
     body,
     /Vuetify|Netlify|updated daily|Current Statistics for Citation|\bAPI\b|fly\.dev|\/stats\.json|\/openapi(?:\.json)?|\/shootings(?:[/?#]|$)|\/meta(?:[/?#]|\s|$)/i,
@@ -2147,14 +2340,32 @@ test("sitemap contains only canonical content routes", async () => {
   assert.equal(new Set(locations).size, locations.length);
   assert.ok(!xml.includes("stats.json"));
   assert.ok(!xml.includes("fly.dev"));
+  assert.match(response.headers.get("etag") ?? "", /^"[0-9a-f]{64}"$/);
+  assert.equal(response.headers.get("last-modified"), null);
+  assert.equal(
+    response.headers.get("cache-control"),
+    "public, max-age=300, s-maxage=300, stale-while-revalidate=3600",
+  );
 
-  for (const entry of urls) {
-    assert.equal(
-      entry.querySelector("lastmod"),
-      null,
-      "Coverage dates must not be presented as page-modification dates",
-    );
-  }
+  const lastModifiedByLocation = Object.fromEntries(
+    urls.map((url) => [
+      url.querySelector("loc")?.textContent,
+      url.querySelector("lastmod")?.textContent ?? null,
+    ]),
+  );
+  assert.deepEqual(lastModifiedByLocation, {
+    [canonicalBase]: "2023-01-16T09:00:00Z",
+    [`${canonicalBase}/about`]: null,
+    [`${canonicalBase}/data`]: "2026-08-17T19:56:57Z",
+    [`${canonicalBase}/methodology`]: null,
+    [`${canonicalBase}/stats`]: "2023-01-16T09:00:00Z",
+  });
+
+  const notModified = await fetch(`${nuxtOrigin}${basePath}sitemap.xml`, {
+    headers: { "If-None-Match": response.headers.get("etag") },
+  });
+  assert.equal(notModified.status, 304);
+  assert.equal(await notModified.text(), "");
 });
 
 test("unknown routes return a noindex 404 page", async () => {

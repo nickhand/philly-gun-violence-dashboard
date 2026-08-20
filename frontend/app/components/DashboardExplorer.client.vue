@@ -17,6 +17,9 @@ import DashboardDownloadPanel from "./DashboardDownloadPanel.vue";
 import DashboardFilterPanel from "./DashboardFilterPanel.vue";
 import DashboardPointMap from "./DashboardPointMap.client.vue";
 import DashboardRangeFilter from "./DashboardRangeFilter.vue";
+import type { CategorySummary } from "~/composables/useStatsSnapshot";
+import { formatDataDate } from "~/utils/formatData";
+import { getCompleteCourtCoverage } from "~/utils/courtCoverage";
 import type { AddressResult } from "~/utils/geocoding";
 import {
   DEFAULT_MAP_LAYERS,
@@ -49,6 +52,7 @@ import {
 } from "~/utils/shootingRecords";
 
 const props = defineProps<{
+  initialCategorySummary?: CategorySummary;
   initialView: MapView;
   layers: MapLayerId[];
   year: number | null;
@@ -67,6 +71,18 @@ const emit = defineEmits<{
 
 const route = useRoute();
 const router = useRouter();
+const { data: datasetMeta } = useDatasetMeta();
+
+const courtCoverageNote = computed(() => {
+  const coverage = getCompleteCourtCoverage(datasetMeta.value?.courts);
+  if (!coverage) return undefined;
+  const candidateCount = coverage.candidateCount.toLocaleString("en-US");
+  if (coverage.unknownResultCount === 0) {
+    return `The last published full run was processed ${formatDataDate(coverage.processedAt)}; all ${candidateCount} full-run inputs produced conclusive search results.`;
+  }
+  const unknownCount = coverage.unknownResultCount.toLocaleString("en-US");
+  return `The last published full run was processed ${formatDataDate(coverage.processedAt)}. All ${candidateCount} full-run inputs produced terminal records; ${unknownCount} could not be conclusively searched.`;
+});
 
 const sexItems = [
   { label: "Male", value: SEX_VALUES[0] },
@@ -655,6 +671,11 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
-    <DashboardCategoryCharts :rows="filteredRows" :state="state" />
+    <DashboardCategoryCharts
+      :court-coverage-note="courtCoverageNote"
+      :rows="filteredRows"
+      :state="state"
+      :summary="initialCategorySummary"
+    />
   </div>
 </template>

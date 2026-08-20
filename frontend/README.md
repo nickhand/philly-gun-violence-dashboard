@@ -89,6 +89,14 @@ clicking pins it. Tooltip values are normalized and inserted as text, including
 the honest nearest-street limitation, rather than passed through the legacy
 raw-HTML formatter.
 
+Before detailed rows hydrate, the existing five category charts render the
+matching unfiltered counts from `/stats.json`. This keeps their content present
+in raw HTML for crawlers without adding another visible dashboard section; the
+browser replaces those counts from the same detailed rows as soon as filtering
+is available. Court-run coverage text is shown only when `/meta` proves the
+full-run publication contract and distinguishes terminal coverage from searches
+that remained inconclusive.
+
 The completed migration preserved the legacy capabilities; future product
 features still require their own decision and regression coverage.
 
@@ -309,6 +317,22 @@ normal request path as a frozen temporary rollback origin; `netlify.toml`
 cancels every Git-triggered build. The main
 `www.nickhand.dev/robots.txt` advertises the subpath sitemap because the app's
 own subpath robots file cannot set host-wide policy.
+
+The subpath sitemap resolves its five canonical content URLs at request time.
+Only data-driven pages receive `lastmod`: the Explore and Statistics dates come
+from the relevant datasets' `last_updated` publication timestamps, while the
+Data page also considers the public download manifest's `published_at` value.
+About and Methodology stay undated until the project has an authoritative page
+publication timestamp. If the freshness sources are temporarily unavailable,
+the sitemap remains complete but omits `lastmod` rather than substituting a
+build time or a data-coverage date. The complete XML response receives a
+content-derived ETag, so conditional requests cannot incorrectly reuse an older
+route set merely because its latest publication timestamp stayed the same.
+
+Every HTML page links the scoped `llms.txt` guide with `rel="describedby"`. The
+guide's resource lists use the Markdown-link form defined by the llms.txt
+proposal. Do not advertise `rel="alternate" type="text/markdown"` unless real,
+maintained Markdown representations of the corresponding pages exist.
 
 ## Browser Support
 

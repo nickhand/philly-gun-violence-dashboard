@@ -84,6 +84,15 @@ class TestOpenAPI:
         assert ndjson_schema["type"] == "string"
         assert "one shooting victim" in ndjson_schema["description"]
 
+    def test_legacy_crawler_routes_are_not_api_contracts(self):
+        from app.main import app
+
+        paths = app.openapi()["paths"]
+
+        assert "/stats" not in paths
+        assert "/sitemap.xml" not in paths
+        assert "/stats.json" in paths
+
 
 class TestHealth:
     def test_health_ok(self, client):
@@ -281,7 +290,7 @@ class TestMeta:
 
 
 class TestStatsPage:
-    def test_stats_page_is_crawler_visible_html(self, client):
+    def test_legacy_stats_page_points_crawlers_to_the_canonical_html(self, client):
         resp = client.get("/stats")
 
         assert resp.status_code == 200
@@ -290,6 +299,8 @@ class TestStatsPage:
             '<link rel="canonical" href="https://www.nickhand.dev/philly-gun-violence-map/stats"'
         )
         assert canonical in resp.text
+        assert '<meta name="robots" content="noindex, follow"' in resp.text
+        assert resp.headers["x-robots-tag"] == "noindex, follow"
         assert '"@type": "FAQPage"' in resp.text
         assert "No JavaScript required" in resp.text
 
@@ -327,7 +338,7 @@ class TestStatsPage:
         assert resp.headers["content-type"].startswith("application/json")
         assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
         assert resp.headers["x-robots-tag"] == "noindex"
-        assert html_resp.headers["x-robots-tag"] == "index, follow"
+        assert html_resp.headers["x-robots-tag"] == "noindex, follow"
         assert stats == {
             "shootings_data_through": "2023-01-15",
             "homicides_data_through": "2023-01-16",
@@ -345,6 +356,38 @@ class TestStatsPage:
             "homicide_percent_change": None,
             "peak": {"year": 2023, "victims": 1, "homicides": 450},
             "years": [{"year": 2023, "victims": 1, "homicides": 450}],
+            "category_summaries": [
+                {
+                    "year": 2023,
+                    "total": 1,
+                    "outcome": {"true": 0, "false": 1},
+                    "court": {"true": 0, "false": 0, "null": 1},
+                    "gender": {"M": 1, "F": 0},
+                    "race": {"W": 0, "B": 1, "H": 0, "A": 0, "Other/Unknown": 0},
+                    "age": {
+                        "Younger than 18": 0,
+                        "18 to 30": 1,
+                        "31 to 45": 0,
+                        "Older than 45": 0,
+                        "Unknown": 0,
+                    },
+                },
+                {
+                    "year": None,
+                    "total": 1,
+                    "outcome": {"true": 0, "false": 1},
+                    "court": {"true": 0, "false": 0, "null": 1},
+                    "gender": {"M": 1, "F": 0},
+                    "race": {"W": 0, "B": 1, "H": 0, "A": 0, "Other/Unknown": 0},
+                    "age": {
+                        "Younger than 18": 0,
+                        "18 to 30": 1,
+                        "31 to 45": 0,
+                        "Older than 45": 0,
+                        "Unknown": 0,
+                    },
+                },
+            ],
         }
         assert f'<div class="figure">{stats["current_total"]}</div>' in html
         assert f'<span class="c-fatal">{stats["current_fatal"]} fatal</span>' in html
@@ -363,9 +406,10 @@ class TestStatsPage:
         assert second.content == b""
 
     def test_dynamic_sitemap(self, client):
-        resp = client.get("/sitemap.xml")
+        resp = client.get("/sitemap.xml", follow_redirects=False)
 
-        assert resp.status_code == 200
-        assert resp.headers["content-type"].startswith("application/xml")
-        assert "https://www.nickhand.dev/philly-gun-violence-map/stats" in resp.text
-        assert "<lastmod>2023-01-16</lastmod>" in resp.text
+        assert resp.status_code == 308
+        assert resp.headers["location"] == (
+            "https://www.nickhand.dev/philly-gun-violence-map/sitemap.xml"
+        )
+        assert resp.headers["cache-control"] == "public, max-age=3600"

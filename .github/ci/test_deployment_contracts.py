@@ -84,10 +84,10 @@ class DeploymentContracts(unittest.TestCase):
         )[0]
         self.assertIn("type: boolean", override_input)
         self.assertIn("default: false", override_input)
-        self.assertIn('submit_args=(--force --monitor-in-ecs)', source)
-        self.assertIn('submit_args+=(--allow-recent-full-run)', source)
+        self.assertIn("submit_args=(--force --monitor-in-ecs)", source)
+        self.assertIn("submit_args+=(--allow-recent-full-run)", source)
         self.assertIn(
-            'allow_recent_full_run is valid only when sample=0 selects a full run',
+            "allow_recent_full_run is valid only when sample=0 selects a full run",
             source,
         )
 
@@ -109,6 +109,21 @@ class DeploymentContracts(unittest.TestCase):
                 source = (WORKFLOWS / workflow_name).read_text()
                 self.assertIn("  workflow_dispatch:", source)
                 self.assertNotIn("  schedule:", source)
+
+    def test_production_smoke_runs_the_bounded_crawler_discovery_audit(self) -> None:
+        source = (WORKFLOWS / "production-smoke.yml").read_text()
+        checker = (REPOSITORY_ROOT / ".github/ci/check_crawler_discovery.py").read_text()
+
+        self.assertIn("Check crawler discovery contracts", source)
+        self.assertIn("python3 .github/ci/check_crawler_discovery.py", source)
+        self.assertIn('--site-origin "${SITE_ORIGIN_URL}"', source)
+        self.assertIn('--app-base-url "${APP_BASE_URL}"', source)
+        self.assertIn('method="GET"', checker)
+        self.assertIn("REQUEST_TIMEOUT_SECONDS = 15", checker)
+        self.assertIn("MAX_RESPONSE_BYTES = 5 * 1024 * 1024", checker)
+        for crawler in ("OAI-SearchBot", "Claude-SearchBot", "PerplexityBot"):
+            with self.subTest(crawler=crawler):
+                self.assertIn(crawler, checker)
 
     def test_workflows_pin_actions_and_declare_permissions(self) -> None:
         for workflow in _workflow_files():

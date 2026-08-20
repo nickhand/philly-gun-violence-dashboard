@@ -1,7 +1,16 @@
 <script setup lang="ts">
+import {
+  createCourtSourceEntity,
+  createDashboardPageProvenance,
+  getDashboardEntityIds,
+  PPD_HOMICIDE_SOURCE_URL,
+  PPD_SHOOTING_SOURCE_URL,
+} from "~/utils/structuredData";
+
 const { canonicalBaseUrl } = useRuntimeConfig().public;
 const siteUrl = String(canonicalBaseUrl).replace(/\/$/, "");
 const canonicalUrl = `${siteUrl}/methodology`;
+const entityIds = getDashboardEntityIds(siteUrl);
 const description =
   "Sources, inclusion rules, processing steps, quality checks, and limitations for the records presented by the Philadelphia Gun Violence Dashboard.";
 
@@ -27,9 +36,30 @@ useHead(() => ({
       innerHTML: JSON.stringify({
         "@context": "https://schema.org",
         "@type": "WebPage",
+        "@id": entityIds.methodologyPage,
         name: "How the Philadelphia Gun Violence Dashboard data is prepared",
         url: canonicalUrl,
         description,
+        ...createDashboardPageProvenance(entityIds),
+        mainEntity: { "@id": entityIds.dashboardDataset },
+        about: { "@id": entityIds.dashboardDataset },
+        citation: [
+          {
+            "@type": "Dataset",
+            "@id": entityIds.shootingSourceDataset,
+            name: "Shooting Victims",
+            url: PPD_SHOOTING_SOURCE_URL,
+            publisher: { "@id": entityIds.policeDepartment },
+          },
+          {
+            "@type": "Dataset",
+            "@id": entityIds.homicideSourceDataset,
+            name: "Philadelphia Police Department homicide statistics",
+            url: PPD_HOMICIDE_SOURCE_URL,
+            publisher: { "@id": entityIds.policeDepartment },
+          },
+          createCourtSourceEntity(entityIds),
+        ],
       }).replace(/</g, "\\u003c"),
     },
   ],

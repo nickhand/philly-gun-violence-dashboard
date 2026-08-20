@@ -3,10 +3,17 @@ import {
   formatDataDate as formatDate,
   formatDataNumber as formatNumber,
 } from "~/utils/formatData";
+import {
+  createDashboardDatasetProvenance,
+  createDashboardPageProvenance,
+  createPublicSourceEntities,
+  getDashboardEntityIds,
+} from "~/utils/structuredData";
 
 const { canonicalBaseUrl } = useRuntimeConfig().public;
 const siteUrl = String(canonicalBaseUrl).replace(/\/$/, "");
 const canonicalUrl = `${siteUrl}/stats`;
+const entityIds = getDashboardEntityIds(siteUrl);
 
 const {
   data: stats,
@@ -111,13 +118,15 @@ const structuredData = computed(() => {
   const graph: Record<string, unknown>[] = [
     {
       "@type": "WebPage",
-      "@id": `${canonicalUrl}#webpage`,
+      "@id": entityIds.statsPage,
       name: "Philadelphia shooting-victim and homicide statistics",
       url: canonicalUrl,
       description: description.value,
+      ...createDashboardPageProvenance(entityIds),
       ...(snapshot
         ? {
-            mainEntity: { "@id": `${canonicalUrl}#dataset` },
+            mainEntity: { "@id": entityIds.statsDataset },
+            about: { "@id": entityIds.statsDataset },
           }
         : {}),
     },
@@ -126,18 +135,58 @@ const structuredData = computed(() => {
   if (snapshot) {
     graph.push({
       "@type": "Dataset",
-      "@id": `${canonicalUrl}#dataset`,
+      "@id": entityIds.statsDataset,
       name: "Philadelphia shooting-victim and homicide statistics",
       description:
         "Annual and year-to-date shooting-victim records and citywide homicide totals from Philadelphia Police Department public data.",
       url: canonicalUrl,
+      ...createDashboardDatasetProvenance(entityIds),
       spatialCoverage: "Philadelphia, Pennsylvania",
+      temporalCoverage: `${snapshot.minimum_year}-01-01/${[
+        snapshot.shootings_data_through,
+        snapshot.homicides_data_through,
+      ].sort().at(-1)}`,
+      measurementTechnique: `${siteUrl}/methodology`,
+      variableMeasured: [
+        {
+          "@type": "PropertyValue",
+          name: "Shooting victims",
+          description:
+            "People reported as shooting victims in Philadelphia Police Department public records after the dashboard's documented exclusions.",
+        },
+        {
+          "@type": "PropertyValue",
+          name: "Fatal shooting victims",
+        },
+        {
+          "@type": "PropertyValue",
+          name: "Nonfatal shooting victims",
+        },
+        {
+          "@type": "PropertyValue",
+          name: "Homicides",
+          description:
+            "All citywide homicides reported by the Philadelphia Police Department, whether or not a gun was involved.",
+        },
+      ],
       isBasedOn: [
-        "https://opendataphilly.org/datasets/shooting-victims/",
-        "https://www.phillypolice.com/crime-data/crime-statistics/",
+        { "@id": entityIds.shootingSourceDataset },
+        { "@id": entityIds.homicideSourceDataset },
+      ],
+      citation: [
+        `Philadelphia Gun Violence Dashboard. “Philadelphia shooting-victim and homicide statistics.” Shooting-victim records through ${formatDate(snapshot.shootings_data_through)}; Philadelphia Police Department homicide totals through ${formatDate(snapshot.homicides_data_through)}. ${canonicalUrl}.`,
+        { "@id": entityIds.shootingSourceDataset },
+        { "@id": entityIds.homicideSourceDataset },
+      ],
+      keywords: [
+        "Philadelphia gun violence",
+        "shooting victims",
+        "homicides",
+        "public safety data",
       ],
       isAccessibleForFree: true,
     });
+    graph.push(...createPublicSourceEntities(entityIds));
   }
 
   return { "@context": "https://schema.org", "@graph": graph };

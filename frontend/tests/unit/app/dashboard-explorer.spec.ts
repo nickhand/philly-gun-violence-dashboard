@@ -240,6 +240,7 @@ describe("DashboardExplorer", () => {
     vi.stubGlobal("useRuntimeConfig", () => ({
       public: { apiBaseUrl: "https://api.example.test" },
     }));
+    vi.stubGlobal("useDatasetMeta", () => ({ data: { value: null } }));
   });
 
   afterEach(() => {
