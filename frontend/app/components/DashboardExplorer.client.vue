@@ -14,6 +14,7 @@ import DashboardAddressSearch from "./DashboardAddressSearch.vue";
 import DashboardCategoryCharts from "./DashboardCategoryCharts.vue";
 import DashboardCheckboxFilter from "./DashboardCheckboxFilter.vue";
 import DashboardDownloadPanel from "./DashboardDownloadPanel.vue";
+import DashboardExplorerLoading from "./DashboardExplorerLoading.vue";
 import DashboardFilterPanel from "./DashboardFilterPanel.vue";
 import DashboardPointMap from "./DashboardPointMap.client.vue";
 import DashboardRangeFilter from "./DashboardRangeFilter.vue";
@@ -148,7 +149,6 @@ const filteredRows = computed(() => {
 const filteredRecords = computed(() =>
   summarizeShootingRecords(filteredRows.value),
 );
-const yearLabel = computed(() => props.year ?? "all years");
 const missingLocationCount = computed(
   () =>
     filteredRecords.value.recordCount -
@@ -387,15 +387,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="civic-dashboard-browser-explorer" :aria-busy="state === 'loading'">
-    <div
-      v-if="state === 'loading'"
-      class="civic-legacy-explorer-state"
-      role="status"
-      aria-live="polite"
-    >
-      Loading {{ yearLabel }} record filters and locations…
-    </div>
+  <div
+    class="civic-dashboard-browser-explorer"
+    :aria-busy="state === 'loading' ? undefined : 'false'"
+  >
+    <DashboardExplorerLoading v-if="state === 'loading'" :year="year" />
 
     <div
       v-else-if="state === 'error'"
@@ -408,7 +404,10 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-else-if="records && defaults && filters">
-      <div class="civic-legacy-map-explorer">
+      <div
+        class="civic-legacy-map-explorer civic-dashboard-map-filter-stage"
+        aria-busy="false"
+      >
         <div class="civic-legacy-map-view">
           <DashboardPointMap
             :api-base-url="apiBaseUrl"

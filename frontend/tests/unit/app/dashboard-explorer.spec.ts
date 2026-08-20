@@ -272,6 +272,25 @@ describe("DashboardExplorer", () => {
     const wrapper = mountExplorer();
 
     expect(wrapper.text()).toContain("Loading 2026 record filters and locations");
+    expect(
+      wrapper.get(".civic-dashboard-browser-explorer").attributes("aria-busy"),
+    ).toBeUndefined();
+    const loadingStage = wrapper.get(".civic-dashboard-map-filter-stage");
+    expect(loadingStage.attributes("aria-busy")).toBe("true");
+    expect(loadingStage.findAll('[role="status"]')).toHaveLength(1);
+    expect(loadingStage.find(".civic-legacy-map-view").exists()).toBe(true);
+    const loadingSidebar = loadingStage.get("#filters");
+    expect(loadingSidebar.attributes("tabindex")).toBe("-1");
+    expect(
+      loadingSidebar
+        .get(".civic-dashboard-explorer-loading__sidebar-inner")
+        .attributes("inert"),
+    ).toBe("");
+    expect(
+      loadingSidebar.findAll(
+        'a, button, input, select, textarea, [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
+      ),
+    ).toHaveLength(0);
     await vi.waitFor(() =>
       expect(wrapper.get(".civic-legacy-sidebar__count").text()).toContain(
         "3 shooting victims",
@@ -638,7 +657,16 @@ describe("DashboardExplorer", () => {
     expect(wrapper.text()).toContain(
       "Loading all years record filters and locations",
     );
-    expect(wrapper.find(".civic-legacy-map-explorer").exists()).toBe(false);
+    expect(wrapper.find(".civic-legacy-map-explorer").exists()).toBe(true);
+    expect(
+      wrapper.get(".civic-dashboard-map-filter-stage").attributes("aria-busy"),
+    ).toBe("true");
+    expect(wrapper.get("#filters").attributes("tabindex")).toBe("-1");
+    expect(
+      wrapper
+        .get(".civic-dashboard-explorer-loading__sidebar-inner")
+        .attributes("inert"),
+    ).toBe("");
     await vi.waitFor(() =>
       expect(wrapper.get('[data-test="point-map"]').text()).toContain(
         "all years",

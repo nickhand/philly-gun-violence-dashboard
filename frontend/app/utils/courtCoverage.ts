@@ -11,6 +11,8 @@ export interface CompleteCourtCoverage {
 }
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const COURTS_PUBLICATION_CONTRACT_VERSION = 2;
+const RESULT_CONFLICT_POLICY_VERSION = 1;
 
 type CourtCountField =
   | "candidate_count"
@@ -18,9 +20,13 @@ type CourtCountField =
   | "failure_count"
   | "flags_row_count"
   | "input_count"
+  | "invalid_result_conflict_resolution_count"
   | "invalid_input_count"
   | "missing_result_count"
+  | "resolved_result_conflict_count"
+  | "result_conflict_count"
   | "result_count"
+  | "unresolved_result_conflict_count"
   | "unknown_result_count";
 
 type CourtMetaWithCounts = CourtDatasetMeta &
@@ -43,6 +49,12 @@ function hasValidCourtCounts(
       isNonnegativeSafeInteger(value.extra_result_count) &&
       isNonnegativeSafeInteger(value.failure_count) &&
       isNonnegativeSafeInteger(value.invalid_input_count) &&
+      isNonnegativeSafeInteger(
+        value.invalid_result_conflict_resolution_count,
+      ) &&
+      isNonnegativeSafeInteger(value.result_conflict_count) &&
+      isNonnegativeSafeInteger(value.resolved_result_conflict_count) &&
+      isNonnegativeSafeInteger(value.unresolved_result_conflict_count) &&
       isNonnegativeSafeInteger(value.unknown_result_count) &&
       isNonnegativeSafeInteger(value.flags_row_count),
   );
@@ -50,18 +62,22 @@ function hasValidCourtCounts(
 
 /**
  * Return only publication metadata that proves one complete, full run.
- * Older sample/incremental metadata deliberately produces no global coverage
- * claim, even if that smaller run succeeded for every selected record.
+ * Legacy, sample, incremental, or conflict-unproven metadata deliberately
+ * produces no global coverage claim, even if its selected records succeeded.
  */
 export function getCompleteCourtCoverage(
   value: CourtDatasetMeta | null | undefined,
 ): CompleteCourtCoverage | null {
   if (
     !hasValidCourtCounts(value) ||
+    typeof value.run_id !== "string" ||
+    value.run_id.trim().length === 0 ||
     value.selection_mode !== "full" ||
     value.coverage_complete !== true ||
-    value.publication_contract_version !== 1 ||
+    value.publication_contract_version !==
+      COURTS_PUBLICATION_CONTRACT_VERSION ||
     value.court_search_semantics_version !== 2 ||
+    value.result_conflict_policy_version !== RESULT_CONFLICT_POLICY_VERSION ||
     value.input_count !== value.candidate_count ||
     value.result_count !== value.input_count ||
     value.missing_result_count !== 0 ||
@@ -70,10 +86,17 @@ export function getCompleteCourtCoverage(
     value.unknown_result_count > value.input_count ||
     value.failure_count + value.invalid_input_count >
       value.unknown_result_count ||
+    value.result_conflict_count !==
+      value.resolved_result_conflict_count +
+        value.unresolved_result_conflict_count ||
+    value.unresolved_result_conflict_count !== 0 ||
+    value.invalid_result_conflict_resolution_count !== 0 ||
     value.has_partial_results !== (value.unknown_result_count > 0) ||
     value.status !== (value.has_partial_results ? "partial" : "success") ||
     typeof value.flags_sha256 !== "string" ||
     !SHA256_PATTERN.test(value.flags_sha256) ||
+    typeof value.result_conflict_evidence_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.result_conflict_evidence_sha256) ||
     typeof value.last_updated !== "string" ||
     !Number.isFinite(Date.parse(value.last_updated))
   ) {

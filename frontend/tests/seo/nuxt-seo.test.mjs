@@ -121,13 +121,20 @@ const meta = {
     flags_sha256: "a".repeat(64),
     has_partial_results: false,
     input_count: 5,
+    invalid_result_conflict_resolution_count: 0,
     invalid_input_count: 0,
     last_updated: "2023-01-14T10:00:00Z",
     missing_result_count: 0,
-    publication_contract_version: 1,
+    publication_contract_version: 2,
+    resolved_result_conflict_count: 0,
+    result_conflict_count: 0,
+    result_conflict_evidence_sha256: "b".repeat(64),
+    result_conflict_policy_version: 1,
     result_count: 5,
+    run_id: "2023-01-14T090000Z-seo-fixture",
     selection_mode: "full",
     status: "success",
+    unresolved_result_conflict_count: 0,
     unknown_result_count: 0,
   },
 };
@@ -586,7 +593,7 @@ const pages = [
   {
     route: "stats",
     h1: "Philadelphia shooting-victim and homicide statistics",
-    marker: "Current totals",
+    marker: "Current year totals",
   },
   {
     route: "methodology",
@@ -651,8 +658,11 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
     const clientFallback = document.querySelector(
       ".civic-legacy-map-explorer--fallback",
     );
-    assert.match(normalizedText(clientFallback), /Loading interactive map and filters…/);
-    assert.match(normalizedText(clientFallback), /Loading filters…/);
+    assert.match(
+      normalizedText(clientFallback),
+      /Loading 2023 record filters and locations…/,
+    );
+    assert.match(normalizedText(clientFallback), /Map filters are loading\./);
     assert.match(
       normalizedText(clientFallback),
       /Explore shooting-victim records on a map.*maps available locations.*filter records/i,
@@ -794,13 +804,15 @@ test("dashboard year query drives truthful SSR summaries and category charts", a
       homicide: /In total, there were 500 homicides in 2022\s*\./,
       query: "?year=2022&outcome=nonfatal",
       selected: "2022",
-      shooting: null,
+      shooting:
+        /This map shows the victims of gun violence: 2 nonfatal and 1 fatal shooting victims in 2022\s*\./,
     },
     {
       homicide: /There have been 580 homicides since 2022\s*\./,
       query: "?year=All%20Years&outcome=fatal&layers=heat-map",
       selected: "All Years",
-      shooting: null,
+      shooting:
+        /This map shows the victims of gun violence: 3 nonfatal and 2 fatal shooting victims since 2022\s*\./,
     },
     {
       homicide:
@@ -832,7 +844,8 @@ test("dashboard year query drives truthful SSR summaries and category charts", a
       query:
         "?year=2022&map=12%2F40%2F-75&map=13%2F40%2F-75",
       selected: "2022",
-      shooting: null,
+      shooting:
+        /This map shows the victims of gun violence: 2 nonfatal and 1 fatal shooting victims in 2022\s*\./,
     },
   ];
 
@@ -868,9 +881,11 @@ test("dashboard year query drives truthful SSR summaries and category charts", a
       );
       assert.match(
         normalizedText(clientFallback),
-        /Loading interactive map and filters…/,
+        new RegExp(
+          `Loading ${item.selected === "All Years" ? "all years" : item.selected} record filters and locations…`,
+        ),
       );
-      assert.match(normalizedText(clientFallback), /Loading filters…/);
+      assert.match(normalizedText(clientFallback), /Map filters are loading\./);
       assert.equal(document.querySelector(".civic-dashboard-browser-explorer"), null);
       assert.equal(document.querySelectorAll("#charts figure").length, 5);
     } finally {
@@ -1095,6 +1110,10 @@ test("stats raw SSR exposes sourced comparisons and one semantic annual counts t
 
     const current = main.querySelector(".civic-stats-current");
     assert.ok(current);
+    assert.equal(
+      normalizedText(current.querySelector(":scope > h2#current-picture")),
+      "Current year totals",
+    );
     const measures = [...current.querySelectorAll(".civic-current-measure")];
     assert.equal(measures.length, 2);
     const headedMeasures = measures.map((measure) => ({
@@ -1114,11 +1133,11 @@ test("stats raw SSR exposes sourced comparisons and one semantic annual counts t
     assert.ok(homicide);
     assert.equal(
       normalizedText(shooting.querySelector(":scope > h3")),
-      "Shooting victims, 2023 to date",
+      "Shooting victims",
     );
     assert.equal(
       normalizedText(homicide.querySelector(":scope > h3")),
-      "PPD homicides, 2023 to date",
+      "PPD homicides",
     );
 
     assert.equal(shooting.querySelectorAll(".civic-stat-total").length, 1);
@@ -1140,8 +1159,16 @@ test("stats raw SSR exposes sourced comparisons and one semantic annual counts t
     const homicideDate = homicide.querySelector(":scope > .civic-current-through");
     assert.ok(shootingDate);
     assert.ok(homicideDate);
-    assert.equal(shootingTotal.nextElementSibling, shootingDate);
-    assert.equal(homicideTotal.nextElementSibling, homicideDate);
+    assert.equal(
+      shooting.querySelector(":scope > h3")?.nextElementSibling,
+      shootingDate,
+    );
+    assert.equal(
+      homicide.querySelector(":scope > h3")?.nextElementSibling,
+      homicideDate,
+    );
+    assert.equal(shootingDate.nextElementSibling, shootingTotal);
+    assert.equal(homicideDate.nextElementSibling, homicideTotal);
     assert.equal(
       normalizedText(shootingDate),
       "Through January 15, 2023",
@@ -1159,6 +1186,17 @@ test("stats raw SSR exposes sourced comparisons and one semantic annual counts t
       "2023-01-16",
     );
 
+    const shootingOutcome = shooting.querySelector(":scope > .civic-outcome-list");
+    const shootingComparison = shooting.querySelector(
+      ":scope > .civic-current-comparison",
+    );
+    const homicideComparison = homicide.querySelector(
+      ":scope > .civic-current-comparison",
+    );
+    assert.ok(shootingOutcome);
+    assert.ok(shootingComparison);
+    assert.ok(homicideComparison);
+
     const comparisons = [
       { measure: shooting, change: /(?:up|increase|higher)/i, percent: "100%", previous: "1" },
       { measure: homicide, change: /(?:down|decrease|lower)/i, percent: "20%", previous: "100" },
@@ -1171,20 +1209,13 @@ test("stats raw SSR exposes sourced comparisons and one semantic annual counts t
       assert.match(text, new RegExp(`\\b${comparison.percent.replace("%", "")}\\s*%`));
       assert.match(text, new RegExp(`\\b${comparison.previous}\\b`));
       assert.match(text, /same (?:point|period).*2022/i);
-      assert.equal(
-        comparison.measure.querySelector(":scope > .civic-current-through")
-          ?.nextElementSibling,
-        nodes[0],
-      );
     }
 
-    const shootingOutcome = shooting.querySelector(":scope > .civic-outcome-list");
-    assert.ok(shootingOutcome);
-    assert.equal(
-      shooting.querySelector(":scope > .civic-current-comparison")
-        ?.nextElementSibling,
-      shootingOutcome,
-    );
+    assert.equal(shootingTotal.nextElementSibling, shootingOutcome);
+    assert.equal(shootingOutcome.nextElementSibling, shootingComparison);
+    assert.equal(homicideTotal.nextElementSibling, homicideComparison);
+    assert.equal(shootingComparison.nextElementSibling, null);
+    assert.equal(homicideComparison.nextElementSibling, null);
     assert.equal(homicide.querySelector(":scope > .civic-outcome-list"), null);
 
     assert.equal(current.querySelectorAll(".civic-current-source").length, 0);

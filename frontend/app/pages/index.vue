@@ -158,6 +158,15 @@ const homicideContext = computed<HomicideContext | null>(() => {
 
 const shootingContext = computed<BrowserSummary | null>(() => {
   if (browserSummary.value) return browserSummary.value;
+  const summary = selectedCategorySummary.value;
+  if (summary) {
+    return {
+      fatal: summary.outcome.true ?? 0,
+      mapped: summary.total,
+      nonfatal: summary.outcome.false ?? 0,
+      total: summary.total,
+    };
+  }
   const snapshot = stats.value;
   if (!snapshot || selectedYear.value !== snapshot.current_year) return null;
   return {
@@ -377,45 +386,27 @@ useHead(() => ({
       aria-label="Explore the record"
     >
       <ClientOnly v-if="stats && selectedYear !== undefined">
-        <LazyDashboardExplorer
-          :key="selectedYearValue"
-          :year="selectedYear"
-          :initial-category-summary="selectedCategorySummary"
-          :initial-view="selectedMapView"
-          :layers="selectedMapLayers"
-          @summary="updateBrowserSummary"
-        />
-        <template #fallback>
-          <div class="civic-legacy-client-fallback">
-            <div
-              class="civic-legacy-map-explorer civic-legacy-map-explorer--fallback"
-            >
-              <div class="civic-legacy-map-view">
-                <div class="civic-legacy-explorer-state">
-                  <strong>Explore shooting-victim records on a map.</strong>
-                  <span>
-                    The interactive view maps available locations and lets you
-                    filter records by date, reported demographics, outcome, and
-                    other fields.
-                  </span>
-                  <NuxtLink to="/data">View data and download records</NuxtLink>
-                  <span role="status">Loading interactive map and filters…</span>
-                </div>
-              </div>
-              <aside
-                id="filters"
-                class="civic-legacy-sidebar"
-                aria-label="Map filters"
-              >
-                <p class="civic-legacy-explorer-state">Loading filters…</p>
-              </aside>
-            </div>
-            <DashboardCategoryCharts
-              :rows="[]"
+        <Suspense>
+          <LazyDashboardExplorer
+            :key="selectedYearValue"
+            :year="selectedYear"
+            :initial-category-summary="selectedCategorySummary"
+            :initial-view="selectedMapView"
+            :layers="selectedMapLayers"
+            @summary="updateBrowserSummary"
+          />
+          <template #fallback>
+            <DashboardExplorerFallback
               :summary="selectedCategorySummary"
-              state="loading"
+              :year="selectedYear"
             />
-          </div>
+          </template>
+        </Suspense>
+        <template #fallback>
+          <DashboardExplorerFallback
+            :summary="selectedCategorySummary"
+            :year="selectedYear"
+          />
         </template>
       </ClientOnly>
 

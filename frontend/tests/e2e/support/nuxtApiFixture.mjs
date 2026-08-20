@@ -23,6 +23,38 @@ const previousYearNdjson = previousYearRows
   .map((row) => JSON.stringify(row))
   .join("\n");
 
+function categorySummary(rows, year) {
+  const count = (field, value) =>
+    rows.filter((row) => row[field] === value).length;
+  const fatal = rows.filter((row) => row.fatal).length;
+
+  return {
+    year,
+    total: rows.length,
+    outcome: { true: fatal, false: rows.length - fatal },
+    court: {
+      true: count("has_court_case", true),
+      false: count("has_court_case", false),
+      null: count("has_court_case", null),
+    },
+    gender: { M: count("sex", "M"), F: count("sex", "F") },
+    race: {
+      W: count("race", "W"),
+      B: count("race", "B"),
+      H: count("race", "H"),
+      A: count("race", "A"),
+      "Other/Unknown": count("race", "Other/Unknown"),
+    },
+    age: {
+      "Younger than 18": count("age_group", "Younger than 18"),
+      "18 to 30": count("age_group", "18 to 30"),
+      "31 to 45": count("age_group", "31 to 45"),
+      "Older than 45": count("age_group", "Older than 45"),
+      Unknown: count("age_group", "Unknown"),
+    },
+  };
+}
+
 const shootingsManifest = {
   version: "nuxt-e2e-v1",
   generated_at: "2026-07-29T12:00:00Z",
@@ -59,6 +91,11 @@ const stats = {
   years: [
     { year: 2026, victims: shootingRows.length, homicides: 10 },
     { year: 2025, victims: previousYearRows.length, homicides: 8 },
+  ],
+  category_summaries: [
+    categorySummary(previousYearRows, 2025),
+    categorySummary(shootingRows, 2026),
+    categorySummary([...previousYearRows, ...shootingRows], null),
   ],
 };
 

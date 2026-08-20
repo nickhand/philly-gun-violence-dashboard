@@ -234,26 +234,23 @@ useHead(() => ({
           class="civic-stats-current civic-stats-current--compact"
           aria-labelledby="current-picture"
         >
-          <h2 id="current-picture">Current totals</h2>
+          <h2 id="current-picture">Current year totals</h2>
           <div class="civic-stats-current__grid">
             <section
               class="civic-current-measure"
               aria-labelledby="current-shooting-victims"
             >
               <h3 id="current-shooting-victims" class="civic-stat-label">
-                Shooting victims, {{ stats.current_year }} to date
+                Shooting victims
               </h3>
-              <p class="civic-stat-total">
-                {{ formatNumber(stats.current_total) }}
-              </p>
               <p class="civic-current-through">
                 Through
                 <time :datetime="stats.shootings_data_through">
                   {{ formatDate(stats.shootings_data_through) }}
                 </time>
               </p>
-              <p v-if="shootingComparison" class="civic-current-comparison">
-                {{ shootingComparison }}
+              <p class="civic-stat-total">
+                {{ formatNumber(stats.current_total) }}
               </p>
               <dl class="civic-outcome-list">
                 <div class="civic-outcome-list__fatal">
@@ -265,6 +262,9 @@ useHead(() => ({
                   <dd>{{ formatNumber(stats.current_nonfatal) }}</dd>
                 </div>
               </dl>
+              <p v-if="shootingComparison" class="civic-current-comparison">
+                {{ shootingComparison }}
+              </p>
             </section>
 
             <section
@@ -272,16 +272,16 @@ useHead(() => ({
               aria-labelledby="current-homicides"
             >
               <h3 id="current-homicides" class="civic-stat-label">
-                PPD homicides, {{ stats.current_year }} to date
+                PPD homicides
               </h3>
-              <p class="civic-stat-total">
-                {{ formatNumber(stats.homicides_ytd) }}
-              </p>
               <p class="civic-current-through">
                 Through
                 <time :datetime="stats.homicides_data_through">
                   {{ formatDate(stats.homicides_data_through) }}
                 </time>
+              </p>
+              <p class="civic-stat-total">
+                {{ formatNumber(stats.homicides_ytd) }}
               </p>
               <p v-if="homicideComparison" class="civic-current-comparison">
                 {{ homicideComparison }}
@@ -523,16 +523,17 @@ useHead(() => ({
 }
 
 .civic-stats-current--compact .civic-stat-total {
-  margin: 0.3rem 0 0;
+  margin: 0.55rem 0 0;
   font-size: clamp(3rem, 5.5vw, 3.75rem);
   font-weight: 600;
 }
 
 .civic-stats-current--compact .civic-outcome-list {
   gap: 1rem 1.75rem;
-  margin-top: 1rem;
+  margin-top: 0.65rem;
   padding-top: 0;
   border-top: 0;
+  flex-wrap: wrap;
 }
 
 .civic-stats-current--compact .civic-outcome-list dd {
@@ -540,7 +541,7 @@ useHead(() => ({
 }
 
 .civic-current-through {
-  margin: 0.35rem 0 0;
+  margin: 0.2rem 0 0;
   color: var(--civic-color-ink-subtle);
   font-size: 0.9rem;
   line-height: 1.4;
@@ -548,7 +549,7 @@ useHead(() => ({
 
 .civic-current-comparison {
   max-width: 27rem;
-  margin: 1rem 0 0;
+  margin: 0.75rem 0 0;
   color: var(--civic-color-ink);
   font-size: 1rem;
   line-height: 1.5;

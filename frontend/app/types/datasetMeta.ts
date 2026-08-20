@@ -14,12 +14,19 @@ export interface CourtDatasetMeta extends DatasetMeta {
   flags_sha256?: string;
   has_partial_results?: boolean;
   input_count?: number;
+  invalid_result_conflict_resolution_count?: number;
   invalid_input_count?: number;
   missing_result_count?: number;
   publication_contract_version?: number;
+  resolved_result_conflict_count?: number;
+  result_conflict_count?: number;
+  result_conflict_evidence_sha256?: string;
+  result_conflict_policy_version?: number;
   result_count?: number;
+  run_id?: string;
   selection_mode?: "full" | "incremental" | "sample";
   status?: "partial" | "success";
+  unresolved_result_conflict_count?: number;
   unknown_result_count?: number;
 }
 
