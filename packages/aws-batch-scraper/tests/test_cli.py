@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,6 +10,7 @@ import typer
 from aws_batch_scraper.cli import (
     _monitor_command,
     _record_submission_recovery,
+    _recovery_monitor_command,
     _resolve_run_id,
     _SubmitPhase,
     create_cli,
@@ -72,6 +74,13 @@ def _patch_submit_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
     session = MagicMock()
     clients = {name: MagicMock(name=name) for name in ("s3", "sqs", "ecs")}
+    clients["sqs"].get_queue_attributes.return_value = {
+        "Attributes": {
+            "ApproximateNumberOfMessages": "0",
+            "ApproximateNumberOfMessagesNotVisible": "0",
+            "ApproximateNumberOfMessagesDelayed": "0",
+        }
+    }
     clients["ecs"].describe_clusters.return_value = {
         "clusters": [
             {
@@ -177,6 +186,132 @@ def test_monitor_command_uses_installed_console_script_directly() -> None:
     ]
 
 
+def test_recovery_monitor_command_binds_exact_attempt() -> None:
+    assert _recovery_monitor_command("test-etl", "test", "run-1", "attempt-1") == [
+        "test-etl",
+        "test",
+        "resume-monitor",
+        "--run-id",
+        "run-1",
+        "--attempt-id",
+        "attempt-1",
+    ]
+
+
+def _recovery_plan_stub(action: str = "seed-missing") -> SimpleNamespace:
+    return SimpleNamespace(
+        run_id="run-1",
+        attempt_id="attempt-1",
+        action=SimpleNamespace(value=action),
+        inventory=SimpleNamespace(
+            items=(WorkItem(item_id="1"), WorkItem(item_id="2")),
+            completed_ids={"1"},
+            missing_ids=("2",),
+        ),
+        queue=SimpleNamespace(visible=0, in_flight=0, delayed=0),
+    )
+
+
+def test_resume_is_read_only_without_explicit_execute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import recovery
+
+    _patch_submit_session(monkeypatch)
+    build_plan = MagicMock(return_value=_recovery_plan_stub())
+    execute_plan = MagicMock()
+    monkeypatch.setattr(recovery, "build_recovery_plan", build_plan)
+    monkeypatch.setattr(recovery, "execute_recovery_plan", execute_plan)
+
+    result = CliRunner().invoke(_submit_app(), ["resume", "run-1"])
+
+    assert result.exit_code == 0, result.output
+    build_plan.assert_called_once()
+    execute_plan.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "flag",
+    ["--workers=2", "--soft-blocked-delay=30", "--wait", "--monitor-in-ecs"],
+)
+def test_resume_rejects_execute_only_flags_without_execute(flag: str) -> None:
+    result = CliRunner().invoke(_submit_app(), ["resume", "run-1", flag])
+
+    assert result.exit_code != 0
+    assert "require --execute" in result.output
+
+
+@pytest.mark.parametrize("delay", ["0", "43201"])
+def test_submit_and_resume_reject_invalid_soft_blocked_delay(delay: str) -> None:
+    submit = CliRunner().invoke(
+        _submit_app(),
+        ["submit", "--dry-run", "--soft-blocked-delay", delay],
+    )
+    resume = CliRunner().invoke(
+        _submit_app(),
+        ["resume", "run-1", "--execute", "--wait", "--soft-blocked-delay", delay],
+    )
+
+    assert submit.exit_code != 0
+    assert resume.exit_code != 0
+    assert "between 1 and 43200" in submit.output
+    assert "between 1 and 43200" in resume.output
+
+
+def test_resume_execution_uses_attempt_scoped_monitor_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import recovery
+    from aws_batch_scraper.recovery import RecoveryAction
+
+    _patch_submit_session(monkeypatch)
+    plan = _recovery_plan_stub()
+    plan.action = RecoveryAction.SEED_MISSING
+    monkeypatch.setattr(recovery, "build_recovery_plan", MagicMock(return_value=plan))
+    execute_plan = MagicMock()
+    monkeypatch.setattr(recovery, "execute_recovery_plan", execute_plan)
+
+    result = CliRunner().invoke(
+        _submit_app(),
+        ["resume", "run-1", "--execute", "--monitor-in-ecs"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert execute_plan.call_args.kwargs["monitor_command"] == [
+        "test-etl",
+        "test",
+        "resume-monitor",
+        "--run-id",
+        "run-1",
+        "--attempt-id",
+        "attempt-1",
+    ]
+
+
+def test_resume_reconcile_is_read_only_without_explicit_execute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import recovery
+
+    _patch_submit_session(monkeypatch)
+    reconcile = MagicMock(
+        return_value=SimpleNamespace(
+            known_task_arns=("arn:task/1",),
+            missing_ids=("2",),
+            queue=SimpleNamespace(visible=1, in_flight=0, delayed=0),
+        )
+    )
+    monkeypatch.setattr(recovery, "reconcile_recovery_attempt", reconcile)
+
+    result = CliRunner().invoke(
+        _submit_app(),
+        ["resume-reconcile", "run-1", "attempt-1"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert reconcile.call_args.kwargs["execute"] is False
+
+
 def test_submit_definition_preflight_happens_before_durable_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -275,6 +410,40 @@ def test_submit_requires_dispatch_workflow_before_durable_mutation(
 
     assert result.exit_code != 0
     assert "GITHUB_WORKFLOW_FILE" in str(result.exception)
+    acquire.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        {
+            "ApproximateNumberOfMessages": "1",
+            "ApproximateNumberOfMessagesNotVisible": "0",
+            "ApproximateNumberOfMessagesDelayed": "0",
+        },
+        {
+            "ApproximateNumberOfMessages": "0",
+            "ApproximateNumberOfMessagesNotVisible": "0",
+            "ApproximateNumberOfMessagesDelayed": "1",
+        },
+    ],
+)
+def test_submit_rejects_preexisting_shared_queue_work_before_lease(
+    monkeypatch: pytest.MonkeyPatch,
+    attributes: dict[str, str],
+) -> None:
+    from aws_batch_scraper import lease
+
+    session = _patch_submit_session(monkeypatch)
+    sqs = session.client("sqs")
+    sqs.get_queue_attributes.return_value = {"Attributes": attributes}
+    acquire = MagicMock()
+    monkeypatch.setattr(lease, "acquire_run_lease", acquire)
+
+    result = CliRunner().invoke(_submit_app(), ["submit", "--monitor-in-ecs"])
+
+    assert result.exit_code != 0
+    assert "queue is not empty" in str(result.exception)
     acquire.assert_not_called()
 
 
@@ -485,7 +654,7 @@ def test_submit_manifest_failure_prevents_seed_and_retains_lease(
     assert result.exception is manifest_error
     seed.assert_not_called()
     release.assert_not_called()
-    assert evidence.call_args.args[3] is _SubmitPhase.MANIFEST_WRITE_STARTED
+    assert evidence.call_args.args[3] is _SubmitPhase.RUN_COMMIT_STARTED
 
 
 def test_submit_partial_seed_count_retains_lease_without_launching_workers(

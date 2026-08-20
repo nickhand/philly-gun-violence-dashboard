@@ -25,6 +25,11 @@ from aws_batch_scraper.result_semantics import (
     SEMANTIC_OBSERVATION_FIELDS,
     semantic_observation,
 )
+from aws_batch_scraper.terminal_journal import (
+    claim_terminal_decision,
+    write_accept_terminal_decision_resolution,
+    write_terminal_candidate,
+)
 from aws_batch_scraper.types import ScrapeResult, ScrapeStatus, WorkItem
 from botocore.exceptions import ClientError
 from pydantic import ValidationError
@@ -418,6 +423,122 @@ def test_exact_review_can_resolve_cryptographically_valid_v2_evidence() -> None:
     report = require_no_result_conflicts(s3, _config(), "run-1")
     assert report.resolved_count == 1
     assert report.unresolved_count == 0
+
+
+def test_accept_decision_review_resolves_matching_v2_result_conflict() -> None:
+    result_key = "scraper/runs/run-1/results/100.json"
+    canonical_body = _result()
+    conflict_key, conflict_body = _v2_conflict(canonical_body)
+    s3 = _s3_with_results({result_key: canonical_body, conflict_key: conflict_body})
+    canonical = ScrapeResult.model_validate_json(canonical_body)
+    winner = write_terminal_candidate(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-1",
+        item_id="100",
+        kind="result",
+        candidate_body=canonical_body,
+        result=canonical,
+    )
+    decision = claim_terminal_decision(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        candidate=winner,
+    )
+    conflict = json.loads(conflict_body)
+    rejected_body = base64.b64decode(
+        conflict["candidate_evidence"]["body_base64"],
+        validate=True,
+    )
+    rejected_result = ScrapeResult.model_validate_json(rejected_body)
+    rejected = write_terminal_candidate(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-1",
+        item_id="100",
+        kind="result",
+        candidate_body=rejected_body,
+        result=rejected_result,
+    )
+    resolution = write_accept_terminal_decision_resolution(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-1",
+        decision_key=decision.key,
+        candidate_key=rejected.key,
+        expected_decision_sha256=decision.body_sha256,
+        expected_candidate_sha256=rejected.candidate_sha256,
+        expected_canonical_sha256=hashlib.sha256(canonical_body).hexdigest(),
+        reviewed_at=datetime(2026, 8, 20, 20, tzinfo=UTC),
+        reviewed_by="operator@example.test",
+        review_note="Reviewed both result observations and accept the decision canonical.",
+    )
+
+    report = require_no_result_conflicts(s3, _config(), "run-1")
+
+    assert report.resolved_keys == (conflict_key,)
+    assert resolution.key in s3.objects
+
+
+def test_accept_decision_review_cannot_resolve_legacy_conflict_assertions() -> None:
+    result_key = "scraper/runs/run-1/results/100.json"
+    conflict_key = "scraper/runs/run-1/result-conflicts/100.json"
+    canonical_body = _result()
+    rejected_result = ScrapeResult(
+        status=ScrapeStatus.SUCCESS,
+        item_id="100",
+        run_id="run-1",
+        data={"results": [{"case": "unbound-legacy-assertion"}]},
+    )
+    rejected_body = rejected_result.model_dump_json().encode()
+    rejected_sha256 = hashlib.sha256(rejected_body).hexdigest()
+    legacy_conflict = json.loads(_legacy_extra_only_conflict(canonical_body))
+    legacy_conflict["candidate_sha256"] = rejected_sha256
+    legacy_conflict["candidate_status"] = rejected_result.status.value
+    conflict_body = json.dumps(legacy_conflict, sort_keys=True).encode()
+    s3 = _s3_with_results({result_key: canonical_body, conflict_key: conflict_body})
+    canonical = ScrapeResult.model_validate_json(canonical_body)
+    winner = write_terminal_candidate(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-1",
+        item_id="100",
+        kind="result",
+        candidate_body=canonical_body,
+        result=canonical,
+    )
+    decision = claim_terminal_decision(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        candidate=winner,
+    )
+    rejected = write_terminal_candidate(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-1",
+        item_id="100",
+        kind="result",
+        candidate_body=rejected_body,
+        result=rejected_result,
+    )
+    write_accept_terminal_decision_resolution(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-1",
+        decision_key=decision.key,
+        candidate_key=rejected.key,
+        expected_decision_sha256=decision.body_sha256,
+        expected_candidate_sha256=rejected.candidate_sha256,
+        expected_canonical_sha256=hashlib.sha256(canonical_body).hexdigest(),
+        reviewed_at=datetime(2026, 8, 20, 20, tzinfo=UTC),
+        reviewed_by="operator@example.test",
+        review_note="This review is candidate-bound, not legacy-conflict-body-bound.",
+    )
+
+    report = audit_result_conflicts(s3, _config(), "run-1")
+
+    assert report.resolved_count == 0
+    assert report.unresolved_keys == (conflict_key,)
 
 
 @pytest.mark.parametrize(

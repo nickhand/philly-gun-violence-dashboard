@@ -27,6 +27,14 @@ from aws_batch_scraper.result_semantics import (
     semantic_observation,
 )
 from aws_batch_scraper.strict_json import decode_strict_json_object
+from aws_batch_scraper.terminal_journal import (
+    CandidateJournalError,
+    TerminalCandidate,
+    claim_terminal_decision,
+    write_terminal_candidate,
+    write_terminal_decision_conflict,
+    write_terminal_disposition,
+)
 from aws_batch_scraper.types import (
     FailureArtifact,
     Scraper,
@@ -61,6 +69,10 @@ _SQS_DELIVERY_ATTRIBUTES = frozenset(
 
 class ResultPublicationConflict(RuntimeError):
     """Raised after durable evidence proves two run results disagree."""
+
+
+class FailurePublicationConflict(RuntimeError):
+    """Raised after durable evidence proves two permanent failures disagree."""
 
 
 def _sigalrm_handler(signum: int, frame: FrameType | None) -> None:
@@ -132,7 +144,7 @@ def _write_result_conflict(
     existing: ScrapeResult | None,
     reason: str,
     delivery_metadata: dict[str, object] | None,
-) -> None:
+) -> str:
     """Persist fail-closed evidence before a conflicting message is terminalized."""
     existing_observation = _observation(existing) if existing is not None else None
     candidate_observation = _observation(candidate)
@@ -201,6 +213,7 @@ def _write_result_conflict(
         # deleted and does not prove this terminal evidence exists durably.
         if not _proves_object_already_exists(exc):
             raise
+    return key
 
 
 def _write_result(
@@ -212,18 +225,88 @@ def _write_result(
     result_key: str,
     *,
     delivery_metadata: dict[str, object] | None = None,
+    _terminal_candidate: TerminalCandidate | None = None,
 ) -> Literal["created", "duplicate"]:
     """Publish one exact-run observation with first-writer-wins semantics."""
     if result.status not in _CONCLUSIVE_STATUSES:
         raise ValueError(f"Cannot publish inconclusive result status {result.status.value}")
     if result.is_soft_blocked or result.is_network_error:
         raise ValueError("Cannot publish a conclusive result that still carries a retry hint")
-    result.item_id = item_id
-    result.scraped_at = datetime.now(UTC)
-    result.run_id = run_id
-    body = result.model_dump_json().encode()
     run_result_key = f"{config.s3_scraper_prefix}/runs/{run_id}/results/{item_id}.json"
+    if _terminal_candidate is None:
+        result.item_id = item_id
+        result.scraped_at = datetime.now(UTC)
+        result.run_id = run_id
+        body = result.model_dump_json().encode()
+        candidate = write_terminal_candidate(
+            s3,
+            config,
+            run_id=run_id,
+            item_id=item_id,
+            kind="result",
+            candidate_body=body,
+            result=result,
+            delivery_metadata=delivery_metadata,
+        )
+    else:
+        candidate = _terminal_candidate
+        if (
+            candidate.run_id != run_id
+            or candidate.item_id != item_id
+            or candidate.kind != "result"
+            or candidate.result != result
+        ):
+            raise CandidateJournalError("Result replay candidate identity is invalid")
+        body = candidate.candidate_body
+    decision = claim_terminal_decision(s3, config, candidate=candidate)
+    if decision.candidate.candidate_sha256 != candidate.candidate_sha256:
+        if decision.kind == "result":
+            _write_result(
+                s3,
+                config,
+                item_id,
+                run_id,
+                decision.candidate.result,
+                result_key,
+                delivery_metadata=None,
+                _terminal_candidate=decision.candidate,
+            )
+        else:
+            _write_failure(
+                s3,
+                config,
+                run_id,
+                item_id,
+                decision.candidate.result,
+                delivery_metadata=None,
+                _terminal_candidate=decision.candidate,
+            )
+            conflict = write_terminal_decision_conflict(
+                s3,
+                config,
+                decision=decision,
+                candidate=candidate,
+            )
+            if delivery_metadata is not None:
+                write_terminal_disposition(
+                    s3,
+                    config,
+                    run_id=run_id,
+                    item_id=item_id,
+                    delivery_metadata=delivery_metadata,
+                    candidate=candidate,
+                    canonical_key=decision.canonical_key,
+                    canonical_body=decision.candidate.candidate_body,
+                    canonical_result=decision.candidate.result,
+                    outcome="conflict",
+                    conflict_evidence_key=conflict.key,
+                )
+            raise ResultPublicationConflict(
+                f"Terminal decision for run={run_id}, item={item_id} chose a "
+                "permanent failure; durable cross-kind evidence was recorded"
+            ) from None
     canonical_body = body
+    canonical_result: ScrapeResult | None = result
     outcome: Literal["created", "duplicate"] = "created"
     try:
         s3.put_object(
@@ -261,11 +344,12 @@ def _write_result(
                 reason = "existing exact-run result carries a retry hint"
             elif _observation(existing) == _observation(result):
                 outcome = "duplicate"
+                canonical_result = existing
             else:
                 reason = "exact-run observations disagree"
 
         if outcome != "duplicate":
-            _write_result_conflict(
+            conflict_key = _write_result_conflict(
                 s3,
                 config,
                 item_id=item_id,
@@ -277,11 +361,38 @@ def _write_result(
                 reason=reason,
                 delivery_metadata=delivery_metadata,
             )
+            if delivery_metadata is not None:
+                write_terminal_disposition(
+                    s3,
+                    config,
+                    run_id=run_id,
+                    item_id=item_id,
+                    delivery_metadata=delivery_metadata,
+                    candidate=candidate,
+                    canonical_key=run_result_key,
+                    canonical_body=canonical_body,
+                    canonical_result=existing,
+                    outcome="conflict",
+                    conflict_evidence_key=conflict_key,
+                )
             raise ResultPublicationConflict(
                 f"Conflicting exact-run result for run={run_id}, item={item_id}; "
                 "durable conflict evidence was recorded"
             ) from None
 
+    if delivery_metadata is not None:
+        write_terminal_disposition(
+            s3,
+            config,
+            run_id=run_id,
+            item_id=item_id,
+            delivery_metadata=delivery_metadata,
+            candidate=candidate,
+            canonical_key=run_result_key,
+            canonical_body=canonical_body,
+            canonical_result=canonical_result,
+            outcome=outcome,
+        )
     s3.put_object(
         Bucket=config.s3_bucket,
         Key=result_key,
@@ -297,18 +408,223 @@ def _write_failure(
     run_id: str,
     item_id: str,
     result: ScrapeResult,
-) -> None:
+    *,
+    delivery_metadata: dict[str, object] | None = None,
+    _terminal_candidate: TerminalCandidate | None = None,
+) -> Literal["created", "duplicate"]:
+    """Publish one permanent failure with first-writer-wins semantics."""
+    if result.status not in {ScrapeStatus.FAILED, ScrapeStatus.INVALID_INPUT}:
+        raise ValueError(f"Cannot publish non-failure status {result.status.value}")
+    if result.is_soft_blocked or result.is_network_error:
+        raise ValueError("Cannot publish a permanent failure that carries a retry hint")
     prefix = f"{config.s3_scraper_prefix}/runs/{run_id}/failures"
-    data = result.model_dump(mode="json")
-    data["item_id"] = item_id
-    data["run_id"] = run_id
-    data["failed_at"] = datetime.now(UTC).isoformat()
-    s3.put_object(
-        Bucket=config.s3_bucket,
-        Key=f"{prefix}/{item_id}.json",
-        Body=json.dumps(data).encode(),
-        ContentType="application/json",
+    failure_key = f"{prefix}/{item_id}.json"
+    if _terminal_candidate is None:
+        result.item_id = item_id
+        result.run_id = run_id
+        result.scraped_at = datetime.now(UTC)
+        data = result.model_dump(mode="json")
+        data["failed_at"] = datetime.now(UTC).isoformat()
+        body = json.dumps(data, sort_keys=True, allow_nan=False).encode()
+        candidate = write_terminal_candidate(
+            s3,
+            config,
+            run_id=run_id,
+            item_id=item_id,
+            kind="failure",
+            candidate_body=body,
+            result=result,
+            delivery_metadata=delivery_metadata,
+        )
+    else:
+        candidate = _terminal_candidate
+        if (
+            candidate.run_id != run_id
+            or candidate.item_id != item_id
+            or candidate.kind != "failure"
+            or candidate.result != result
+        ):
+            raise CandidateJournalError("Failure replay candidate identity is invalid")
+        body = candidate.candidate_body
+    decision = claim_terminal_decision(s3, config, candidate=candidate)
+    if decision.candidate.candidate_sha256 != candidate.candidate_sha256:
+        if decision.kind == "failure":
+            _write_failure(
+                s3,
+                config,
+                run_id,
+                item_id,
+                decision.candidate.result,
+                delivery_metadata=None,
+                _terminal_candidate=decision.candidate,
+            )
+        else:
+            _write_result(
+                s3,
+                config,
+                item_id,
+                run_id,
+                decision.candidate.result,
+                f"{config.s3_scraper_prefix}/results/{item_id}.json",
+                delivery_metadata=None,
+                _terminal_candidate=decision.candidate,
+            )
+            conflict = write_terminal_decision_conflict(
+                s3,
+                config,
+                decision=decision,
+                candidate=candidate,
+            )
+            if delivery_metadata is not None:
+                write_terminal_disposition(
+                    s3,
+                    config,
+                    run_id=run_id,
+                    item_id=item_id,
+                    delivery_metadata=delivery_metadata,
+                    candidate=candidate,
+                    canonical_key=decision.canonical_key,
+                    canonical_body=decision.candidate.candidate_body,
+                    canonical_result=decision.candidate.result,
+                    outcome="conflict",
+                    conflict_evidence_key=conflict.key,
+                )
+            raise FailurePublicationConflict(
+                f"Terminal decision for run={run_id}, item={item_id} chose a "
+                "conclusive result; durable cross-kind evidence was recorded"
+            ) from None
+    canonical_body = body
+    canonical_result: ScrapeResult | None = result
+    outcome: Literal["created", "duplicate"] = "created"
+    try:
+        s3.put_object(
+            Bucket=config.s3_bucket,
+            Key=failure_key,
+            Body=body,
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+    except ClientError as exc:
+        if not _proves_object_already_exists(exc):
+            raise
+        canonical_body = s3.get_object(
+            Bucket=config.s3_bucket,
+            Key=failure_key,
+        )["Body"].read()
+        existing: ScrapeResult | None = None
+        reason = "existing exact-run failure is invalid"
+        try:
+            decoded = decode_strict_json_object(
+                canonical_body,
+                label=f"Canonical failure {failure_key}",
+            )
+            existing = ScrapeResult.model_validate(decoded)
+        except (TypeError, ValueError):
+            pass
+        else:
+            if existing.item_id != item_id or existing.run_id != run_id:
+                reason = "existing exact-run failure has mismatched identity"
+            elif existing.status not in {ScrapeStatus.FAILED, ScrapeStatus.INVALID_INPUT}:
+                reason = "existing exact-run failure is not permanent"
+            elif existing.is_soft_blocked or existing.is_network_error:
+                reason = "existing exact-run failure carries a retry hint"
+            elif _observation(existing) == _observation(result):
+                outcome = "duplicate"
+                canonical_result = existing
+            else:
+                reason = "exact-run permanent failures disagree"
+        if outcome != "duplicate":
+            conflict_key = _write_failure_conflict(
+                s3,
+                config,
+                item_id=item_id,
+                run_id=run_id,
+                existing_body=canonical_body,
+                candidate_body=body,
+                existing=existing,
+                candidate=result,
+                reason=reason,
+            )
+            if delivery_metadata is not None:
+                write_terminal_disposition(
+                    s3,
+                    config,
+                    run_id=run_id,
+                    item_id=item_id,
+                    delivery_metadata=delivery_metadata,
+                    candidate=candidate,
+                    canonical_key=failure_key,
+                    canonical_body=canonical_body,
+                    canonical_result=existing,
+                    outcome="conflict",
+                    conflict_evidence_key=conflict_key,
+                )
+            raise FailurePublicationConflict(
+                f"Conflicting exact-run failure for run={run_id}, item={item_id}; "
+                "durable conflict evidence was recorded"
+            ) from None
+    if delivery_metadata is not None:
+        write_terminal_disposition(
+            s3,
+            config,
+            run_id=run_id,
+            item_id=item_id,
+            delivery_metadata=delivery_metadata,
+            candidate=candidate,
+            canonical_key=failure_key,
+            canonical_body=canonical_body,
+            canonical_result=canonical_result,
+            outcome=outcome,
+        )
+    return outcome
+
+
+def _write_failure_conflict(
+    s3: S3Client,
+    config: WorkerConfig,
+    *,
+    item_id: str,
+    run_id: str,
+    existing_body: bytes,
+    candidate_body: bytes,
+    existing: ScrapeResult | None,
+    candidate: ScrapeResult,
+    reason: str,
+) -> str:
+    """Preserve a disagreeing permanent failure without changing canonical state."""
+    candidate_sha256 = hashlib.sha256(candidate_body).hexdigest()
+    key = (
+        f"{config.s3_scraper_prefix}/runs/{run_id}/failure-conflicts/"
+        f"v1/{item_id}/{candidate_sha256}.json"
     )
+    record = {
+        "schema_version": 1,
+        "terminal_status": "failure-conflict",
+        "run_id": run_id,
+        "item_id": item_id,
+        "detected_at": datetime.now(UTC).isoformat(),
+        "reason": reason,
+        "canonical_failure_key": (
+            f"{config.s3_scraper_prefix}/runs/{run_id}/failures/{item_id}.json"
+        ),
+        "existing_sha256": hashlib.sha256(existing_body).hexdigest(),
+        "candidate_sha256": candidate_sha256,
+        "existing_observation": _observation(existing) if existing is not None else None,
+        "candidate_observation": _observation(candidate),
+        "candidate_body_base64": base64.b64encode(candidate_body).decode("ascii"),
+    }
+    try:
+        s3.put_object(
+            Bucket=config.s3_bucket,
+            Key=key,
+            Body=json.dumps(record, sort_keys=True, allow_nan=False).encode(),
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+    except ClientError as exc:
+        if not _proves_object_already_exists(exc):
+            raise
+    return key
 
 
 def _write_failure_artifacts(
@@ -461,7 +777,7 @@ def _quarantine_result_conflict(
     sqs: SQSClient,
     config: WorkerConfig,
     message: MessageTypeDef,
-    error: ResultPublicationConflict,
+    error: RuntimeError,
 ) -> None:
     """Move a conflicting duplicate to the DLQ only after its durable record exists."""
     raw_body = message.get("Body")
@@ -472,7 +788,46 @@ def _quarantine_result_conflict(
         raise ValueError("Cannot quarantine result conflict without a receipt handle")
     sqs.send_message(QueueUrl=config.sqs_dlq_url, MessageBody=raw_body)
     sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
-    logger.error(f"Quarantined conflicting exact-run result: {error}")
+    logger.error(f"Quarantined conflicting exact-run publication: {error}")
+
+
+def _ensure_failure_dlq_delivery(
+    s3: S3Client,
+    sqs: SQSClient,
+    config: WorkerConfig,
+    message: MessageTypeDef,
+    *,
+    run_id: str,
+    item_id: str,
+) -> None:
+    """Complete the failure-to-DLQ outbox step before main-queue deletion."""
+    marker_key = f"{config.s3_scraper_prefix}/runs/{run_id}/failure-deliveries/{item_id}.json"
+    if _result_exists(s3, config.s3_bucket, marker_key):
+        return
+    raw_body = message.get("Body")
+    if not isinstance(raw_body, str) or not raw_body:
+        raise ValueError("Cannot deliver a permanent failure without its original message body")
+    response = sqs.send_message(QueueUrl=config.sqs_dlq_url, MessageBody=raw_body)
+    message_id = response.get("MessageId")
+    record = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "item_id": item_id,
+        "delivered_at": datetime.now(UTC).isoformat(),
+        "body_sha256": hashlib.sha256(raw_body.encode()).hexdigest(),
+        "dlq_message_id": message_id if isinstance(message_id, str) else None,
+    }
+    try:
+        s3.put_object(
+            Bucket=config.s3_bucket,
+            Key=marker_key,
+            Body=json.dumps(record, sort_keys=True, allow_nan=False).encode(),
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+    except ClientError as exc:
+        if not _proves_object_already_exists(exc):
+            raise
 
 
 def _read_work_message(
@@ -565,14 +920,34 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
             receipt = msg["ReceiptHandle"]
 
             result_key = f"{config.s3_scraper_prefix}/results/{item_id}.json"
+            exact_run_prefix = f"{config.s3_scraper_prefix}/runs/{msg_run_id}"
+            exact_result_key = f"{exact_run_prefix}/results/{item_id}.json"
+            exact_failure_key = f"{exact_run_prefix}/failures/{item_id}.json"
+            delivery_metadata = _sqs_delivery_metadata(msg)
 
-            # Idempotency is controlled by the message's originating submit run.
-            # A force worker must not accidentally force stale messages from a
-            # different run that happen to share the queue.
-            if not work_message.force_rescrape and _result_exists(s3, config.s3_bucket, result_key):
-                logger.info(f"Already processed {item_id}, skipping")
-                sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
-                continue
+            # Submit/recovery decides which IDs enter the queue. Once a validated
+            # same-run message exists, the worker never drops it merely because
+            # the mutable cross-run cache has an object. Every delivery performs
+            # one portal lookup and runs through the append-only candidate,
+            # decision, conflict, and disposition protocol. This deliberately
+            # favors crash-safe evidence reconstruction over a rare one-item
+            # lookup optimization; it never causes a whole-run re-scrape.
+            exact_result_exists = _result_exists(s3, config.s3_bucket, exact_result_key)
+            exact_failure_exists = _result_exists(s3, config.s3_bucket, exact_failure_key)
+            if exact_result_exists or exact_failure_exists:
+                if exact_result_exists and exact_failure_exists:
+                    logger.error(
+                        "Exact-run result/failure overlap for {}; re-scraping because no "
+                        "terminal checkpoint can be trusted. Recovery finalization remains "
+                        "blocked.",
+                        item_id,
+                    )
+                else:
+                    logger.warning(
+                        "Exact-run terminal object exists for {}; repeating one lookup "
+                        "to reconstruct append-only delivery evidence",
+                        item_id,
+                    )
 
             logger.info(f"Scraping {item_id}")
             t0 = time.perf_counter()
@@ -622,7 +997,7 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
                         msg_run_id,
                         result,
                         result_key,
-                        delivery_metadata=_sqs_delivery_metadata(msg),
+                        delivery_metadata=delivery_metadata,
                     )
                 except ResultPublicationConflict as exc:
                     stats.permanent_failure_count += 1
@@ -652,7 +1027,24 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
                 else:
                     stats.permanent_failure_count += 1
                     logger.warning(f"Permanent failure on {item_id}: {result.classification}")
-                    _write_failure(s3, config, msg_run_id, item_id, result)
+                    try:
+                        _write_failure(
+                            s3,
+                            config,
+                            msg_run_id,
+                            item_id,
+                            result,
+                            delivery_metadata=delivery_metadata,
+                        )
+                    except FailurePublicationConflict as exc:
+                        try:
+                            _quarantine_result_conflict(sqs, config, msg, exc)
+                        except Exception:
+                            logger.exception(
+                                "Failed to quarantine conflicting failure; leaving it "
+                                "for redelivery"
+                            )
+                        continue
                     artifact_getter = getattr(scraper, "failure_artifacts", None)
                     if callable(artifact_getter):
                         try:
@@ -667,7 +1059,14 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
                                 item_id,
                                 artifacts,
                             )
-                    sqs.send_message(QueueUrl=config.sqs_dlq_url, MessageBody=msg["Body"])
+                    _ensure_failure_dlq_delivery(
+                        s3,
+                        sqs,
+                        config,
+                        msg,
+                        run_id=msg_run_id,
+                        item_id=item_id,
+                    )
                     sqs.delete_message(QueueUrl=config.sqs_queue_url, ReceiptHandle=receipt)
 
             time.sleep(random.uniform(0.5, 1.5))

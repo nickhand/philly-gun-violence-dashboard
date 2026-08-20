@@ -33,10 +33,19 @@ from aws_batch_scraper.config import (
 )
 from aws_batch_scraper.dispatch import (
     WorkflowDispatchDeliveryUnknownError,
+    WorkflowDispatchError,
+    WorkflowDispatchRejectedError,
     dispatch_workflow,
 )
 from aws_batch_scraper.ids import make_run_id
-from aws_batch_scraper.lease import release_run_lease, renew_run_lease
+from aws_batch_scraper.lease import (
+    claim_run_lease,
+    finalizing_run_owner,
+    read_run_lease,
+    release_run_lease,
+    renew_run_lease,
+)
+from aws_batch_scraper.strict_json import decode_strict_json_object
 from aws_batch_scraper.types import WorkItem
 
 _ECS_TERMINAL = {"STOPPED"}
@@ -44,10 +53,23 @@ _RUN_TASK_ATTEMPTS = 4
 _IMAGE_DIGEST = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 _DISPATCH_TOKEN_NAME = "GITHUB_DISPATCH_TOKEN"
 _MONITOR_SAFE_DEFAULT_COMMAND = ["/bin/false"]
+_TERMINAL_QUEUE_QUIET_SECONDS = 60.0
 
 
 class QueueTerminalEvidenceError(RuntimeError):
     """Raised when the main queue cannot be proven fully drained."""
+
+
+class ManifestPublicationDeliveryUnknownError(RuntimeError):
+    """Raised when a final manifest PUT may have committed without a response."""
+
+
+class DispatchRejectionEvidenceError(WorkflowDispatchError):
+    """Raised when a rejected dispatch cannot be recorded durably."""
+
+
+class ImmutableRunObjectConflict(RuntimeError):
+    """Raised when a run commit object cannot be reconciled exactly."""
 
 
 class WorkerLaunchError(RuntimeError):
@@ -91,6 +113,7 @@ def write_run_manifest(
     *,
     selection_mode: Literal["sample", "incremental", "full"],
     candidate_count: int,
+    force_rescrape: bool,
 ) -> None:
     """Write immutable selection provenance and inputs for one submitted run."""
     prefix = f"{config.s3_scraper_prefix}/runs/{run_id}"
@@ -103,28 +126,16 @@ def write_run_manifest(
         raise ValueError(f"Unsupported run selection mode: {selection_mode!r}")
     if not isinstance(candidate_count, int) or isinstance(candidate_count, bool):
         raise ValueError("Run candidate count must be an integer")
+    if not isinstance(force_rescrape, bool):
+        raise ValueError("Run force_rescrape must be a boolean")
+    if selection_mode == "full" and not force_rescrape:
+        raise ValueError("A full run must preserve force_rescrape=true")
     if not items:
         raise ValueError("Run input must contain at least one selected item")
     if candidate_count < len(items):
         raise ValueError("Run candidate count cannot be smaller than its selected input count")
     if selection_mode == "full" and candidate_count != len(items):
         raise ValueError("A full run must select every candidate input")
-
-    manifest = {
-        "run_id": run_id,
-        "timestamp": datetime.now(UTC).isoformat(),
-        "selection_mode": selection_mode,
-        "candidate_count": candidate_count,
-        "input_size": len(items),
-        "queue_url": config.sqs_queue_url,
-        "worker_count": worker_count,
-    }
-    s3.put_object(
-        Bucket=config.s3_bucket,
-        Key=f"{prefix}/manifest.json",
-        Body=json.dumps(manifest, indent=2).encode(),
-        ContentType="application/json",
-    )
 
     input_jsonl = "\n".join(
         json.dumps(
@@ -134,13 +145,74 @@ def write_run_manifest(
         )
         for item in items
     )
-    s3.put_object(
-        Bucket=config.s3_bucket,
-        Key=f"{prefix}/input.jsonl",
-        Body=input_jsonl.encode(),
+    input_body = input_jsonl.encode()
+    manifest = {
+        "run_id": run_id,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "selection_mode": selection_mode,
+        "candidate_count": candidate_count,
+        "input_size": len(items),
+        "input_sha256": hashlib.sha256(input_body).hexdigest(),
+        "force_rescrape": force_rescrape,
+        "queue_url": config.sqs_queue_url,
+        "worker_count": worker_count,
+        "terminal_candidate_journal_schema_version": 1,
+    }
+    # The manifest is the run commit marker. Publish and reconcile the immutable
+    # input first so no reader can observe a manifest created by this writer
+    # without the exact selection it anchors.
+    _put_exact_immutable_run_object(
+        s3,
+        config,
+        key=f"{prefix}/input.jsonl",
+        body=input_body,
+    )
+    _put_exact_immutable_run_object(
+        s3,
+        config,
+        key=f"{prefix}/manifest.json",
+        body=json.dumps(manifest, indent=2).encode(),
+        content_type="application/json",
     )
 
     logger.info(f"Wrote run manifest to s3://{config.s3_bucket}/{prefix}/")
+
+
+def _put_exact_immutable_run_object(
+    s3: S3Client,
+    config: SubmitterConfig,
+    *,
+    key: str,
+    body: bytes,
+    content_type: str | None = None,
+) -> None:
+    """Write once, accepting a lost response only after an exact S3 read."""
+    request: dict[str, Any] = {
+        "Bucket": config.s3_bucket,
+        "Key": key,
+        "Body": body,
+        "IfNoneMatch": "*",
+    }
+    if content_type is not None:
+        request["ContentType"] = content_type
+    try:
+        s3.put_object(**request)
+        return
+    except Exception as put_error:
+        try:
+            observed_body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
+        except Exception:
+            raise ImmutableRunObjectConflict(
+                f"Immutable run object {key} could not be committed or reconciled"
+            ) from put_error
+        if observed_body != body:
+            raise ImmutableRunObjectConflict(
+                f"Immutable run object {key} disagrees with the attempted body"
+            ) from put_error
+        logger.warning(
+            f"PUT response failed for immutable run object {key}, but an exact read "
+            "proved it committed"
+        )
 
 
 def write_task_arns(
@@ -197,10 +269,37 @@ def _network_config(config: SubmitterConfig) -> NetworkConfigurationTypeDef:
     }
 
 
-def _ecs_client_token(run_id: str, role: str, index: int = 0) -> str:
+def _ecs_client_token(
+    run_id: str,
+    role: str,
+    index: int = 0,
+    *,
+    recovery_attempt_id: str | None = None,
+) -> str:
     """Return a deterministic token so SDK/network retries cannot duplicate tasks."""
-    digest = hashlib.sha256(f"{run_id}\0{role}\0{index}".encode()).hexdigest()
+    token_scope = f"{run_id}\0{role}\0{index}"
+    if recovery_attempt_id is not None:
+        if not recovery_attempt_id.strip():
+            raise ValueError("Recovery attempt ID must not be blank")
+        token_scope = f"{token_scope}\0recovery\0{recovery_attempt_id}"
+    digest = hashlib.sha256(token_scope.encode()).hexdigest()
     return f"gv-{role}-{digest[:32]}"
+
+
+def _ecs_started_by(
+    run_id: str,
+    role: str,
+    *,
+    recovery_attempt_id: str | None = None,
+) -> str:
+    """Return a queryable ECS launch identity, distinct for every recovery."""
+    token_scope = f"{run_id}\0{role}"
+    if recovery_attempt_id is not None:
+        if not recovery_attempt_id.strip():
+            raise ValueError("Recovery attempt ID must not be blank")
+        token_scope = f"{token_scope}\0recovery\0{recovery_attempt_id}"
+    digest = hashlib.sha256(token_scope.encode()).hexdigest()
+    return f"gv-{role}-{digest[:24]}"
 
 
 def _retryable_run_task_error(error: Exception) -> bool:
@@ -620,6 +719,7 @@ def launch_workers(
     worker_count: int | None = None,
     force_rescrape: bool = False,
     soft_blocked_delay_max: int | None = None,
+    recovery_attempt_id: str | None = None,
 ) -> list[str]:
     """Start Fargate tasks. Returns task ARNs.
 
@@ -631,6 +731,8 @@ def launch_workers(
     n = worker_count if worker_count is not None else config.ecs_task_count
     if not 1 <= n <= 10:
         raise ValueError("ECS worker count must be between 1 and 10")
+    if soft_blocked_delay_max is not None and not 1 <= soft_blocked_delay_max <= 43_200:
+        raise ValueError("soft-blocked delay max must be between 1 and 43200 seconds")
     task_definition, _ = resolve_split_task_definitions(ecs, config)
     platform_version = require_exact_fargate_platform(config.ecs_platform_version)
     logger.info(f"Using exact worker task definition revision: {task_definition}")
@@ -660,7 +762,16 @@ def launch_workers(
         logger.info(f"Launching {n} worker(s), attempt {attempt}/{_RUN_TASK_ATTEMPTS}")
         try:
             response = ecs.run_task(
-                clientToken=_ecs_client_token(run_id, "worker"),
+                clientToken=_ecs_client_token(
+                    run_id,
+                    "worker",
+                    recovery_attempt_id=recovery_attempt_id,
+                ),
+                startedBy=_ecs_started_by(
+                    run_id,
+                    "worker",
+                    recovery_attempt_id=recovery_attempt_id,
+                ),
                 count=n,
                 taskDefinition=task_definition,
                 cluster=config.ecs_cluster_arn,
@@ -712,6 +823,8 @@ def launch_monitor(
     config: SubmitterConfig,
     run_id: str,
     monitor_command: list[str],
+    *,
+    recovery_attempt_id: str | None = None,
 ) -> str:
     """Start one Fargate coordinator task that waits for a run and dispatches processing.
 
@@ -744,7 +857,16 @@ def launch_monitor(
         logger.info(f"Launching monitor, attempt {attempt}/{_RUN_TASK_ATTEMPTS}")
         try:
             response = ecs.run_task(
-                clientToken=_ecs_client_token(run_id, "monitor"),
+                clientToken=_ecs_client_token(
+                    run_id,
+                    "monitor",
+                    recovery_attempt_id=recovery_attempt_id,
+                ),
+                startedBy=_ecs_started_by(
+                    run_id,
+                    "monitor",
+                    recovery_attempt_id=recovery_attempt_id,
+                ),
                 taskDefinition=task_definition,
                 cluster=config.ecs_cluster_arn,
                 networkConfiguration=_network_config(config),
@@ -801,6 +923,8 @@ def _release_terminal_monitor_failure(
     config: SubmitterConfig,
     run_id: str,
     error: Exception,
+    *,
+    expected_lease_created_at: datetime,
 ) -> None:
     """Release after work is known terminal without masking its original error."""
     try:
@@ -808,6 +932,7 @@ def _release_terminal_monitor_failure(
             s3,
             config,
             run_id,
+            expected_created_at=expected_lease_created_at,
             terminal_status="failure",
             detail=str(error),
         )
@@ -843,14 +968,74 @@ def _record_unknown_dispatch_delivery(
     logger.error(f"Workflow dispatch delivery for {run_id} is unknown; retaining its active lease")
 
 
-def _record_monitor_recovery(
+def _record_rejected_dispatch(
     s3: S3Client,
     config: SubmitterConfig,
     run_id: str,
-    error: Exception,
+    error: WorkflowDispatchRejectedError,
 ) -> None:
-    """Persist fail-closed terminal-queue evidence while retaining the lease."""
-    key = f"{config.s3_scraper_prefix}/runs/{run_id}/monitor-recovery.json"
+    """Persist a definitive rejection while retaining the process-ready fence."""
+    detail = str(error)
+    evidence_id = hashlib.sha256(
+        f"{run_id}\0{config.github_workflow_file}\0{detail}".encode()
+    ).hexdigest()
+    key = f"{config.s3_scraper_prefix}/runs/{run_id}/dispatch-rejections/v1/{evidence_id}.json"
+    record = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "workflow_file": config.github_workflow_file,
+        "detail": detail,
+        "lease_action": "finalizer-retained",
+        "manual_recovery": "process-only-same-run-dispatch",
+    }
+    body = json.dumps(record, sort_keys=True).encode()
+    try:
+        s3.put_object(
+            Bucket=config.s3_bucket,
+            Key=key,
+            Body=body,
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+        return
+    except Exception as put_error:
+        try:
+            observed_body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
+            observed = decode_strict_json_object(
+                observed_body,
+                label=f"Dispatch rejection evidence {key}",
+            )
+        except Exception:
+            raise DispatchRejectionEvidenceError(
+                f"GitHub rejected downstream dispatch for run {run_id}, and rejection "
+                "evidence could not be confirmed; retaining the finalizer"
+            ) from put_error
+        if any(
+            observed.get(field) != record[field]
+            for field in (
+                "schema_version",
+                "run_id",
+                "workflow_file",
+                "detail",
+                "lease_action",
+                "manual_recovery",
+            )
+        ):
+            raise DispatchRejectionEvidenceError(
+                f"GitHub rejected downstream dispatch for run {run_id}, but existing "
+                "rejection evidence disagrees; retaining the finalizer"
+            ) from put_error
+
+
+def _record_unknown_manifest_publication(
+    s3: S3Client,
+    config: SubmitterConfig,
+    run_id: str,
+    error: ManifestPublicationDeliveryUnknownError,
+) -> None:
+    """Retain the finalizer when S3 cannot prove whether publication committed."""
+    key = f"{config.s3_scraper_prefix}/runs/{run_id}/manifest-publication-ambiguous.json"
     record = {
         "run_id": run_id,
         "recorded_at": datetime.now(UTC).isoformat(),
@@ -865,8 +1050,46 @@ def _record_monitor_recovery(
             ContentType="application/json",
         )
     except Exception:
-        logger.exception(f"Could not persist monitor recovery evidence for {run_id}")
-    logger.error(f"Run {run_id} lacks terminal queue evidence; retaining its active lease")
+        logger.exception(f"Could not persist ambiguous manifest evidence for {run_id}")
+    logger.error(f"Manifest publication for {run_id} is unknown; retaining its finalizer")
+
+
+def _record_monitor_recovery(
+    s3: S3Client,
+    config: SubmitterConfig,
+    run_id: str,
+    error: Exception,
+) -> None:
+    """Persist append-only needs-recovery evidence while retaining the run fence."""
+    record = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "error_type": f"{type(error).__module__}.{type(error).__qualname__}",
+        "detail": str(error),
+        "lease_action": "retained",
+        "recovery_action": "same-run-resume",
+    }
+    body = json.dumps(record, sort_keys=True).encode()
+    evidence_id = hashlib.sha256(body).hexdigest()
+    key = f"{config.s3_scraper_prefix}/runs/{run_id}/monitor-recovery/v1/{evidence_id}.json"
+    try:
+        s3.put_object(
+            Bucket=config.s3_bucket,
+            Key=key,
+            Body=body,
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+    except Exception as put_error:
+        try:
+            observed = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
+        except Exception:
+            logger.exception(f"Could not persist monitor recovery evidence for {run_id}")
+        else:
+            if observed != body:
+                logger.error(f"Monitor recovery evidence disagrees for {run_id}: {put_error}")
+    logger.error(f"Run {run_id} needs same-run recovery; retaining its active lease")
 
 
 def _monitor_run(
@@ -884,7 +1107,7 @@ def _monitor_run(
     logger.info(f"Monitoring {len(task_arns)} task(s) for run {run_id}...")
 
     while True:
-        renew_run_lease(s3, config, run_id)
+        active_lease = renew_run_lease(s3, config, run_id)
         response = ecs.describe_tasks(cluster=config.ecs_cluster_arn, tasks=task_arns)
         failures = response.get("failures", [])
         if failures:
@@ -920,16 +1143,19 @@ def _monitor_run(
                     run_id,
                     started_at,
                     terminal_queue_counts=terminal_queue_counts,
+                    expected_lease_owner=run_id,
+                    expected_lease_created_at=active_lease.created_at,
                 )
                 return
-            except WorkflowDispatchDeliveryUnknownError as exc:
-                _record_unknown_dispatch_delivery(s3, config, run_id, exc)
+            except ManifestPublicationDeliveryUnknownError:
+                raise
+            except WorkflowDispatchError:
                 raise
             except QueueTerminalEvidenceError as exc:
                 _record_monitor_recovery(s3, config, run_id, exc)
                 raise
             except Exception as exc:
-                _release_terminal_monitor_failure(s3, config, run_id, exc)
+                _record_monitor_recovery(s3, config, run_id, exc)
                 raise
 
         time.sleep(poll_interval)
@@ -945,11 +1171,12 @@ def monitor_until_empty(
 ) -> None:
     """Block until visible, in-flight, and delayed message counts reach zero."""
     started_at = datetime.now(UTC)
+    active_lease = None
     logger.info("Monitoring queue until empty...")
 
     while True:
         if s3 is not None and run_id is not None and isinstance(config, SubmitterConfig):
-            renew_run_lease(s3, config, run_id)
+            active_lease = renew_run_lease(s3, config, run_id)
         visible, in_flight, delayed = _queue_depth(sqs, config)
         logger.info(f"Queue: {visible} visible, {in_flight} in-flight, {delayed} delayed")
 
@@ -964,15 +1191,22 @@ def monitor_until_empty(
                         run_id,
                         started_at,
                         terminal_queue_counts=(visible, in_flight, delayed),
+                        expected_lease_owner=run_id,
+                        expected_lease_created_at=(
+                            active_lease.created_at if active_lease is not None else None
+                        ),
                     )
-                except WorkflowDispatchDeliveryUnknownError as exc:
-                    _record_unknown_dispatch_delivery(s3, config, run_id, exc)
+                except ManifestPublicationDeliveryUnknownError:
+                    raise
+                except WorkflowDispatchError:
                     raise
                 except QueueTerminalEvidenceError as exc:
                     _record_monitor_recovery(s3, config, run_id, exc)
                     raise
                 except Exception as exc:
-                    _release_terminal_monitor_failure(s3, config, run_id, exc)
+                    if active_lease is None:
+                        raise RuntimeError("Monitor lease generation is unavailable") from exc
+                    _record_monitor_recovery(s3, config, run_id, exc)
                     raise
             return
 
@@ -1052,11 +1286,35 @@ def _finalize_manifest(
     monitor_started_at: datetime,
     *,
     terminal_queue_counts: tuple[int, int, int] | None = None,
+    expected_lease_owner: str | None = None,
+    expected_lease_created_at: datetime | None = None,
 ) -> None:
     """Append completion fields to the run manifest and fire workflow dispatch."""
+    if (expected_lease_owner is None) != (expected_lease_created_at is None):
+        raise ValueError("Manifest finalization lease fence requires owner and generation")
+    fence_owner = expected_lease_owner
+
+    def require_lease_fence() -> None:
+        if fence_owner is None or expected_lease_created_at is None:
+            return
+        lease = read_run_lease(s3, config)
+        if (
+            lease.run_id != run_id
+            or lease.owner != fence_owner
+            or lease.created_at != expected_lease_created_at
+        ):
+            raise RuntimeError(
+                f"Run lease generation changed before finalizing {run_id}; dispatch is fenced"
+            )
+
+    require_lease_fence()
     manifest_key = f"{config.s3_scraper_prefix}/runs/{run_id}/manifest.json"
+    manifest_etag: str | None = None
+    original_manifest_body: bytes | None = None
     try:
-        body = s3.get_object(Bucket=config.s3_bucket, Key=manifest_key)["Body"].read()
+        manifest_response = s3.get_object(Bucket=config.s3_bucket, Key=manifest_key)
+        body = manifest_response["Body"].read()
+        manifest_etag = manifest_response.get("ETag")
     except ClientError as exc:
         error_code = str(exc.response.get("Error", {}).get("Code", ""))
         if error_code not in {"404", "NoSuchKey", "NotFound"}:
@@ -1064,6 +1322,7 @@ def _finalize_manifest(
         logger.warning(f"No manifest found for legacy run {run_id}; creating a minimal record")
         manifest: dict[str, Any] = {"run_id": run_id}
     else:
+        original_manifest_body = body
         try:
             decoded: object = json.loads(body)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -1071,6 +1330,11 @@ def _finalize_manifest(
         if not isinstance(decoded, dict):
             raise ValueError(f"Run manifest for {run_id} must be a JSON object")
         manifest = decoded
+        if not isinstance(manifest_etag, str) or not manifest_etag:
+            raise RuntimeError(f"Run manifest for {run_id} is missing its S3 ETag")
+        if manifest.get("completed_at") is not None:
+            logger.info(f"Run {run_id} manifest is already complete; dispatch not repeated")
+            return
 
     if terminal_queue_counts is None:
         terminal_queue_counts = _require_empty_main_queue(sqs, config)
@@ -1080,6 +1344,41 @@ def _finalize_manifest(
             "Provided terminal queue counts are not empty: "
             f"{visible} visible, {in_flight} in-flight, {delayed} delayed"
         )
+
+    # Empty transport and successful tasks are necessary but not sufficient:
+    # publication requires exactly one trusted terminal artifact for every
+    # immutable input and no unresolved exact-run conflict evidence.
+    from aws_batch_scraper.recovery import (
+        require_exact_terminal_coverage,
+        require_stable_queue_state,
+    )
+
+    terminal_inventory = require_exact_terminal_coverage(s3, config, run_id)
+
+    # SQS counts are approximate and the exact terminal inventory can be a long
+    # read for a full scrape. Re-read every queue state after that audit instead
+    # of allowing an earlier empty observation to authorize manifest CAS and
+    # downstream dispatch.
+    try:
+        post_inventory_queue = require_stable_queue_state(
+            sqs,
+            config,
+            settle_seconds=_TERMINAL_QUEUE_QUIET_SECONDS,
+        )
+    except Exception as exc:
+        raise QueueTerminalEvidenceError(
+            "Main queue did not remain stable after terminal inventory"
+        ) from exc
+    if post_inventory_queue.total:
+        raise QueueTerminalEvidenceError(
+            "Main queue became nonempty after terminal inventory: "
+            f"{post_inventory_queue.visible} visible, "
+            f"{post_inventory_queue.in_flight} in-flight, "
+            f"{post_inventory_queue.delayed} delayed"
+        )
+    visible = post_inventory_queue.visible
+    in_flight = post_inventory_queue.in_flight
+    delayed = post_inventory_queue.delayed
 
     completed_at = datetime.now(UTC)
     run_start_str = manifest.get("timestamp")
@@ -1109,25 +1408,200 @@ def _finalize_manifest(
         "in_flight": in_flight,
         "delayed": delayed,
     }
+    manifest["terminal_coverage"] = {
+        "input_sha256": terminal_inventory.input_sha256,
+        "force_rescrape": terminal_inventory.force_rescrape,
+        "input_count": len(terminal_inventory.items),
+        "result_count": len(terminal_inventory.result_ids),
+        "failure_count": len(terminal_inventory.failure_ids),
+        "completed_count": len(terminal_inventory.completed_ids),
+        "terminal_evidence_sha256": terminal_inventory.terminal_evidence_sha256,
+        "candidate_count": terminal_inventory.candidate_count,
+        "candidate_evidence_sha256": terminal_inventory.candidate_evidence_sha256,
+        "conflict_policy_version": terminal_inventory.conflict_policy_version,
+        "conflict_evidence_sha256": terminal_inventory.conflict_evidence_sha256,
+        "resolved_conflict_count": terminal_inventory.resolved_conflict_count,
+        "unresolved_conflict_count": 0,
+        "invalid_resolution_count": terminal_inventory.invalid_resolution_count,
+    }
     if dlq_depth is not None:
         manifest["dlq_depth"] = dlq_depth
 
-    s3.put_object(
-        Bucket=config.s3_bucket,
-        Key=manifest_key,
-        Body=json.dumps(manifest, indent=2).encode(),
-        ContentType="application/json",
-    )
+    attempted_manifest_body = json.dumps(manifest, indent=2).encode()
+    put_request: dict[str, Any] = {
+        "Bucket": config.s3_bucket,
+        "Key": manifest_key,
+        "Body": attempted_manifest_body,
+        "ContentType": "application/json",
+    }
+    if manifest_etag is None:
+        put_request["IfNoneMatch"] = "*"
+    else:
+        put_request["IfMatch"] = manifest_etag
+
+    finalizer_acquired = False
+    original_fence_owner = fence_owner
+    if fence_owner is not None and expected_lease_created_at is not None:
+        finalizing_owner = finalizing_run_owner(run_id, expected_lease_created_at)
+        if fence_owner == finalizing_owner:
+            # A previous coordinator may have crashed after the deterministic
+            # finalizer CAS but before manifest PUT. The exact same generation
+            # can safely re-audit above and continue without another owner
+            # transition. A proven-absent PUT returns this fence to the run.
+            original_fence_owner = run_id
+        else:
+            claim_run_lease(
+                s3,
+                config,
+                run_id,
+                finalizing_owner,
+                current_owner=fence_owner,
+                expected_created_at=expected_lease_created_at,
+            )
+            fence_owner = finalizing_owner
+        finalizer_acquired = True
+    require_lease_fence()
+    try:
+        s3.put_object(
+            **put_request,
+        )
+    except Exception as put_error:
+        publication_state = _reconcile_manifest_publication(
+            s3,
+            config,
+            manifest_key,
+            attempted_manifest_body,
+            original_manifest_body=original_manifest_body,
+            original_manifest_etag=manifest_etag,
+        )
+        if publication_state == "committed":
+            logger.warning(
+                f"Manifest PUT response failed for {run_id}, but an exact strongly "
+                "consistent read proved the write committed"
+            )
+        elif publication_state == "not_committed":
+            _return_finalization_fence(
+                s3,
+                config,
+                run_id,
+                finalizer_acquired=finalizer_acquired,
+                original_fence_owner=original_fence_owner,
+                finalizing_fence_owner=fence_owner,
+                expected_lease_created_at=expected_lease_created_at,
+            )
+            raise
+        else:
+            publication_error = ManifestPublicationDeliveryUnknownError(
+                f"Manifest publication outcome for run {run_id} is unknown; "
+                "retaining the finalization fence"
+            )
+            _record_unknown_manifest_publication(
+                s3,
+                config,
+                run_id,
+                publication_error,
+            )
+            raise publication_error from put_error
+
     logger.info(f"Manifest finalized: runtime={total_runtime_seconds}s, dlq_depth={dlq_depth}")
-    dispatch_workflow(
-        run_id,
-        repository=config.github_repository,
-        workflow_file=config.github_workflow_file,
-    )
+    try:
+        dispatch_workflow(
+            run_id,
+            repository=config.github_repository,
+            workflow_file=config.github_workflow_file,
+        )
+    except WorkflowDispatchDeliveryUnknownError as error:
+        _record_unknown_dispatch_delivery(
+            s3,
+            config,
+            run_id,
+            error,
+        )
+        raise
+    except WorkflowDispatchRejectedError as error:
+        _record_rejected_dispatch(
+            s3,
+            config,
+            run_id,
+            error,
+        )
+        raise
+
+
+def _return_finalization_fence(
+    s3: S3Client,
+    config: SubmitterConfig,
+    run_id: str,
+    *,
+    finalizer_acquired: bool,
+    original_fence_owner: str | None,
+    finalizing_fence_owner: str | None,
+    expected_lease_created_at: datetime | None,
+) -> None:
+    """Best-effort rollback used only after publication is proven absent."""
+    if (
+        finalizer_acquired
+        and original_fence_owner is not None
+        and finalizing_fence_owner is not None
+        and expected_lease_created_at is not None
+    ):
+        if finalizing_fence_owner == original_fence_owner:
+            raise RuntimeError("Finalization fence owner did not change")
+        try:
+            claim_run_lease(
+                s3,
+                config,
+                run_id,
+                original_fence_owner,
+                current_owner=finalizing_fence_owner,
+                expected_created_at=expected_lease_created_at,
+            )
+        except Exception:
+            logger.exception(f"Could not return failed finalization fence for run {run_id}")
+
+
+def _reconcile_manifest_publication(
+    s3: S3Client,
+    config: SubmitterConfig,
+    manifest_key: str,
+    attempted_body: bytes,
+    *,
+    original_manifest_body: bytes | None,
+    original_manifest_etag: str | None,
+) -> Literal["committed", "not_committed", "unknown"]:
+    """Resolve a failed PUT response using S3's strongly consistent GET."""
+    try:
+        response = s3.get_object(Bucket=config.s3_bucket, Key=manifest_key)
+    except ClientError as exc:
+        error_code = str(exc.response.get("Error", {}).get("Code", ""))
+        if error_code in {"404", "NoSuchKey", "NotFound"} and original_manifest_body is None:
+            return "not_committed"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+    try:
+        observed_body = response["Body"].read()
+    except Exception:
+        return "unknown"
+    if observed_body == attempted_body:
+        return "committed"
+
+    observed_etag = response.get("ETag")
+    if (
+        original_manifest_body is not None
+        and observed_body == original_manifest_body
+        and observed_etag == original_manifest_etag
+    ):
+        return "not_committed"
+    return "unknown"
 
 
 __all__ = [
     "make_run_id",
+    "DispatchRejectionEvidenceError",
+    "ImmutableRunObjectConflict",
+    "ManifestPublicationDeliveryUnknownError",
     "WorkerLaunchError",
     "MonitorLaunchError",
     "write_run_manifest",

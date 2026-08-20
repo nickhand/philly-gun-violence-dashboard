@@ -6,6 +6,7 @@ import json
 import math
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from io import BytesIO
 from typing import Any, cast
 from unittest.mock import MagicMock
@@ -14,8 +15,14 @@ import aws_batch_scraper.worker as worker_module
 import pytest
 from aws_batch_scraper.config import WorkerConfig
 from aws_batch_scraper.queue import seed_queue
+from aws_batch_scraper.terminal_journal import (
+    CandidateJournalError,
+    claim_terminal_decision,
+    write_terminal_candidate,
+)
 from aws_batch_scraper.types import ScrapeResult, ScrapeStatus, WorkItem
 from aws_batch_scraper.worker import (
+    FailurePublicationConflict,
     ResultPublicationConflict,
     _parse_work_message,
     _quarantine_invalid_message,
@@ -89,6 +96,24 @@ class ConditionalFakeS3:
         with self._lock:
             body = self.objects[Key]
         return {"Body": BytesIO(body)}
+
+    def head_object(self, *, Bucket, Key):
+        with self._lock:
+            if Key not in self.objects:
+                raise _client_error("NoSuchKey", "HeadObject")
+        return {"ETag": '"etag"'}
+
+    def get_paginator(self, operation: str):
+        assert operation == "list_objects_v2"
+        owner = self
+
+        class Paginator:
+            def paginate(self, *, Bucket, Prefix):
+                with owner._lock:
+                    keys = sorted(key for key in owner.objects if key.startswith(Prefix))
+                return [{"Contents": [{"Key": key} for key in keys]}]
+
+        return Paginator()
 
 
 def _result_conflict_keys(s3: ConditionalFakeS3) -> list[str]:
@@ -371,7 +396,10 @@ def test_conclusive_result_is_written_to_run_scope_before_global_cache() -> None
     )
 
     assert outcome == "created"
-    assert [put["Key"] for put in s3.puts] == [
+    written_keys = [put["Key"] for put in s3.puts]
+    assert "/terminal-candidates/v1/" in written_keys[0]
+    assert "/terminal-decisions/v1/" in written_keys[1]
+    assert written_keys[2:] == [
         "scraper/runs/run-new/results/100.json",
         "scraper/results/100.json",
     ]
@@ -399,8 +427,474 @@ def test_conditional_409_propagates_without_assuming_a_canonical_result() -> Non
         )
 
     assert caught.value.response["Error"]["Code"] == "ConditionalRequestConflict"
-    assert s3.objects == {}
-    assert s3.puts == []
+    assert len(s3.objects) == 2
+    assert any("/terminal-candidates/v1/" in key for key in s3.objects)
+    assert any("/terminal-decisions/v1/" in key for key in s3.objects)
+
+
+def test_candidate_journal_failure_prevents_result_canonical_write() -> None:
+    class FailingCandidateS3(ConditionalFakeS3):
+        def put_object(self, **kwargs):
+            if "/terminal-candidates/" in kwargs["Key"]:
+                raise TimeoutError("candidate PUT failed")
+            return super().put_object(**kwargs)
+
+        def get_object(self, *, Bucket, Key):
+            if "/terminal-candidates/" in Key:
+                raise TimeoutError("candidate reconciliation failed")
+            return super().get_object(Bucket=Bucket, Key=Key)
+
+    s3 = FailingCandidateS3()
+
+    with pytest.raises(CandidateJournalError, match="durably commit"):
+        _write_result(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "100",
+            "run-new",
+            ScrapeResult(status=ScrapeStatus.NO_RESULTS),
+            "scraper/results/100.json",
+        )
+
+    assert not any("/results/" in key for key in s3.objects)
+
+
+def test_redelivery_without_disposition_rescrapes_and_reconstructs_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailFirstCandidateS3(ConditionalFakeS3):
+        failed_once = False
+
+        def put_object(self, **kwargs):
+            if "/terminal-candidates/" in kwargs["Key"] and not self.failed_once:
+                self.failed_once = True
+                raise TimeoutError("candidate journal unavailable")
+            return super().put_object(**kwargs)
+
+    s3 = FailFirstCandidateS3()
+    sqs = FakeSQS()
+    canonical = (
+        ScrapeResult(
+            status=ScrapeStatus.NO_RESULTS,
+            item_id="100",
+            run_id="run-new",
+        )
+        .model_dump_json()
+        .encode()
+    )
+    s3.objects["scraper/runs/run-new/results/100.json"] = canonical
+    s3.objects["scraper/results/100.json"] = canonical
+    scrape_calls: list[str] = []
+
+    class FakeSession:
+        def client(self, service: str):
+            return s3 if service == "s3" else sqs
+
+    class FakeScraper:
+        def __call__(self, item: WorkItem) -> ScrapeResult:
+            scrape_calls.append(item.item_id)
+            return ScrapeResult(
+                status=ScrapeStatus.SUCCESS,
+                data={"results": [{"case": "contradiction"}]},
+            )
+
+        def reset(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    body = json.dumps({"item_id": "100", "run_id": "run-new", "force_rescrape": False})
+    messages: list[dict[str, object] | None] = []
+    monkeypatch.setattr(worker_module, "make_boto3_session", lambda **kwargs: FakeSession())
+    monkeypatch.setattr(worker_module, "_receive_message", lambda *args: messages.pop(0))
+    monkeypatch.setattr(worker_module, "_queue_is_empty", lambda *args: True)
+    monkeypatch.setattr(worker_module.random, "uniform", lambda *args: 0.0)
+    monkeypatch.setattr(worker_module.time, "sleep", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "alarm", lambda *args: 0)
+
+    messages.extend(
+        [
+            {
+                "Body": body,
+                "ReceiptHandle": "receipt-1",
+                "MessageId": "message-1",
+                "Attributes": {"ApproximateReceiveCount": "1"},
+            }
+        ]
+    )
+    with pytest.raises(CandidateJournalError, match="durably commit"):
+        worker_module.run_worker(
+            lambda: FakeScraper(),
+            _config().model_copy(update={"run_id": "run-new"}),
+        )
+
+    assert sqs.deleted_messages == []
+    assert not any("/terminal-dispositions/" in key for key in s3.objects)
+
+    messages.extend(
+        [
+            {
+                "Body": body,
+                "ReceiptHandle": "receipt-2",
+                "MessageId": "message-1",
+                "Attributes": {"ApproximateReceiveCount": "2"},
+            },
+            None,
+            None,
+            None,
+        ]
+    )
+    worker_module.run_worker(
+        lambda: FakeScraper(),
+        _config().model_copy(update={"run_id": "run-new"}),
+    )
+
+    assert scrape_calls == ["100", "100"]
+    assert len(_result_conflict_keys(s3)) == 1
+    dispositions = [key for key in s3.objects if "/terminal-dispositions/" in key]
+    assert len(dispositions) == 1
+    assert json.loads(s3.objects[dispositions[0]])["outcome"] == "conflict"
+    assert sqs.deleted_messages == [
+        {"QueueUrl": _config().sqs_queue_url, "ReceiptHandle": "receipt-2"}
+    ]
+
+
+def test_queued_delivery_rescrapes_despite_orphan_candidate_and_global_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    s3 = ConditionalFakeS3()
+    sqs = FakeSQS()
+    body = json.dumps({"item_id": "100", "run_id": "run-new", "force_rescrape": False})
+    delivery = {
+        "message_id": "message-1",
+        "body_sha256": hashlib.sha256(body.encode()).hexdigest(),
+        "system_attributes": {"ApproximateReceiveCount": "1"},
+    }
+    orphan_result = ScrapeResult(
+        status=ScrapeStatus.SUCCESS,
+        item_id="100",
+        run_id="run-new",
+        scraped_at=datetime(2026, 8, 20, tzinfo=UTC),
+        data={"results": [{"case": "orphan-D"}]},
+    )
+    orphan_body = orphan_result.model_dump_json().encode()
+    orphan = write_terminal_candidate(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-new",
+        item_id="100",
+        kind="result",
+        candidate_body=orphan_body,
+        result=orphan_result,
+        delivery_metadata=delivery,
+    )
+    older_global = (
+        ScrapeResult(
+            status=ScrapeStatus.SUCCESS,
+            item_id="100",
+            run_id="run-older",
+            scraped_at=datetime(2026, 8, 20, tzinfo=UTC),
+            data={"results": [{"case": "older-cache"}]},
+        )
+        .model_dump_json()
+        .encode()
+    )
+    s3.objects["scraper/results/100.json"] = older_global
+    scrape_calls: list[str] = []
+
+    class FakeSession:
+        def client(self, service: str):
+            return s3 if service == "s3" else sqs
+
+    class FakeScraper:
+        def __call__(self, item: WorkItem) -> ScrapeResult:
+            scrape_calls.append(item.item_id)
+            return ScrapeResult(status=ScrapeStatus.NO_RESULTS)
+
+        def reset(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    messages = iter(
+        [
+            {
+                "Body": body,
+                "ReceiptHandle": "receipt-2",
+                "MessageId": "message-1",
+                "Attributes": {"ApproximateReceiveCount": "2"},
+            },
+            None,
+            None,
+            None,
+        ]
+    )
+    monkeypatch.setattr(worker_module, "make_boto3_session", lambda **kwargs: FakeSession())
+    monkeypatch.setattr(worker_module, "_receive_message", lambda *args: next(messages))
+    monkeypatch.setattr(worker_module, "_queue_is_empty", lambda *args: True)
+    monkeypatch.setattr(worker_module.random, "uniform", lambda *args: 0.0)
+    monkeypatch.setattr(worker_module.time, "sleep", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "alarm", lambda *args: 0)
+
+    worker_module.run_worker(
+        lambda: FakeScraper(),
+        _config().model_copy(update={"run_id": "run-new"}),
+    )
+
+    assert scrape_calls == ["100"]
+    assert orphan.key in s3.objects
+    assert _result_conflict_keys(s3) == []
+    exact = ScrapeResult.model_validate_json(s3.objects["scraper/runs/run-new/results/100.json"])
+    assert exact.status == ScrapeStatus.NO_RESULTS
+    assert len([key for key in s3.objects if "/terminal-dispositions/" in key]) == 1
+    assert sqs.deleted_messages == [
+        {"QueueUrl": _config().sqs_queue_url, "ReceiptHandle": "receipt-2"}
+    ]
+
+
+def test_queued_delivery_materializes_prior_decision_despite_global_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    s3 = ConditionalFakeS3()
+    sqs = FakeSQS()
+    winner_result = ScrapeResult(
+        status=ScrapeStatus.NO_RESULTS,
+        item_id="100",
+        run_id="run-new",
+        scraped_at=datetime(2026, 8, 20, tzinfo=UTC),
+    )
+    winner_body = winner_result.model_dump_json().encode()
+    winner = write_terminal_candidate(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-new",
+        item_id="100",
+        kind="result",
+        candidate_body=winner_body,
+        result=winner_result,
+    )
+    claim_terminal_decision(s3, _config(), candidate=winner)  # ty: ignore[invalid-argument-type]
+    s3.objects["scraper/results/100.json"] = (
+        ScrapeResult(
+            status=ScrapeStatus.SUCCESS,
+            item_id="100",
+            run_id="run-older",
+            data={"results": [{"case": "older-cache"}]},
+        )
+        .model_dump_json()
+        .encode()
+    )
+    scrape_calls: list[str] = []
+
+    class FakeSession:
+        def client(self, service: str):
+            return s3 if service == "s3" else sqs
+
+    class FakeScraper:
+        def __call__(self, item: WorkItem) -> ScrapeResult:
+            scrape_calls.append(item.item_id)
+            return ScrapeResult(status=ScrapeStatus.NO_RESULTS)
+
+        def reset(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    messages = iter(
+        [
+            {
+                "Body": json.dumps(
+                    {"item_id": "100", "run_id": "run-new", "force_rescrape": False}
+                ),
+                "ReceiptHandle": "receipt-1",
+                "MessageId": "message-1",
+                "Attributes": {"ApproximateReceiveCount": "2"},
+            },
+            None,
+            None,
+            None,
+        ]
+    )
+    monkeypatch.setattr(worker_module, "make_boto3_session", lambda **kwargs: FakeSession())
+    monkeypatch.setattr(worker_module, "_receive_message", lambda *args: next(messages))
+    monkeypatch.setattr(worker_module, "_queue_is_empty", lambda *args: True)
+    monkeypatch.setattr(worker_module.random, "uniform", lambda *args: 0.0)
+    monkeypatch.setattr(worker_module.time, "sleep", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "alarm", lambda *args: 0)
+
+    worker_module.run_worker(
+        lambda: FakeScraper(),
+        _config().model_copy(update={"run_id": "run-new"}),
+    )
+
+    assert scrape_calls == ["100"]
+    assert s3.objects["scraper/runs/run-new/results/100.json"] == winner_body
+    assert s3.objects["scraper/results/100.json"] == winner_body
+    assert len([key for key in s3.objects if "/terminal-dispositions/" in key]) == 1
+    assert sqs.deleted_messages == [
+        {"QueueUrl": _config().sqs_queue_url, "ReceiptHandle": "receipt-1"}
+    ]
+
+
+def test_lost_candidate_put_response_exact_read_continues_canonical_write() -> None:
+    class LostResponseS3(ConditionalFakeS3):
+        lost = False
+
+        def put_object(self, **kwargs):
+            response = super().put_object(**kwargs)
+            if "/terminal-candidates/" in kwargs["Key"] and not self.lost:
+                self.lost = True
+                raise TimeoutError("candidate response lost")
+            return response
+
+    s3 = LostResponseS3()
+
+    assert (
+        _write_result(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "100",
+            "run-new",
+            ScrapeResult(status=ScrapeStatus.NO_RESULTS),
+            "scraper/results/100.json",
+        )
+        == "created"
+    )
+    assert "scraper/runs/run-new/results/100.json" in s3.objects
+
+
+def test_disposition_is_verified_before_stable_cache_publication() -> None:
+    s3 = ConditionalFakeS3()
+
+    _write_result(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        "100",
+        "run-new",
+        ScrapeResult(status=ScrapeStatus.NO_RESULTS),
+        "scraper/results/100.json",
+        delivery_metadata={
+            "message_id": "message-1",
+            "body_sha256": "a" * 64,
+            "system_attributes": {"ApproximateReceiveCount": "1"},
+        },
+    )
+
+    keys = [str(put["Key"]) for put in s3.puts]
+    assert "/terminal-candidates/" in keys[0]
+    assert "/terminal-decisions/" in keys[1]
+    assert keys[2] == "scraper/runs/run-new/results/100.json"
+    assert "/terminal-dispositions/" in keys[3]
+    assert keys[4] == "scraper/results/100.json"
+
+
+def test_disposition_failure_leaves_canonical_but_not_stable_cache() -> None:
+    class FailingDispositionS3(ConditionalFakeS3):
+        def put_object(self, **kwargs):
+            if "/terminal-dispositions/" in kwargs["Key"]:
+                raise TimeoutError("disposition unavailable")
+            return super().put_object(**kwargs)
+
+        def get_object(self, *, Bucket, Key):
+            if "/terminal-dispositions/" in Key:
+                raise TimeoutError("disposition readback unavailable")
+            return super().get_object(Bucket=Bucket, Key=Key)
+
+    s3 = FailingDispositionS3()
+
+    with pytest.raises(CandidateJournalError, match="durably commit"):
+        _write_result(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "100",
+            "run-new",
+            ScrapeResult(status=ScrapeStatus.NO_RESULTS),
+            "scraper/results/100.json",
+            delivery_metadata={
+                "message_id": "message-1",
+                "body_sha256": "a" * 64,
+                "system_attributes": {"ApproximateReceiveCount": "1"},
+            },
+        )
+
+    assert "scraper/runs/run-new/results/100.json" in s3.objects
+    assert "scraper/results/100.json" not in s3.objects
+
+
+def test_result_conflict_evidence_failure_cannot_erase_candidate() -> None:
+    class ConflictWriteFailsS3(ConditionalFakeS3):
+        fail_conflicts = False
+
+        def put_object(self, **kwargs):
+            if self.fail_conflicts and "/result-conflicts/" in kwargs["Key"]:
+                raise TimeoutError("conflict evidence failed")
+            return super().put_object(**kwargs)
+
+    s3 = ConflictWriteFailsS3()
+    _write_result(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        "100",
+        "run-new",
+        ScrapeResult(status=ScrapeStatus.SUCCESS, data={"cases": ["A"]}),
+        "scraper/results/100.json",
+    )
+    canonical = s3.objects["scraper/runs/run-new/results/100.json"]
+    s3.fail_conflicts = True
+
+    with pytest.raises(TimeoutError, match="conflict evidence failed"):
+        _write_result(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "100",
+            "run-new",
+            ScrapeResult(status=ScrapeStatus.SUCCESS, data={"cases": ["B"]}),
+            "scraper/results/100.json",
+        )
+
+    assert s3.objects["scraper/runs/run-new/results/100.json"] == canonical
+    candidate_keys = [key for key in s3.objects if "/terminal-candidates/" in key]
+    assert len(candidate_keys) == 2
+
+
+def test_failure_conflict_evidence_failure_cannot_erase_candidate() -> None:
+    class ConflictWriteFailsS3(ConditionalFakeS3):
+        fail_conflicts = False
+
+        def put_object(self, **kwargs):
+            if self.fail_conflicts and "/failure-conflicts/" in kwargs["Key"]:
+                raise TimeoutError("failure conflict evidence failed")
+            return super().put_object(**kwargs)
+
+    s3 = ConflictWriteFailsS3()
+    _write_failure(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        "run-new",
+        "100",
+        ScrapeResult(status=ScrapeStatus.FAILED, classification="A"),
+    )
+    canonical = s3.objects["scraper/runs/run-new/failures/100.json"]
+    s3.fail_conflicts = True
+
+    with pytest.raises(TimeoutError, match="failure conflict evidence failed"):
+        _write_failure(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "run-new",
+            "100",
+            ScrapeResult(status=ScrapeStatus.INVALID_INPUT, classification="B"),
+        )
+
+    assert s3.objects["scraper/runs/run-new/failures/100.json"] == canonical
+    candidate_keys = [key for key in s3.objects if "/terminal-candidates/" in key]
+    assert len(candidate_keys) == 2
 
 
 def test_identical_duplicate_keeps_first_exact_body_and_refreshes_cache_from_it() -> None:
@@ -554,6 +1048,7 @@ def test_conflicting_duplicate_is_durable_and_cannot_replace_first_result() -> N
             "scraper/results/100.json",
             delivery_metadata={
                 "message_id": "message-2",
+                "body_sha256": "a" * 64,
                 "system_attributes": {"ApproximateReceiveCount": "2"},
             },
         )
@@ -575,6 +1070,7 @@ def test_conflicting_duplicate_is_durable_and_cannot_replace_first_result() -> N
     assert json.loads(candidate_body)["status"] == "SUCCESS"
     assert conflict["sqs_delivery"] == {
         "message_id": "message-2",
+        "body_sha256": "a" * 64,
         "system_attributes": {"ApproximateReceiveCount": "2"},
     }
     conflict_put = next(put for put in s3.puts if put["Key"] == conflict_key)
@@ -674,19 +1170,45 @@ def test_invalid_preexisting_exact_result_records_terminal_conflict(
     assert conflict["differing_fields"] == ["existing_result_invalid"]
 
 
-def test_worker_terminalizes_conflicting_duplicate_only_after_evidence(
+@pytest.mark.parametrize("terminal_prefix", ["results", "failures"])
+def test_worker_rescrapes_exact_checkpoint_without_message_disposition(
     monkeypatch: pytest.MonkeyPatch,
+    terminal_prefix: str,
 ) -> None:
     s3 = ConditionalFakeS3()
     sqs = FakeSQS()
-    exact_key = "scraper/runs/run-new/results/100.json"
-    first = ScrapeResult(
-        status=ScrapeStatus.NO_RESULTS,
-        item_id="100",
-        run_id="run-new",
+    exact_key = f"scraper/runs/run-new/{terminal_prefix}/100.json"
+    first_body = (
+        ScrapeResult(
+            status=ScrapeStatus.NO_RESULTS,
+            item_id="100",
+            run_id="run-new",
+        )
+        .model_dump_json()
+        .encode()
+        if terminal_prefix == "results"
+        else ScrapeResult(
+            status=ScrapeStatus.FAILED,
+            item_id="100",
+            run_id="run-new",
+            classification="permanent",
+        )
+        .model_dump_json()
+        .encode()
     )
-    first_body = first.model_dump_json().encode()
     s3.objects[exact_key] = first_body
+    older_global = (
+        ScrapeResult(
+            status=ScrapeStatus.SUCCESS,
+            item_id="100",
+            run_id="run-older",
+            data={"results": [{"case": "stale"}]},
+        )
+        .model_dump_json()
+        .encode()
+    )
+    s3.objects["scraper/results/100.json"] = older_global
+    scrape_calls: list[str] = []
 
     class FakeSession:
         def client(self, service: str):
@@ -694,9 +1216,14 @@ def test_worker_terminalizes_conflicting_duplicate_only_after_evidence(
 
     class FakeScraper:
         def __call__(self, item: WorkItem) -> ScrapeResult:
-            return ScrapeResult(
-                status=ScrapeStatus.SUCCESS,
-                data={"results": [{"case": "1"}]},
+            scrape_calls.append(item.item_id)
+            return (
+                ScrapeResult(status=ScrapeStatus.NO_RESULTS)
+                if terminal_prefix == "results"
+                else ScrapeResult(
+                    status=ScrapeStatus.FAILED,
+                    classification="permanent",
+                )
             )
 
         def reset(self) -> None:
@@ -710,10 +1237,12 @@ def test_worker_terminalizes_conflicting_duplicate_only_after_evidence(
             {
                 "item_id": "100",
                 "run_id": "run-new",
-                "force_rescrape": True,
+                "force_rescrape": False,
             }
         ),
         "ReceiptHandle": "receipt-1",
+        "MessageId": "message-1",
+        "Attributes": {"ApproximateReceiveCount": "2"},
     }
     messages = iter([message, None, None, None])
     monkeypatch.setattr(worker_module, "make_boto3_session", lambda **kwargs: FakeSession())
@@ -729,7 +1258,76 @@ def test_worker_terminalizes_conflicting_duplicate_only_after_evidence(
     )
 
     assert s3.objects[exact_key] == first_body
-    assert len(_result_conflict_keys(s3)) == 1
+    if terminal_prefix == "results":
+        assert s3.objects["scraper/results/100.json"] == first_body
+    else:
+        assert s3.objects["scraper/results/100.json"] == older_global
+    assert scrape_calls == ["100"]
+    assert _result_conflict_keys(s3) == []
+    expected_dlq_messages = (
+        []
+        if terminal_prefix == "results"
+        else [{"QueueUrl": _config().sqs_dlq_url, "MessageBody": message["Body"]}]
+    )
+    assert sqs.sent_messages == expected_dlq_messages
+    assert sqs.deleted_messages == [
+        {"QueueUrl": _config().sqs_queue_url, "ReceiptHandle": "receipt-1"}
+    ]
+    stats_keys = [key for key in s3.objects if key.endswith("-stats.json")]
+    assert len(stats_keys) == 1
+    assert json.loads(s3.objects[stats_keys[0]])["items_processed"] == 1
+    disposition_keys = [key for key in s3.objects if "/terminal-dispositions/" in key]
+    assert len(disposition_keys) == 1
+    if terminal_prefix == "failures":
+        marker = json.loads(s3.objects["scraper/runs/run-new/failure-deliveries/100.json"])
+        assert marker["item_id"] == "100"
+        assert marker["body_sha256"] == hashlib.sha256(message["Body"].encode()).hexdigest()
+
+
+def test_worker_rescrapes_result_failure_overlap_and_records_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    s3 = ConditionalFakeS3()
+    sqs = FakeSQS()
+    for terminal_prefix in ("results", "failures"):
+        s3.objects[f"scraper/runs/run-new/{terminal_prefix}/100.json"] = b"checkpoint"
+    scrape_calls: list[str] = []
+
+    class FakeSession:
+        def client(self, service: str):
+            return s3 if service == "s3" else sqs
+
+    class FakeScraper:
+        def __call__(self, item: WorkItem) -> ScrapeResult:
+            scrape_calls.append(item.item_id)
+            return ScrapeResult(status=ScrapeStatus.NO_RESULTS)
+
+        def reset(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    message = {
+        "Body": json.dumps({"item_id": "100", "run_id": "run-new", "force_rescrape": True}),
+        "ReceiptHandle": "receipt-1",
+        "MessageId": "message-1",
+        "Attributes": {"ApproximateReceiveCount": "1"},
+    }
+    messages = iter([message, None, None, None])
+    monkeypatch.setattr(worker_module, "make_boto3_session", lambda **kwargs: FakeSession())
+    monkeypatch.setattr(worker_module, "_receive_message", lambda *args: next(messages))
+    monkeypatch.setattr(worker_module, "_queue_is_empty", lambda *args: True)
+    monkeypatch.setattr(worker_module.random, "uniform", lambda *args: 0.0)
+    monkeypatch.setattr(worker_module.time, "sleep", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "alarm", lambda *args: 0)
+
+    worker_module.run_worker(
+        lambda: FakeScraper(), _config().model_copy(update={"run_id": "run-new"})
+    )
+
+    assert scrape_calls == ["100"]
     assert sqs.sent_messages == [
         {"QueueUrl": _config().sqs_dlq_url, "MessageBody": message["Body"]}
     ]
@@ -739,17 +1337,12 @@ def test_worker_terminalizes_conflicting_duplicate_only_after_evidence(
     stats_keys = [key for key in s3.objects if key.endswith("-stats.json")]
     assert len(stats_keys) == 1
     assert json.loads(s3.objects[stats_keys[0]])["permanent_failure_count"] == 1
+    assert len(_result_conflict_keys(s3)) == 1
+    assert len([key for key in s3.objects if "/terminal-dispositions/" in key]) == 1
 
 
 def test_failure_artifact_carries_exact_run_identity() -> None:
-    class FakeS3:
-        def __init__(self) -> None:
-            self.puts: list[dict[str, object]] = []
-
-        def put_object(self, **kwargs):
-            self.puts.append(kwargs)
-
-    s3 = FakeS3()
+    s3 = ConditionalFakeS3()
 
     _write_failure(  # ty: ignore[invalid-argument-type]
         s3,
@@ -759,6 +1352,149 @@ def test_failure_artifact_carries_exact_run_identity() -> None:
         ScrapeResult(status=ScrapeStatus.FAILED),
     )
 
-    body = json.loads(s3.puts[0]["Body"])
+    canonical_put = next(put for put in s3.puts if str(put["Key"]).endswith("/failures/100.json"))
+    body = json.loads(canonical_put["Body"])
     assert body["run_id"] == "run-new"
     assert body["item_id"] == "100"
+
+
+def test_failure_publication_is_first_writer_wins_and_preserves_conflict() -> None:
+    s3 = ConditionalFakeS3()
+    first = ScrapeResult(
+        status=ScrapeStatus.FAILED,
+        classification="terminal-a",
+        error_message="same",
+    )
+
+    assert (
+        _write_failure(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "run-new",
+            "100",
+            first,
+        )
+        == "created"
+    )
+    failure_key = "scraper/runs/run-new/failures/100.json"
+    canonical = s3.objects[failure_key]
+    assert (
+        _write_failure(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "run-new",
+            "100",
+            ScrapeResult(
+                status=ScrapeStatus.FAILED,
+                classification="terminal-a",
+                error_message="same",
+                attempt_count=99,
+            ),
+        )
+        == "duplicate"
+    )
+    assert s3.objects[failure_key] == canonical
+
+    with pytest.raises(FailurePublicationConflict, match="durable conflict evidence"):
+        _write_failure(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "run-new",
+            "100",
+            ScrapeResult(
+                status=ScrapeStatus.INVALID_INPUT,
+                classification="terminal-b",
+            ),
+        )
+
+    assert s3.objects[failure_key] == canonical
+    conflict_keys = [key for key in s3.objects if "/failure-conflicts/" in key]
+    assert len(conflict_keys) == 1
+    conflict = json.loads(s3.objects[conflict_keys[0]])
+    assert conflict["terminal_status"] == "failure-conflict"
+    assert conflict["reason"] == "exact-run permanent failures disagree"
+
+
+def test_concurrent_result_and_failure_share_one_terminal_decision() -> None:
+    s3 = ConditionalFakeS3()
+
+    def publish(kind: str) -> str:
+        try:
+            if kind == "result":
+                return _write_result(  # ty: ignore[invalid-argument-type]
+                    s3,
+                    _config(),
+                    "100",
+                    "run-new",
+                    ScrapeResult(status=ScrapeStatus.NO_RESULTS),
+                    "scraper/results/100.json",
+                )
+            return _write_failure(  # ty: ignore[invalid-argument-type]
+                s3,
+                _config(),
+                "run-new",
+                "100",
+                ScrapeResult(status=ScrapeStatus.FAILED, classification="terminal"),
+            )
+        except (ResultPublicationConflict, FailurePublicationConflict):
+            return "conflict"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = sorted(executor.map(publish, ("result", "failure")))
+
+    assert outcomes == ["conflict", "created"]
+    exact_result = "scraper/runs/run-new/results/100.json" in s3.objects
+    exact_failure = "scraper/runs/run-new/failures/100.json" in s3.objects
+    assert exact_result is not exact_failure
+    assert len([key for key in s3.objects if "/terminal-decisions/" in key]) == 1
+    conflicts = [key for key in s3.objects if "/terminal-decision-conflicts/" in key]
+    assert len(conflicts) == 1
+
+
+def test_losing_delivery_gets_no_disposition_before_cross_kind_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    s3 = ConditionalFakeS3()
+    failure = ScrapeResult(
+        status=ScrapeStatus.FAILED,
+        item_id="100",
+        run_id="run-new",
+        scraped_at=datetime(2026, 8, 20, tzinfo=UTC),
+        classification="terminal",
+    )
+    failure_record = failure.model_dump(mode="json")
+    failure_record["failed_at"] = datetime(2026, 8, 20, 1, tzinfo=UTC).isoformat()
+    failure_body = json.dumps(failure_record, sort_keys=True).encode()
+    winner = write_terminal_candidate(  # ty: ignore[invalid-argument-type]
+        s3,
+        _config(),
+        run_id="run-new",
+        item_id="100",
+        kind="failure",
+        candidate_body=failure_body,
+        result=failure,
+    )
+    claim_terminal_decision(s3, _config(), candidate=winner)  # ty: ignore[invalid-argument-type]
+    monkeypatch.setattr(
+        worker_module,
+        "write_terminal_decision_conflict",
+        MagicMock(side_effect=TimeoutError("conflict evidence unavailable")),
+    )
+
+    with pytest.raises(TimeoutError, match="conflict evidence unavailable"):
+        _write_result(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            "100",
+            "run-new",
+            ScrapeResult(status=ScrapeStatus.NO_RESULTS),
+            "scraper/results/100.json",
+            delivery_metadata={
+                "message_id": "loser-message",
+                "body_sha256": "a" * 64,
+                "system_attributes": {"ApproximateReceiveCount": "1"},
+            },
+        )
+
+    assert s3.objects["scraper/runs/run-new/failures/100.json"] == failure_body
+    assert not any("/terminal-dispositions/" in key for key in s3.objects)

@@ -11,9 +11,14 @@ from aws_batch_scraper.config import WorkerConfig
 from aws_batch_scraper.lease import (
     RunLeaseConflict,
     acquire_run_lease,
+    claim_run_lease,
     claim_run_lease_for_processing,
+    claim_run_lease_for_recovery,
+    finalizing_run_owner,
+    reconcile_run_lease_from_recovery,
     release_run_lease,
     renew_run_lease,
+    return_run_lease_from_recovery,
 )
 from botocore.exceptions import ClientError
 
@@ -186,6 +191,49 @@ def test_wrong_owner_cannot_release() -> None:
     assert "scraper/active-run.json" in s3.objects
 
 
+def test_stale_generation_cannot_release_successor_with_same_owner() -> None:
+    s3 = FakeS3()
+    now = datetime(2026, 8, 18, tzinfo=UTC)
+    acquire_run_lease(s3, _config(), "run-1", now=now)
+
+    released = release_run_lease(
+        s3,
+        _config(),
+        "run-1",
+        expected_created_at=now - timedelta(minutes=1),
+        terminal_status="failure",
+    )
+
+    assert released is False
+    assert "scraper/runs/run-1/lease-terminal.json" not in s3.objects
+
+
+def test_processing_claim_accepts_exact_finalizing_generation() -> None:
+    s3 = FakeS3()
+    now = datetime(2026, 8, 18, tzinfo=UTC)
+    acquired = acquire_run_lease(s3, _config(), "run-1", now=now)
+    finalizing_owner = finalizing_run_owner("run-1", acquired.created_at)
+    claim_run_lease(
+        s3,
+        _config(),
+        "run-1",
+        finalizing_owner,
+        expected_created_at=acquired.created_at,
+        now=now + timedelta(seconds=1),
+    )
+
+    claimed = claim_run_lease_for_processing(
+        s3,
+        _config(),
+        "run-1",
+        "process:attempt-1",
+        now=now + timedelta(seconds=2),
+    )
+
+    assert claimed.owner == "process:attempt-1"
+    assert claimed.created_at == acquired.created_at
+
+
 def test_failed_release_preserves_terminal_evidence() -> None:
     s3 = FakeS3()
     now = datetime(2026, 8, 18, tzinfo=UTC)
@@ -215,6 +263,191 @@ def test_failed_release_preserves_terminal_evidence() -> None:
         now=now + timedelta(minutes=1, microseconds=1),
     )
     assert replacement.run_id == "run-2"
+
+
+def test_recovery_claim_fences_old_coordinator_and_can_return_to_run_owner() -> None:
+    s3 = FakeS3()
+    now = datetime(2026, 8, 18, tzinfo=UTC)
+    acquire_run_lease(s3, _config(), "run-1", now=now)
+
+    recovery_lease = claim_run_lease_for_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-1",
+        now=now + timedelta(minutes=1),
+    )
+
+    assert recovery_lease.owner == "recovery:attempt-1"
+    with pytest.raises(RunLeaseConflict, match="owned by.*recovery"):
+        renew_run_lease(s3, _config(), "run-1", now=now + timedelta(minutes=2))
+
+    returned = return_run_lease_from_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-1",
+        now=now + timedelta(minutes=2),
+    )
+    assert returned.owner == "run-1"
+    renewed = renew_run_lease(
+        s3,
+        _config(),
+        "run-1",
+        now=now + timedelta(minutes=3),
+    )
+    assert renewed.owner == "run-1"
+
+
+def test_reconciled_expired_recovery_stays_same_run_fenced() -> None:
+    s3 = FakeS3()
+    now = datetime(2026, 8, 18, tzinfo=UTC)
+    acquire_run_lease(s3, _config(), "run-1", now=now)
+    recovery = claim_run_lease_for_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-1",
+        now=now + timedelta(minutes=1),
+        ttl=timedelta(minutes=1),
+    )
+
+    returned = reconcile_run_lease_from_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-1",
+        expected_created_at=recovery.created_at,
+        now=now + timedelta(minutes=3),
+        ttl=timedelta(minutes=1),
+    )
+
+    assert returned.owner == "run-1"
+    assert returned.created_at == now + timedelta(minutes=3)
+    assert not release_run_lease(
+        s3,
+        _config(),
+        "run-1",
+        owner="recovery:attempt-1",
+        expected_created_at=recovery.created_at,
+        terminal_status="failure",
+        now=now + timedelta(minutes=4),
+    )
+    with pytest.raises(RunLeaseConflict, match="terminal evidence"):
+        acquire_run_lease(
+            s3,
+            _config(),
+            "run-2",
+            now=now + timedelta(minutes=5),
+        )
+    retried = claim_run_lease_for_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-2",
+        now=now + timedelta(minutes=5),
+    )
+    assert retried.owner == "recovery:attempt-2"
+
+
+def test_reconciled_handoff_accepts_lost_put_response_only_after_exact_read() -> None:
+    class LostResponseS3(FakeS3):
+        lose_next_response = False
+
+        def put_object(self, **kwargs):
+            response = super().put_object(**kwargs)
+            if self.lose_next_response:
+                self.lose_next_response = False
+                raise TimeoutError("lease response lost")
+            return response
+
+    s3 = LostResponseS3()
+    now = datetime(2026, 8, 18, tzinfo=UTC)
+    acquire_run_lease(s3, _config(), "run-1", now=now)
+    recovery_lease = claim_run_lease_for_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-1",
+        now=now + timedelta(minutes=1),
+    )
+    s3.lose_next_response = True
+
+    returned = reconcile_run_lease_from_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-1",
+        expected_created_at=recovery_lease.created_at,
+        now=now + timedelta(minutes=2),
+    )
+
+    assert returned.owner == "run-1"
+    assert json.loads(s3.objects["scraper/active-run.json"])["created_at"] == (
+        returned.created_at.isoformat().replace("+00:00", "Z")
+    )
+
+
+def test_recovery_claim_rejects_successfully_released_run() -> None:
+    s3 = FakeS3()
+    now = datetime(2026, 8, 18, tzinfo=UTC)
+    acquire_run_lease(s3, _config(), "run-1", now=now)
+    assert release_run_lease(
+        s3,
+        _config(),
+        "run-1",
+        terminal_status="success",
+        now=now + timedelta(minutes=1),
+    )
+
+    with pytest.raises(RunLeaseConflict, match="successfully completed"):
+        claim_run_lease_for_recovery(
+            s3,
+            _config(),
+            "run-1",
+            "attempt-1",
+            now=now + timedelta(minutes=2),
+        )
+
+
+def test_failed_recovery_can_be_reclaimed_only_after_expiry_and_terminal_release() -> None:
+    s3 = FakeS3()
+    now = datetime(2026, 8, 18, tzinfo=UTC)
+    acquire_run_lease(s3, _config(), "run-1", now=now)
+    claim_run_lease_for_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-1",
+        now=now + timedelta(minutes=1),
+        ttl=timedelta(minutes=1),
+    )
+
+    with pytest.raises(RunLeaseConflict, match="active recovery lease"):
+        claim_run_lease_for_recovery(
+            s3,
+            _config(),
+            "run-1",
+            "attempt-2",
+            now=now + timedelta(minutes=1, seconds=30),
+        )
+
+    assert release_run_lease(
+        s3,
+        _config(),
+        "run-1",
+        owner="recovery:attempt-1",
+        terminal_status="failure",
+        now=now + timedelta(minutes=2),
+    )
+    retried = claim_run_lease_for_recovery(
+        s3,
+        _config(),
+        "run-1",
+        "attempt-2",
+        now=now + timedelta(minutes=2, microseconds=1),
+    )
+    assert retried.owner == "recovery:attempt-2"
 
 
 def test_only_one_cross_run_acquirer_can_replace_a_released_lease() -> None:

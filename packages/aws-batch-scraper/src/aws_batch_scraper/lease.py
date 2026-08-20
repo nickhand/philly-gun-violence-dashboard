@@ -1,5 +1,6 @@
 """S3-backed lease preventing overlapping scraper runs."""
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -69,6 +70,16 @@ def _terminal_key(config: WorkerConfig, run_id: str) -> str:
     return f"{config.s3_scraper_prefix}/runs/{run_id}/lease-terminal.json"
 
 
+def finalizing_run_owner(run_id: str, created_at: datetime) -> str:
+    """Return the owner that atomically fences one manifest-publication generation."""
+    if not run_id.strip():
+        raise ValueError("run ID must not be blank")
+    if created_at.tzinfo is None:
+        raise ValueError("lease creation time must be timezone-aware")
+    scope = f"{run_id}\0{created_at.astimezone(UTC).isoformat()}"
+    return f"finalize:{hashlib.sha256(scope.encode()).hexdigest()[:24]}"
+
+
 def _error_code(exc: ClientError) -> str:
     return str(exc.response.get("Error", {}).get("Code", ""))
 
@@ -91,6 +102,15 @@ def _read_lease(
     if not isinstance(etag, str) or not etag:
         raise RuntimeError("Active run lease is missing its S3 ETag")
     return RunLease.model_validate_json(body), etag
+
+
+def read_run_lease(
+    s3: S3Client,
+    config: WorkerConfig,
+) -> RunLease:
+    """Return the typed active lease without exposing its CAS implementation."""
+    lease, _ = _read_lease(s3, config)
+    return lease
 
 
 def _read_terminal_record(
@@ -339,6 +359,7 @@ def claim_run_lease(
     claimant: str,
     *,
     current_owner: str | None = None,
+    expected_created_at: datetime | None = None,
     now: datetime | None = None,
     ttl: timedelta = _DEFAULT_LEASE_TTL,
 ) -> RunLease:
@@ -358,12 +379,19 @@ def claim_run_lease(
         raise ValueError("claimant must not be blank")
 
     expected_owner = current_owner or run_id
+    if expected_created_at is not None and expected_created_at.tzinfo is None:
+        raise ValueError("expected lease creation time must be timezone-aware")
     if claimant == expected_owner:
         raise ValueError("claimant must differ from the current lease owner")
     current, etag = _read_lease(s3, config)
-    if current.run_id != run_id or current.owner != expected_owner:
+    if (
+        current.run_id != run_id
+        or current.owner != expected_owner
+        or (expected_created_at is not None and current.created_at != expected_created_at)
+    ):
         raise RunLeaseConflict(
-            f"Cannot claim lease owned by run={current.run_id}, owner={current.owner}"
+            f"Cannot claim lease owned by run={current.run_id}, owner={current.owner}, "
+            f"generation={current.created_at.isoformat()}"
         )
     if current.expires_at <= claimed_at:
         raise RunLeaseConflict(
@@ -414,7 +442,8 @@ def claim_run_lease_for_processing(
     if claimant == current.owner:
         raise ValueError("claimant must differ from the current lease owner")
 
-    if current.owner != run_id:
+    expected_finalizing_owner = finalizing_run_owner(run_id, current.created_at)
+    if current.owner not in {run_id, expected_finalizing_owner}:
         if not current.owner.startswith("process:"):
             raise RunLeaseConflict(
                 f"Cannot claim lease owned by run={current.run_id}, owner={current.owner}"
@@ -444,12 +473,208 @@ def claim_run_lease_for_processing(
     return claimed
 
 
+def claim_run_lease_for_recovery(
+    s3: S3Client,
+    config: WorkerConfig,
+    run_id: str,
+    attempt_id: str,
+    *,
+    now: datetime | None = None,
+    ttl: timedelta = _DEFAULT_LEASE_TTL,
+) -> RunLease:
+    """CAS-transfer one interrupted run to a distinct recovery generation.
+
+    The caller must first prove that every previously recorded worker task is
+    stopped and that all queue states are stable.  This function supplies the
+    ownership fence: an old coordinator using the normal ``run_id`` owner can
+    no longer renew or finalize after recovery wins the compare-and-swap.
+    """
+    claimed_at = now or datetime.now(UTC)
+    if claimed_at.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    if ttl <= timedelta(0):
+        raise ValueError("ttl must be positive")
+    if not attempt_id.strip():
+        raise ValueError("recovery attempt ID must not be blank")
+    claimant = f"recovery:{attempt_id}"
+
+    current, etag = _read_lease(s3, config)
+    if current.run_id != run_id:
+        raise RunLeaseConflict(
+            f"Cannot recover run {run_id}; active lease belongs to run={current.run_id}, "
+            f"owner={current.owner}"
+        )
+    if current.owner == claimant:
+        raise ValueError("recovery claimant must differ from the current lease owner")
+
+    if current.owner == run_id:
+        terminal, _ = _read_terminal_state(s3, config, run_id)
+        if (
+            terminal is not None
+            and _is_completed_release_for_lease(current, terminal)
+            and terminal.terminal_status == "success"
+        ):
+            raise RunLeaseConflict(f"Cannot recover successfully completed run {run_id}")
+    elif current.owner.startswith("recovery:"):
+        if current.expires_at > claimed_at:
+            raise RunLeaseConflict(
+                f"Cannot replace active recovery lease owned by {current.owner} until "
+                f"{current.expires_at.isoformat()}"
+            )
+        terminal = _require_completed_terminal_release(
+            s3,
+            config,
+            current,
+            action=f"retry recovery for run {run_id}",
+        )
+        if terminal.terminal_status != "failure":
+            raise RunLeaseConflict(f"Cannot retry successful recovery for run {run_id}")
+    else:
+        raise RunLeaseConflict(
+            f"Cannot recover run {run_id}; active lease owner {current.owner!r} is not "
+            "a scraper coordinator or prior recovery attempt"
+        )
+
+    claimed = RunLease(
+        run_id=run_id,
+        owner=claimant,
+        created_at=claimed_at,
+        expires_at=claimed_at + ttl,
+    )
+    try:
+        _put_lease(s3, config, claimed, if_match=etag)
+    except ClientError as exc:
+        if _is_precondition_failed(exc):
+            raise RunLeaseConflict("Active-run lease changed during recovery claim") from exc
+        raise
+    logger.info(f"Transferred active-run lease for {run_id} to {claimant}")
+    return claimed
+
+
+def return_run_lease_from_recovery(
+    s3: S3Client,
+    config: WorkerConfig,
+    run_id: str,
+    attempt_id: str,
+    *,
+    now: datetime | None = None,
+    ttl: timedelta = _DEFAULT_LEASE_TTL,
+) -> RunLease:
+    """Hand a successful recovery back to the normal run coordinator owner."""
+    returned_at = now or datetime.now(UTC)
+    if returned_at.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    if ttl <= timedelta(0):
+        raise ValueError("ttl must be positive")
+    expected_owner = f"recovery:{attempt_id}"
+    current, etag = _read_lease(s3, config)
+    if current.run_id != run_id or current.owner != expected_owner:
+        raise RunLeaseConflict(
+            f"Cannot return lease owned by run={current.run_id}, owner={current.owner}"
+        )
+    if current.expires_at <= returned_at:
+        raise RunLeaseConflict(
+            f"Cannot return expired recovery lease for run {run_id}; it expired at "
+            f"{current.expires_at.isoformat()}"
+        )
+    returned = current.model_copy(update={"owner": run_id, "expires_at": returned_at + ttl})
+    try:
+        _put_lease(s3, config, returned, if_match=etag)
+    except ClientError as exc:
+        if _is_precondition_failed(exc):
+            raise RunLeaseConflict("Active-run lease changed during recovery handoff") from exc
+        raise
+    logger.info(f"Returned active-run lease for {run_id} from {expected_owner}")
+    return returned
+
+
+def reconcile_run_lease_from_recovery(
+    s3: S3Client,
+    config: WorkerConfig,
+    run_id: str,
+    attempt_id: str,
+    *,
+    expected_created_at: datetime,
+    now: datetime | None = None,
+    ttl: timedelta = _DEFAULT_LEASE_TTL,
+) -> RunLease:
+    """CAS-return a proven-quiescent recovery, including an expired owner.
+
+    This is intentionally not a terminal release. Old-run queue messages and
+    exact-run evidence may still need another recovery attempt, so a fresh run
+    must remain fenced until this same run is explicitly completed or abandoned.
+    """
+    returned_at = now or datetime.now(UTC)
+    if returned_at.tzinfo is None or expected_created_at.tzinfo is None:
+        raise ValueError("lease generation times must be timezone-aware")
+    if ttl <= timedelta(0):
+        raise ValueError("ttl must be positive")
+    expected_owner = f"recovery:{attempt_id}"
+    current, etag = _read_lease(s3, config)
+    if (
+        current.run_id != run_id
+        or current.owner != expected_owner
+        or current.created_at != expected_created_at
+    ):
+        raise RunLeaseConflict(
+            f"Cannot reconcile lease owned by run={current.run_id}, owner={current.owner}, "
+            f"generation={current.created_at.isoformat()}"
+        )
+    returned_generation = max(
+        returned_at,
+        current.created_at + timedelta(microseconds=1),
+    )
+    returned = RunLease(
+        run_id=run_id,
+        owner=run_id,
+        created_at=returned_generation,
+        expires_at=returned_generation + ttl,
+    )
+    try:
+        _put_lease(s3, config, returned, if_match=etag)
+    except ClientError as exc:
+        if _is_precondition_failed(exc):
+            raise RunLeaseConflict("Active-run lease changed during reconciled handoff") from exc
+        try:
+            observed, _ = _read_lease(s3, config)
+        except Exception:
+            raise RuntimeError(
+                "Recovery lease handoff delivery is unknown; retain the same-run fence"
+            ) from exc
+        if observed == returned:
+            logger.info(f"Reconciled lost response for active-run lease handoff of {run_id}")
+            return returned
+        if observed == current:
+            raise
+        raise RunLeaseConflict(
+            "Active-run lease changed during ambiguous reconciled handoff"
+        ) from exc
+    except Exception as exc:
+        try:
+            observed, _ = _read_lease(s3, config)
+        except Exception:
+            raise RuntimeError(
+                "Recovery lease handoff delivery is unknown; retain the same-run fence"
+            ) from exc
+        if observed == returned:
+            logger.info(f"Reconciled lost response for active-run lease handoff of {run_id}")
+            return returned
+        if observed == current:
+            raise
+        raise RunLeaseConflict(
+            "Active-run lease changed during ambiguous reconciled handoff"
+        ) from exc
+    logger.info(f"Reconciled active-run lease for {run_id} from {expected_owner}")
+    return returned
+
+
 def release_run_lease(
     s3: S3Client,
     config: WorkerConfig,
     run_id: str,
     *,
     owner: str | None = None,
+    expected_created_at: datetime | None = None,
     terminal_status: Literal["success", "failure"],
     detail: str | None = None,
     now: datetime | None = None,
@@ -463,11 +688,18 @@ def release_run_lease(
         raise
 
     expected_owner = owner or run_id
-    if current.run_id != run_id or current.owner != expected_owner:
+    if expected_created_at is not None and expected_created_at.tzinfo is None:
+        raise ValueError("expected lease creation time must be timezone-aware")
+    if (
+        current.run_id != run_id
+        or current.owner != expected_owner
+        or (expected_created_at is not None and current.created_at != expected_created_at)
+    ):
         logger.warning(
-            "Refusing to release active-run lease owned by run={}, owner={}",
+            "Refusing to release active-run lease owned by run={}, owner={}, generation={}",
             current.run_id,
             current.owner,
+            current.created_at.isoformat(),
         )
         return False
 

@@ -41,8 +41,8 @@ class _SubmitPhase(StrEnum):
     """Durable-side-effect phase used to choose safe failure compensation."""
 
     LEASE_ACQUIRED = "lease-acquired"
-    MANIFEST_WRITE_STARTED = "manifest-write-started"
-    MANIFEST_WRITTEN = "manifest-written"
+    RUN_COMMIT_STARTED = "run-commit-started"
+    RUN_COMMITTED = "run-committed"
     QUEUE_SEED_STARTED = "queue-seed-started"
     QUEUE_SEEDED = "queue-seeded"
     WORKER_LAUNCH_UNKNOWN = "worker-launch-unknown"
@@ -59,6 +59,24 @@ def _monitor_command(script_name: str, name: str, run_id: str) -> list[str]:
         "monitor",
         "--run-id",
         run_id,
+    ]
+
+
+def _recovery_monitor_command(
+    script_name: str,
+    name: str,
+    run_id: str,
+    attempt_id: str,
+) -> list[str]:
+    """Build the coordinator command for one append-only recovery attempt."""
+    return [
+        script_name,
+        name,
+        "resume-monitor",
+        "--run-id",
+        run_id,
+        "--attempt-id",
+        attempt_id,
     ]
 
 
@@ -366,6 +384,8 @@ def create_cli(
             raise typer.BadParameter("Use --wait or --monitor-in-ecs for terminal run ownership.")
         if allow_recent_full_run and minimum_full_run_interval is None:
             raise typer.BadParameter("This scraper does not configure a recent full-run guard.")
+        if soft_blocked_delay is not None and not 1 <= soft_blocked_delay <= 43_200:
+            raise typer.BadParameter("Soft-blocked delay must be between 1 and 43200 seconds.")
 
         from aws_batch_scraper.aws import make_boto3_session
         from aws_batch_scraper.ids import make_run_id
@@ -459,6 +479,17 @@ def create_cli(
         require_github_workflow_file(config.github_workflow_file)
         resolve_split_task_definitions(ecs, config)
 
+        from aws_batch_scraper.recovery import read_queue_state
+
+        preexisting_queue = read_queue_state(sqs, config)
+        if preexisting_queue.total:
+            raise RuntimeError(
+                "Shared scraper queue is not empty before submission: "
+                f"{preexisting_queue.visible} visible, "
+                f"{preexisting_queue.in_flight} in-flight, "
+                f"{preexisting_queue.delayed} delayed"
+            )
+
         phase = _SubmitPhase.LEASE_ACQUIRED
         lease_acquired = False
         task_arns: list[str] = []
@@ -469,7 +500,7 @@ def create_cli(
         try:
             acquire_run_lease(s3, config, run_id)
             lease_acquired = True
-            phase = _SubmitPhase.MANIFEST_WRITE_STARTED
+            phase = _SubmitPhase.RUN_COMMIT_STARTED
             write_run_manifest(
                 s3,
                 config,
@@ -478,8 +509,9 @@ def create_cli(
                 worker_count=worker_count,
                 selection_mode=selection_mode,
                 candidate_count=candidate_count,
+                force_rescrape=force,
             )
-            phase = _SubmitPhase.MANIFEST_WRITTEN
+            phase = _SubmitPhase.RUN_COMMITTED
             phase = _SubmitPhase.QUEUE_SEED_STARTED
             seeded_count = seed_queue(sqs, config, items, run_id, force_rescrape=force)
             if seeded_count != len(items):
@@ -576,6 +608,180 @@ def create_cli(
             monitor_run(ecs, sqs, s3, config, resolved)
         else:
             monitor_until_empty(sqs, config, s3=None, run_id=None)
+
+    @app.command()
+    def resume(
+        run_id: Annotated[
+            str,
+            typer.Argument(help="Existing run ID to inventory and selectively resume."),
+        ],
+        execute: Annotated[
+            bool,
+            typer.Option(
+                "--execute",
+                help="Apply the recovery plan. Without this flag the command is read-only.",
+            ),
+        ] = False,
+        workers: Annotated[
+            int | None,
+            typer.Option(help="Number of Fargate workers for missing or queued work."),
+        ] = None,
+        soft_blocked_delay: Annotated[
+            int | None,
+            typer.Option(help="Max soft-block requeue delay in seconds."),
+        ] = None,
+        wait: Annotated[
+            bool,
+            typer.Option("--wait", help="Monitor the recovery synchronously."),
+        ] = False,
+        monitor_in_ecs: Annotated[
+            bool,
+            typer.Option(
+                "--monitor-in-ecs",
+                help="Launch a separately tokened recovery monitor task.",
+            ),
+        ] = False,
+    ) -> None:
+        """Inventory an interrupted run and reuse all exact terminal checkpoints."""
+        if wait and monitor_in_ecs:
+            raise typer.BadParameter("Use either --wait or --monitor-in-ecs, not both.")
+        if workers is not None and not 1 <= workers <= 10:
+            raise typer.BadParameter("Worker count must be between 1 and 10.")
+        if soft_blocked_delay is not None and not 1 <= soft_blocked_delay <= 43_200:
+            raise typer.BadParameter("Soft-blocked delay must be between 1 and 43200 seconds.")
+        if not execute and (
+            workers is not None or soft_blocked_delay is not None or wait or monitor_in_ecs
+        ):
+            raise typer.BadParameter(
+                "--workers, --soft-blocked-delay, --wait, and --monitor-in-ecs require --execute."
+            )
+
+        from aws_batch_scraper.aws import make_boto3_session
+        from aws_batch_scraper.recovery import (
+            RecoveryAction,
+            build_recovery_plan,
+            execute_recovery_plan,
+        )
+
+        config = submitter_config_class()
+        session = make_boto3_session(config=config)
+        s3 = session.client("s3")
+        sqs = session.client("sqs")
+        ecs = session.client("ecs")
+        plan = build_recovery_plan(s3, sqs, ecs, config, run_id)
+        logger.info(
+            "Recovery {} for run {}: action={}, input={}, completed={}, missing={}, queue={}/{}/{}",
+            plan.attempt_id,
+            run_id,
+            plan.action.value,
+            len(plan.inventory.items),
+            len(plan.inventory.completed_ids),
+            len(plan.inventory.missing_ids),
+            plan.queue.visible,
+            plan.queue.in_flight,
+            plan.queue.delayed,
+        )
+        if not execute:
+            logger.info("Read-only recovery preview complete; no S3, SQS, or ECS writes made")
+            return
+        if plan.action is not RecoveryAction.COMPLETE and not wait and not monitor_in_ecs:
+            raise typer.BadParameter(
+                "Use --wait or --monitor-in-ecs when executing a recovery launch."
+            )
+
+        monitor_command = (
+            _recovery_monitor_command(
+                script_name,
+                name,
+                run_id,
+                plan.attempt_id,
+            )
+            if monitor_in_ecs
+            else None
+        )
+        execute_recovery_plan(
+            s3,
+            sqs,
+            ecs,
+            config,
+            plan,
+            worker_count=workers,
+            soft_blocked_delay_max=soft_blocked_delay,
+            monitor_command=monitor_command,
+            wait=wait,
+        )
+
+    @app.command("resume-reconcile")
+    def resume_reconcile(
+        run_id: Annotated[
+            str,
+            typer.Argument(help="Existing run ID with a retained recovery lease."),
+        ],
+        attempt_id: Annotated[
+            str,
+            typer.Argument(help="Exact recovery attempt ID to reconcile."),
+        ],
+        execute: Annotated[
+            bool,
+            typer.Option(
+                "--execute",
+                help=(
+                    "Write append-only evidence and return the exact recovery fence "
+                    "to the same run. "
+                    "Without this flag the command is read-only."
+                ),
+            ),
+        ] = False,
+    ) -> None:
+        """Prove an interrupted recovery is quiescent before returning its lease."""
+        from aws_batch_scraper.aws import make_boto3_session
+        from aws_batch_scraper.recovery import reconcile_recovery_attempt
+
+        config = submitter_config_class()
+        session = make_boto3_session(config=config)
+        result = reconcile_recovery_attempt(
+            session.client("ecs"),
+            session.client("sqs"),
+            session.client("s3"),
+            config,
+            run_id,
+            attempt_id,
+            execute=execute,
+        )
+        logger.info(
+            "Reconciled recovery {} for run {}: known_tasks={}, missing={}, queue={}/{}/{}",
+            attempt_id,
+            run_id,
+            len(result.known_task_arns),
+            len(result.missing_ids),
+            result.queue.visible,
+            result.queue.in_flight,
+            result.queue.delayed,
+        )
+        if not execute:
+            logger.info("Read-only reconciliation complete; no S3 evidence or lease writes made")
+
+    @app.command("resume-monitor", hidden=True)
+    def resume_monitor(
+        run_id: Annotated[str, typer.Option(help="Existing run ID.")],
+        attempt_id: Annotated[str, typer.Option(help="Exact recovery attempt ID.")],
+    ) -> None:
+        """Monitor one exact recovery task set from the clean coordinator image."""
+        from aws_batch_scraper.aws import make_boto3_session
+        from aws_batch_scraper.recovery import monitor_recovery_attempt
+
+        config = submitter_config_class()
+        require_github_repository(config.github_repository)
+        require_github_workflow_file(config.github_workflow_file)
+        session = make_boto3_session(config=config)
+        monitor_recovery_attempt(
+            session.client("ecs"),
+            session.client("sqs"),
+            session.client("s3"),
+            config,
+            run_id,
+            attempt_id,
+        )
 
     @app.command()
     def aggregate() -> None:

@@ -27,6 +27,11 @@ from aws_batch_scraper.result_semantics import (
     semantic_observation,
 )
 from aws_batch_scraper.strict_json import decode_strict_json_object
+from aws_batch_scraper.terminal_journal import (
+    CandidateJournalError,
+    TerminalCandidateResolution,
+    read_terminal_candidate_resolutions,
+)
 from aws_batch_scraper.types import ScrapeResult, ScrapeStatus, WorkItem
 
 _FETCH_WORKERS = 30
@@ -628,6 +633,12 @@ def audit_result_conflicts(
     """Return conflict dispositions under explicit append-only review evidence."""
     conflict_prefix = f"{config.s3_scraper_prefix}/runs/{run_id}/result-conflicts/"
     resolution_prefix = _resolution_prefix(config, run_id)
+    decision_resolutions = read_terminal_candidate_resolutions(s3, config, run_id)
+    decision_resolutions_by_candidate: dict[str, list[TerminalCandidateResolution]] = {}
+    for resolution in decision_resolutions:
+        decision_resolutions_by_candidate.setdefault(resolution.candidate_key, []).append(
+            resolution
+        )
     paginator = s3.get_paginator("list_objects_v2")
     conflict_keys: set[str] = set()
     for page in paginator.paginate(Bucket=config.s3_bucket, Prefix=conflict_prefix):
@@ -781,11 +792,33 @@ def audit_result_conflicts(
                 except ValueError:
                     resolution_errors += 1
                     invalid_resolution_keys.add(resolution_key)
-            resolved = bool(candidates) and resolution_errors == 0
+            explicit_conflict_review = bool(candidates) and resolution_errors == 0
+            journal_candidate_key = (
+                f"{config.s3_scraper_prefix}/runs/{run_id}/terminal-candidates/v1/"
+                f"{hashlib.sha256(item_id.encode()).hexdigest()}/result/"
+                f"{candidate_sha256}.json"
+            )
+            decision_reviews = (
+                [
+                    resolution
+                    for resolution in decision_resolutions_by_candidate.get(
+                        journal_candidate_key,
+                        [],
+                    )
+                    if resolution.decision_kind == "result"
+                    and resolution.canonical_key == canonical_key
+                    and resolution.canonical_sha256 == canonical_sha256
+                    and resolution.candidate_sha256 == candidate_sha256
+                ]
+                if conflict["schema_version"] == 2
+                else []
+            )
+            candidate_resolution_keys.extend(resolution.key for resolution in decision_reviews)
+            resolved = explicit_conflict_review or bool(decision_reviews)
             reason = (
-                "explicit accept-canonical review is valid"
+                "explicit canonical decision review is valid"
                 if resolved
-                else "missing or invalid explicit accept-canonical review"
+                else "missing or invalid explicit canonical review"
             )
 
         digest_entries.append(
@@ -831,7 +864,13 @@ def require_no_result_conflicts(
     run_id: str,
 ) -> ResultConflictReport:
     """Fail closed on unresolved conflicts and return the audited inventory."""
-    report = audit_result_conflicts(s3, config, run_id)
+    try:
+        report = audit_result_conflicts(s3, config, run_id)
+    except CandidateJournalError as exc:
+        raise RunResultConflictError(
+            f"Run {run_id} has invalid terminal-decision resolution evidence; "
+            "refusing to aggregate or publish this run."
+        ) from exc
 
     blocking_keys = report.unresolved_keys + report.invalid_resolution_keys
     if blocking_keys:

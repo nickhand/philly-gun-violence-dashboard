@@ -1,5 +1,6 @@
 """Contracts for persisted ECS task metadata."""
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -8,6 +9,8 @@ from unittest.mock import MagicMock
 import pytest
 from aws_batch_scraper.config import SubmitterConfig, WorkerConfig
 from aws_batch_scraper.orchestrate import (
+    ManifestPublicationDeliveryUnknownError,
+    _ecs_client_token,
     _finalize_manifest,
     get_task_arns,
     launch_monitor,
@@ -158,6 +161,36 @@ def _s3_with_body(body: bytes) -> MagicMock:
     return s3
 
 
+def _one_item_terminal_inventory() -> MagicMock:
+    return MagicMock(
+        input_sha256="a" * 64,
+        force_rescrape=True,
+        items=(WorkItem(item_id="1"),),
+        result_ids={"1"},
+        failure_ids=set(),
+        completed_ids={"1"},
+        terminal_evidence_sha256="b" * 64,
+        candidate_count=1,
+        candidate_evidence_sha256="d" * 64,
+        conflict_policy_version=1,
+        conflict_evidence_sha256="c" * 64,
+        resolved_conflict_count=0,
+        invalid_resolution_count=0,
+    )
+
+
+def _empty_sqs() -> MagicMock:
+    sqs = MagicMock()
+    sqs.get_queue_attributes.return_value = {
+        "Attributes": {
+            "ApproximateNumberOfMessages": "0",
+            "ApproximateNumberOfMessagesNotVisible": "0",
+            "ApproximateNumberOfMessagesDelayed": "0",
+        }
+    }
+    return sqs
+
+
 @pytest.mark.parametrize(
     ("selection_mode", "candidate_count"),
     [("sample", 10), ("incremental", 10), ("full", 1)],
@@ -176,13 +209,118 @@ def test_run_manifest_persists_selection_provenance(
         worker_count=1,
         selection_mode=selection_mode,  # ty: ignore[invalid-argument-type]
         candidate_count=candidate_count,
+        force_rescrape=selection_mode == "full",
     )
 
-    manifest_put = s3.put_object.call_args_list[0].kwargs
+    input_put = s3.put_object.call_args_list[0].kwargs
+    manifest_put = s3.put_object.call_args_list[1].kwargs
     manifest = json.loads(manifest_put["Body"])
     assert manifest["selection_mode"] == selection_mode
     assert manifest["candidate_count"] == candidate_count
     assert manifest["input_size"] == 1
+    assert manifest["force_rescrape"] is (selection_mode == "full")
+    assert manifest["terminal_candidate_journal_schema_version"] == 1
+    assert manifest["input_sha256"] == hashlib.sha256(input_put["Body"]).hexdigest()
+    assert manifest_put["IfNoneMatch"] == "*"
+    assert input_put["IfNoneMatch"] == "*"
+    assert input_put["Key"].endswith("/input.jsonl")
+    assert manifest_put["Key"].endswith("/manifest.json")
+
+
+def test_run_commit_never_writes_manifest_when_input_cannot_be_confirmed() -> None:
+    s3 = MagicMock()
+    s3.put_object.side_effect = TimeoutError("input response lost")
+    s3.get_object.side_effect = TimeoutError("input read failed")
+
+    with pytest.raises(RuntimeError, match="could not be committed or reconciled"):
+        write_run_manifest(
+            s3,
+            _submitter_config(),
+            "run-1",
+            [WorkItem(item_id="100")],
+            worker_count=1,
+            selection_mode="incremental",
+            candidate_count=1,
+            force_rescrape=False,
+        )
+
+    assert s3.put_object.call_count == 1
+    assert s3.put_object.call_args.kwargs["Key"].endswith("/input.jsonl")
+
+
+@pytest.mark.parametrize("lost_key", ["input.jsonl", "manifest.json"])
+def test_run_commit_exact_read_recovers_lost_put_response(lost_key: str) -> None:
+    s3 = MagicMock()
+    attempted: dict[str, bytes] = {}
+    lost = False
+
+    def put_object(**kwargs):
+        nonlocal lost
+        key = str(kwargs["Key"])
+        attempted[key] = kwargs["Body"]
+        if key.endswith(lost_key) and not lost:
+            lost = True
+            raise TimeoutError("response lost after commit")
+        return {"ETag": '"etag"'}
+
+    def get_object(*, Bucket, Key):
+        stream = MagicMock()
+        stream.read.return_value = attempted[Key]
+        return {"Body": stream, "ETag": '"etag"'}
+
+    s3.put_object.side_effect = put_object
+    s3.get_object.side_effect = get_object
+
+    write_run_manifest(
+        s3,
+        _submitter_config(),
+        "run-1",
+        [WorkItem(item_id="100")],
+        worker_count=1,
+        selection_mode="incremental",
+        candidate_count=1,
+        force_rescrape=False,
+    )
+
+    assert any(key.endswith("/input.jsonl") for key in attempted)
+    assert any(key.endswith("/manifest.json") for key in attempted)
+
+
+def test_recovery_attempt_uses_a_distinct_but_retry_stable_ecs_token() -> None:
+    initial = _ecs_client_token("run-1", "worker")
+    first_attempt = _ecs_client_token(
+        "run-1",
+        "worker",
+        recovery_attempt_id="attempt-1",
+    )
+    same_attempt_retry = _ecs_client_token(
+        "run-1",
+        "worker",
+        recovery_attempt_id="attempt-1",
+    )
+    second_attempt = _ecs_client_token(
+        "run-1",
+        "worker",
+        recovery_attempt_id="attempt-2",
+    )
+
+    assert len({initial, first_attempt, second_attempt}) == 3
+    assert first_attempt == same_attempt_retry
+
+
+@pytest.mark.parametrize("delay", [0, 43_201])
+def test_worker_launch_rejects_invalid_soft_blocked_delay(delay: int) -> None:
+    ecs = MagicMock()
+
+    with pytest.raises(ValueError, match="between 1 and 43200"):
+        launch_workers(
+            ecs,
+            _submitter_config(),
+            "run-1",
+            soft_blocked_delay_max=delay,
+        )
+
+    ecs.run_task.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -211,6 +349,7 @@ def test_run_manifest_rejects_impossible_selection_provenance_before_writing(
             worker_count=1,
             selection_mode=selection_mode,  # ty: ignore[invalid-argument-type]
             candidate_count=candidate_count,
+            force_rescrape=False,
         )
 
     s3.put_object.assert_not_called()
@@ -228,6 +367,7 @@ def test_run_manifest_rejects_empty_selection_before_writing() -> None:
             worker_count=1,
             selection_mode="sample",
             candidate_count=1,
+            force_rescrape=False,
         )
 
     s3.put_object.assert_not_called()
@@ -809,3 +949,531 @@ def test_finalize_manifest_rejects_corrupt_record(body: bytes) -> None:
         )
 
     s3.put_object.assert_not_called()
+
+
+def test_finalize_manifest_cas_gates_dispatch_on_exact_terminal_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate, recovery
+
+    manifest = {
+        "run_id": "run-1",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "selection_mode": "full",
+        "candidate_count": 2,
+        "input_size": 2,
+    }
+    stream = MagicMock()
+    stream.read.return_value = json.dumps(manifest).encode()
+    s3 = MagicMock()
+    s3.get_object.return_value = {"Body": stream, "ETag": '"manifest-etag"'}
+    sqs = MagicMock()
+    sqs.get_queue_attributes.return_value = {
+        "Attributes": {
+            "ApproximateNumberOfMessages": "0",
+            "ApproximateNumberOfMessagesNotVisible": "0",
+            "ApproximateNumberOfMessagesDelayed": "0",
+        }
+    }
+    inventory = MagicMock()
+    inventory.input_sha256 = "a" * 64
+    inventory.force_rescrape = True
+    inventory.items = (WorkItem(item_id="1"), WorkItem(item_id="2"))
+    inventory.result_ids = {"1"}
+    inventory.failure_ids = {"2"}
+    inventory.completed_ids = {"1", "2"}
+    inventory.terminal_evidence_sha256 = "b" * 64
+    inventory.candidate_count = 2
+    inventory.candidate_evidence_sha256 = "d" * 64
+    inventory.conflict_policy_version = 1
+    inventory.conflict_evidence_sha256 = "c" * 64
+    inventory.resolved_conflict_count = 0
+    inventory.invalid_resolution_count = 0
+    coverage = MagicMock(return_value=inventory)
+    dispatch = MagicMock()
+    monkeypatch.setattr(recovery, "require_exact_terminal_coverage", coverage)
+    monkeypatch.setattr(orchestrate, "dispatch_workflow", dispatch)
+    monkeypatch.setattr(orchestrate, "_TERMINAL_QUEUE_QUIET_SECONDS", 0)
+
+    _finalize_manifest(
+        s3,
+        sqs,
+        _submitter_config(),
+        "run-1",
+        datetime.now(UTC),
+        terminal_queue_counts=(0, 0, 0),
+    )
+
+    coverage.assert_called_once()
+    put = s3.put_object.call_args.kwargs
+    assert put["IfMatch"] == '"manifest-etag"'
+    finalized = json.loads(put["Body"])
+    assert finalized["terminal_coverage"]["completed_count"] == 2
+    assert finalized["terminal_coverage"]["unresolved_conflict_count"] == 0
+    dispatch.assert_called_once()
+
+
+def test_monitor_coverage_failure_retains_same_run_lease_for_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate
+    from aws_batch_scraper.recovery import RecoveryInvariantError
+
+    generation = datetime(2026, 8, 20, 20, 0, tzinfo=UTC)
+    task = {
+        "taskArn": "arn:aws:ecs:us-east-1:123456789012:task/cluster/task-1",
+        "lastStatus": "STOPPED",
+        "stopCode": "EssentialContainerExited",
+        "containers": [{"name": "worker", "essential": True, "exitCode": 0}],
+    }
+    ecs = MagicMock()
+    ecs.describe_tasks.return_value = {"tasks": [task], "failures": []}
+    s3 = MagicMock()
+    released = MagicMock()
+    monkeypatch.setattr(orchestrate, "get_task_arns", lambda *args: [task["taskArn"]])
+    monkeypatch.setattr(
+        orchestrate,
+        "renew_run_lease",
+        lambda *args: MagicMock(created_at=generation),
+    )
+    monkeypatch.setattr(orchestrate, "_require_empty_main_queue", lambda *args: (0, 0, 0))
+    monkeypatch.setattr(
+        orchestrate,
+        "_finalize_manifest",
+        MagicMock(side_effect=RecoveryInvariantError("candidate conflict blocks coverage")),
+    )
+    monkeypatch.setattr(orchestrate, "release_run_lease", released)
+
+    with pytest.raises(RecoveryInvariantError, match="candidate conflict"):
+        orchestrate._monitor_run(
+            ecs,
+            MagicMock(),
+            s3,
+            _submitter_config(),
+            "run-1",
+            poll_interval=0,
+        )
+
+    released.assert_not_called()
+    evidence = s3.put_object.call_args.kwargs
+    assert "/monitor-recovery/v1/" in evidence["Key"]
+    assert evidence["IfNoneMatch"] == "*"
+    record = json.loads(evidence["Body"])
+    assert record["lease_action"] == "retained"
+    assert record["recovery_action"] == "same-run-resume"
+
+
+def test_finalize_manifest_never_rewrites_or_dispatches_completed_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate, recovery
+
+    stream = MagicMock()
+    stream.read.return_value = json.dumps(
+        {
+            "run_id": "run-1",
+            "completed_at": "2026-08-20T20:00:00+00:00",
+        }
+    ).encode()
+    s3 = MagicMock()
+    s3.get_object.return_value = {"Body": stream, "ETag": '"manifest-etag"'}
+    dispatch = MagicMock()
+    coverage = MagicMock()
+    monkeypatch.setattr(orchestrate, "dispatch_workflow", dispatch)
+    monkeypatch.setattr(recovery, "require_exact_terminal_coverage", coverage)
+
+    _finalize_manifest(
+        s3,
+        MagicMock(),
+        _submitter_config(),
+        "run-1",
+        datetime.now(UTC),
+        terminal_queue_counts=(0, 0, 0),
+    )
+
+    s3.put_object.assert_not_called()
+    coverage.assert_not_called()
+    dispatch.assert_not_called()
+
+
+def test_finalize_manifest_rejects_changed_lease_generation_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate
+
+    expected = datetime(2026, 8, 20, 19, 0, tzinfo=UTC)
+    successor = MagicMock(
+        run_id="run-1",
+        owner="run-1",
+        created_at=datetime(2026, 8, 20, 20, 0, tzinfo=UTC),
+    )
+    monkeypatch.setattr(orchestrate, "read_run_lease", lambda *args: successor)
+    dispatch = MagicMock()
+    monkeypatch.setattr(orchestrate, "dispatch_workflow", dispatch)
+    s3 = MagicMock()
+
+    with pytest.raises(RuntimeError, match="dispatch is fenced"):
+        _finalize_manifest(
+            s3,
+            MagicMock(),
+            _submitter_config(),
+            "run-1",
+            datetime.now(UTC),
+            terminal_queue_counts=(0, 0, 0),
+            expected_lease_owner="run-1",
+            expected_lease_created_at=expected,
+        )
+
+    s3.get_object.assert_not_called()
+    s3.put_object.assert_not_called()
+    dispatch.assert_not_called()
+
+
+def test_finalize_manifest_claims_finalizer_fence_before_manifest_put(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate, recovery
+
+    generation = datetime(2026, 8, 20, 20, 0, tzinfo=UTC)
+    lease_state: dict[str, Any] = {
+        "run_id": "run-1",
+        "owner": "run-1",
+        "created_at": generation,
+    }
+    events: list[str] = []
+
+    def read_lease(*args):
+        return MagicMock(**lease_state)
+
+    def claim_lease(s3, config, run_id, claimant, **kwargs):
+        assert lease_state["owner"] == kwargs["current_owner"]
+        assert lease_state["created_at"] == kwargs["expected_created_at"]
+        lease_state["owner"] = claimant
+        events.append("claim-finalizer")
+        return MagicMock(**lease_state)
+
+    stream = MagicMock()
+    stream.read.return_value = json.dumps(
+        {"run_id": "run-1", "timestamp": generation.isoformat()}
+    ).encode()
+    s3 = MagicMock()
+    s3.get_object.return_value = {"Body": stream, "ETag": '"manifest-etag"'}
+
+    def put_manifest(**kwargs):
+        assert str(lease_state["owner"]).startswith("finalize:")
+        events.append("put-manifest")
+
+    s3.put_object.side_effect = put_manifest
+    sqs = MagicMock()
+    sqs.get_queue_attributes.return_value = {
+        "Attributes": {
+            "ApproximateNumberOfMessages": "0",
+            "ApproximateNumberOfMessagesNotVisible": "0",
+            "ApproximateNumberOfMessagesDelayed": "0",
+        }
+    }
+    inventory = MagicMock(
+        input_sha256="a" * 64,
+        force_rescrape=True,
+        items=(WorkItem(item_id="1"),),
+        result_ids={"1"},
+        failure_ids=set(),
+        completed_ids={"1"},
+        terminal_evidence_sha256="b" * 64,
+        candidate_count=1,
+        candidate_evidence_sha256="d" * 64,
+        conflict_policy_version=1,
+        conflict_evidence_sha256="c" * 64,
+        resolved_conflict_count=0,
+        invalid_resolution_count=0,
+    )
+    monkeypatch.setattr(orchestrate, "read_run_lease", read_lease)
+    monkeypatch.setattr(orchestrate, "claim_run_lease", claim_lease)
+    monkeypatch.setattr(orchestrate, "_TERMINAL_QUEUE_QUIET_SECONDS", 0)
+    monkeypatch.setattr(recovery, "require_exact_terminal_coverage", lambda *args: inventory)
+
+    def dispatch(*args, **kwargs):
+        assert str(lease_state["owner"]).startswith("finalize:")
+        events.append("dispatch")
+
+    monkeypatch.setattr(orchestrate, "dispatch_workflow", dispatch)
+
+    _finalize_manifest(
+        s3,
+        sqs,
+        _submitter_config(),
+        "run-1",
+        generation,
+        terminal_queue_counts=(0, 0, 0),
+        expected_lease_owner="run-1",
+        expected_lease_created_at=generation,
+    )
+
+    assert events == ["claim-finalizer", "put-manifest", "dispatch"]
+
+
+def test_finalize_manifest_reenters_exact_prepublication_finalizer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate, recovery
+    from aws_batch_scraper.lease import finalizing_run_owner
+
+    generation = datetime(2026, 8, 20, 20, 0, tzinfo=UTC)
+    finalizer = finalizing_run_owner("run-1", generation)
+    active = MagicMock(
+        run_id="run-1",
+        owner=finalizer,
+        created_at=generation,
+    )
+    stream = MagicMock()
+    stream.read.return_value = json.dumps(
+        {"run_id": "run-1", "timestamp": generation.isoformat()}
+    ).encode()
+    s3 = MagicMock()
+    s3.get_object.return_value = {"Body": stream, "ETag": '"manifest-etag"'}
+    claim = MagicMock()
+    dispatch = MagicMock()
+    monkeypatch.setattr(orchestrate, "read_run_lease", lambda *args: active)
+    monkeypatch.setattr(orchestrate, "claim_run_lease", claim)
+    monkeypatch.setattr(orchestrate, "dispatch_workflow", dispatch)
+    monkeypatch.setattr(orchestrate, "_TERMINAL_QUEUE_QUIET_SECONDS", 0)
+    monkeypatch.setattr(
+        recovery,
+        "require_exact_terminal_coverage",
+        lambda *args: _one_item_terminal_inventory(),
+    )
+
+    _finalize_manifest(
+        s3,
+        _empty_sqs(),
+        _submitter_config(),
+        "run-1",
+        generation,
+        terminal_queue_counts=(0, 0, 0),
+        expected_lease_owner=finalizer,
+        expected_lease_created_at=generation,
+    )
+
+    claim.assert_not_called()
+    put = s3.put_object.call_args.kwargs
+    assert put["IfMatch"] == '"manifest-etag"'
+    assert json.loads(put["Body"])["completed_at"]
+    dispatch.assert_called_once()
+
+
+def test_finalize_manifest_dispatches_after_exact_read_proves_lost_put_committed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate, recovery
+
+    generation = datetime(2026, 8, 20, 20, 0, tzinfo=UTC)
+    original_body = json.dumps({"run_id": "run-1", "timestamp": generation.isoformat()}).encode()
+    attempted_put: dict[str, Any] = {}
+    get_count = 0
+
+    def get_manifest(**kwargs):
+        nonlocal get_count
+        get_count += 1
+        stream = MagicMock()
+        if get_count == 1:
+            stream.read.return_value = original_body
+            return {"Body": stream, "ETag": '"manifest-etag"'}
+        stream.read.return_value = attempted_put["Body"]
+        return {"Body": stream, "ETag": '"committed-etag"'}
+
+    def put_manifest(**kwargs):
+        attempted_put.update(kwargs)
+        raise TimeoutError("response lost after commit")
+
+    s3 = MagicMock()
+    s3.get_object.side_effect = get_manifest
+    s3.put_object.side_effect = put_manifest
+    dispatch = MagicMock()
+    monkeypatch.setattr(orchestrate, "dispatch_workflow", dispatch)
+    monkeypatch.setattr(orchestrate, "_TERMINAL_QUEUE_QUIET_SECONDS", 0)
+    monkeypatch.setattr(
+        recovery,
+        "require_exact_terminal_coverage",
+        lambda *args: _one_item_terminal_inventory(),
+    )
+
+    _finalize_manifest(
+        s3,
+        _empty_sqs(),
+        _submitter_config(),
+        "run-1",
+        generation,
+        terminal_queue_counts=(0, 0, 0),
+    )
+
+    assert get_count == 2
+    dispatch.assert_called_once()
+
+
+def test_finalize_manifest_records_unknown_dispatch_delivery_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate, recovery
+    from aws_batch_scraper.dispatch import WorkflowDispatchDeliveryUnknownError
+
+    generation = datetime(2026, 8, 20, 20, 0, tzinfo=UTC)
+    stream = MagicMock()
+    stream.read.return_value = json.dumps(
+        {"run_id": "run-1", "timestamp": generation.isoformat()}
+    ).encode()
+    s3 = MagicMock()
+    s3.get_object.return_value = {"Body": stream, "ETag": '"manifest-etag"'}
+    monkeypatch.setattr(orchestrate, "_TERMINAL_QUEUE_QUIET_SECONDS", 0)
+    monkeypatch.setattr(
+        recovery,
+        "require_exact_terminal_coverage",
+        lambda *args: _one_item_terminal_inventory(),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "dispatch_workflow",
+        MagicMock(side_effect=WorkflowDispatchDeliveryUnknownError("delivery unknown")),
+    )
+
+    with pytest.raises(WorkflowDispatchDeliveryUnknownError, match="delivery unknown"):
+        _finalize_manifest(
+            s3,
+            _empty_sqs(),
+            _submitter_config(),
+            "run-1",
+            generation,
+            terminal_queue_counts=(0, 0, 0),
+        )
+
+    ambiguous_evidence = [
+        call.kwargs
+        for call in s3.put_object.call_args_list
+        if call.kwargs["Key"] == "scraper/runs/run-1/dispatch-ambiguous.json"
+    ]
+    assert len(ambiguous_evidence) == 1
+    record = json.loads(ambiguous_evidence[0]["Body"])
+    assert record["detail"] == "delivery unknown"
+    assert record["lease_action"] == "retained"
+
+
+def test_finalize_manifest_retains_finalizer_when_put_outcome_cannot_be_proven(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate, recovery
+
+    generation = datetime(2026, 8, 20, 20, 0, tzinfo=UTC)
+    lease_state: dict[str, Any] = {
+        "run_id": "run-1",
+        "owner": "run-1",
+        "created_at": generation,
+    }
+    claimants: list[str] = []
+
+    def read_lease(*args):
+        return MagicMock(**lease_state)
+
+    def claim_lease(s3, config, run_id, claimant, **kwargs):
+        assert lease_state["owner"] == kwargs["current_owner"]
+        lease_state["owner"] = claimant
+        claimants.append(claimant)
+        return MagicMock(**lease_state)
+
+    stream = MagicMock()
+    stream.read.return_value = json.dumps(
+        {"run_id": "run-1", "timestamp": generation.isoformat()}
+    ).encode()
+    s3 = MagicMock()
+    s3.get_object.side_effect = [
+        {"Body": stream, "ETag": '"manifest-etag"'},
+        TimeoutError("reconciliation read failed"),
+    ]
+    s3.put_object.side_effect = TimeoutError("publication response lost")
+    dispatch = MagicMock()
+    monkeypatch.setattr(orchestrate, "read_run_lease", read_lease)
+    monkeypatch.setattr(orchestrate, "claim_run_lease", claim_lease)
+    monkeypatch.setattr(orchestrate, "dispatch_workflow", dispatch)
+    monkeypatch.setattr(orchestrate, "_TERMINAL_QUEUE_QUIET_SECONDS", 0)
+    monkeypatch.setattr(
+        recovery,
+        "require_exact_terminal_coverage",
+        lambda *args: _one_item_terminal_inventory(),
+    )
+
+    with pytest.raises(ManifestPublicationDeliveryUnknownError, match="outcome.*unknown"):
+        _finalize_manifest(
+            s3,
+            _empty_sqs(),
+            _submitter_config(),
+            "run-1",
+            generation,
+            terminal_queue_counts=(0, 0, 0),
+            expected_lease_owner="run-1",
+            expected_lease_created_at=generation,
+        )
+
+    assert len(claimants) == 1
+    assert claimants[0].startswith("finalize:")
+    assert str(lease_state["owner"]).startswith("finalize:")
+    dispatch.assert_not_called()
+
+
+def test_finalize_manifest_returns_finalizer_after_read_proves_put_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aws_batch_scraper import orchestrate, recovery
+
+    generation = datetime(2026, 8, 20, 20, 0, tzinfo=UTC)
+    lease_state: dict[str, Any] = {
+        "run_id": "run-1",
+        "owner": "run-1",
+        "created_at": generation,
+    }
+    claimants: list[str] = []
+
+    def read_lease(*args):
+        return MagicMock(**lease_state)
+
+    def claim_lease(s3, config, run_id, claimant, **kwargs):
+        assert lease_state["owner"] == kwargs["current_owner"]
+        lease_state["owner"] = claimant
+        claimants.append(claimant)
+        return MagicMock(**lease_state)
+
+    original_body = json.dumps({"run_id": "run-1", "timestamp": generation.isoformat()}).encode()
+
+    def original_manifest():
+        stream = MagicMock()
+        stream.read.return_value = original_body
+        return {"Body": stream, "ETag": '"manifest-etag"'}
+
+    s3 = MagicMock()
+    s3.get_object.side_effect = [original_manifest(), original_manifest()]
+    s3.put_object.side_effect = TimeoutError("publication response lost")
+    dispatch = MagicMock()
+    monkeypatch.setattr(orchestrate, "read_run_lease", read_lease)
+    monkeypatch.setattr(orchestrate, "claim_run_lease", claim_lease)
+    monkeypatch.setattr(orchestrate, "dispatch_workflow", dispatch)
+    monkeypatch.setattr(orchestrate, "_TERMINAL_QUEUE_QUIET_SECONDS", 0)
+    monkeypatch.setattr(
+        recovery,
+        "require_exact_terminal_coverage",
+        lambda *args: _one_item_terminal_inventory(),
+    )
+
+    with pytest.raises(TimeoutError, match="publication response lost"):
+        _finalize_manifest(
+            s3,
+            _empty_sqs(),
+            _submitter_config(),
+            "run-1",
+            generation,
+            terminal_queue_counts=(0, 0, 0),
+            expected_lease_owner="run-1",
+            expected_lease_created_at=generation,
+        )
+
+    assert len(claimants) == 2
+    assert claimants[0].startswith("finalize:")
+    assert claimants[1] == "run-1"
+    assert lease_state["owner"] == "run-1"
+    dispatch.assert_not_called()

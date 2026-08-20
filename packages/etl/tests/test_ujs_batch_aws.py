@@ -1,6 +1,8 @@
 """Tests for courts SQS/ECS batch orchestration helpers."""
 
 import json
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from aws_batch_scraper.aws import make_boto3_session
@@ -24,6 +26,25 @@ EXECUTION_ROLE_ARN = "arn:aws:iam::123456789012:role/ujs-scraper-execution"
 MONITOR_SECRET_ARN = (
     "arn:aws:secretsmanager:us-east-1:123456789012:secret:ujs-scraper/github-dispatch-token-AbCdEf"
 )
+
+
+def _patch_monitor_lease(monkeypatch: pytest.MonkeyPatch) -> None:
+    from aws_batch_scraper import orchestrate
+
+    active = SimpleNamespace(
+        run_id="run-1",
+        owner="run-1",
+        created_at=datetime(2026, 8, 20, tzinfo=UTC),
+    )
+    monkeypatch.setattr(orchestrate, "_TERMINAL_QUEUE_QUIET_SECONDS", 0)
+    monkeypatch.setattr(orchestrate, "renew_run_lease", lambda *args, **kwargs: active)
+    monkeypatch.setattr(orchestrate, "read_run_lease", lambda *args, **kwargs: active)
+
+    def claim(*args, **kwargs):
+        active.owner = args[3]
+        return active
+
+    monkeypatch.setattr(orchestrate, "claim_run_lease", claim)
 
 
 def _config() -> CourtsSubmitterConfig:
@@ -238,7 +259,7 @@ class FakeS3:
         self.puts = []
 
     def get_object(self, *, Bucket, Key):
-        return {"Body": FakeBody(self.objects[Key])}
+        return {"Body": FakeBody(self.objects[Key]), "ETag": '"fake-etag"'}
 
     def put_object(self, **kwargs):
         self.puts.append(kwargs)
@@ -478,7 +499,7 @@ def test_monitor_run_refuses_to_finalize_when_queue_not_empty(
     from aws_batch_scraper import orchestrate
 
     releases: list[dict[str, object]] = []
-    monkeypatch.setattr(orchestrate, "renew_run_lease", lambda *args, **kwargs: None)
+    _patch_monitor_lease(monkeypatch)
     monkeypatch.setattr(
         orchestrate,
         "release_run_lease",
@@ -497,7 +518,9 @@ def test_monitor_run_refuses_to_finalize_when_queue_not_empty(
 
     assert releases == []
     evidence = [
-        put for put in s3.puts if put["Key"] == "ujs-scraper/runs/run-1/monitor-recovery.json"
+        put
+        for put in s3.puts
+        if str(put["Key"]).startswith("ujs-scraper/runs/run-1/monitor-recovery/v1/")
     ]
     assert len(evidence) == 1
     assert json.loads(evidence[0]["Body"])["lease_action"] == "retained"
@@ -511,7 +534,7 @@ def test_monitor_run_requires_zero_delayed_messages(
 
     s3 = FakeS3()
     releases: list[dict[str, object]] = []
-    monkeypatch.setattr(orchestrate, "renew_run_lease", lambda *args, **kwargs: None)
+    _patch_monitor_lease(monkeypatch)
     monkeypatch.setattr(
         orchestrate,
         "release_run_lease",
@@ -529,7 +552,9 @@ def test_monitor_run_requires_zero_delayed_messages(
         )
 
     assert releases == []
-    assert any(put["Key"] == "ujs-scraper/runs/run-1/monitor-recovery.json" for put in s3.puts)
+    assert any(
+        str(put["Key"]).startswith("ujs-scraper/runs/run-1/monitor-recovery/v1/") for put in s3.puts
+    )
 
 
 def test_monitor_rejects_stopped_task_without_container_exit_code(
@@ -554,24 +579,32 @@ def test_monitor_rejects_stopped_task_without_container_exit_code(
             }
 
     releases: list[dict[str, object]] = []
-    monkeypatch.setattr(orchestrate, "renew_run_lease", lambda *args, **kwargs: None)
+    _patch_monitor_lease(monkeypatch)
     monkeypatch.setattr(
         orchestrate,
         "release_run_lease",
         lambda *args, **kwargs: releases.append(kwargs) or True,
     )
 
+    s3 = FakeS3()
     with pytest.raises(RuntimeError, match="missing exitCode"):
         monitor_run(
             MissingExitCodeECS(),
             FakeSQS(),
-            FakeS3(),
+            s3,
             _config(),
             "run-1",
             poll_interval=0,
         )
 
-    assert releases[0]["terminal_status"] == "failure"
+    assert releases == []
+    evidence = [
+        put
+        for put in s3.puts
+        if str(put["Key"]).startswith("ujs-scraper/runs/run-1/monitor-recovery/v1/")
+    ]
+    assert len(evidence) == 1
+    assert json.loads(evidence[0]["Body"])["lease_action"] == "retained"
 
 
 def test_monitor_keeps_lease_when_task_manifest_cannot_be_read(
@@ -660,7 +693,7 @@ def test_monitor_keeps_lease_when_ecs_state_is_unknown(
             raise TimeoutError("ECS unavailable")
 
     releases: list[dict[str, object]] = []
-    monkeypatch.setattr(orchestrate, "renew_run_lease", lambda *args, **kwargs: None)
+    _patch_monitor_lease(monkeypatch)
     monkeypatch.setattr(
         orchestrate,
         "release_run_lease",
@@ -680,19 +713,38 @@ def test_monitor_keeps_lease_when_ecs_state_is_unknown(
     assert releases == []
 
 
-def test_monitor_marks_lease_failed_when_completion_dispatch_fails(
+def test_monitor_retains_finalizer_when_completion_dispatch_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failed required dispatch must be a terminal monitored-run failure."""
-    from aws_batch_scraper import orchestrate
+    """A completed manifest remains process-ready after definitive rejection."""
+    from aws_batch_scraper import orchestrate, recovery
     from aws_batch_scraper.dispatch import WorkflowDispatchRejectedError
 
     releases: list[dict[str, object]] = []
-    monkeypatch.setattr(orchestrate, "renew_run_lease", lambda *args, **kwargs: None)
+    _patch_monitor_lease(monkeypatch)
     monkeypatch.setattr(
         orchestrate,
         "release_run_lease",
         lambda *args, **kwargs: releases.append(kwargs) or True,
+    )
+    monkeypatch.setattr(
+        recovery,
+        "require_exact_terminal_coverage",
+        lambda *args: SimpleNamespace(
+            input_sha256="a" * 64,
+            force_rescrape=True,
+            items=(WorkItem(item_id="1"),),
+            result_ids={"1"},
+            failure_ids=set(),
+            completed_ids={"1"},
+            terminal_evidence_sha256="b" * 64,
+            candidate_count=1,
+            candidate_evidence_sha256="d" * 64,
+            conflict_policy_version=1,
+            conflict_evidence_sha256="c" * 64,
+            resolved_conflict_count=0,
+            invalid_resolution_count=0,
+        ),
     )
     monkeypatch.setattr(
         orchestrate,
@@ -713,12 +765,7 @@ def test_monitor_marks_lease_failed_when_completion_dispatch_fails(
             poll_interval=0,
         )
 
-    assert releases == [
-        {
-            "terminal_status": "failure",
-            "detail": "dispatch failed",
-        }
-    ]
+    assert releases == []
     completed_manifest = json.loads(
         next(put["Body"] for put in s3.puts if put["Key"] == "ujs-scraper/runs/run-1/manifest.json")
     )
@@ -727,22 +774,43 @@ def test_monitor_marks_lease_failed_when_completion_dispatch_fails(
         "in_flight": 0,
         "delayed": 0,
     }
+    rejection = next(put for put in s3.puts if "/dispatch-rejections/v1/" in str(put["Key"]))
+    assert json.loads(rejection["Body"])["lease_action"] == "finalizer-retained"
 
 
 def test_monitor_retains_lease_when_dispatch_delivery_is_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A process workflow may already be running after a lost HTTP response."""
-    from aws_batch_scraper import orchestrate
+    from aws_batch_scraper import orchestrate, recovery
     from aws_batch_scraper.dispatch import WorkflowDispatchDeliveryUnknownError
 
     s3 = FakeS3()
     releases: list[dict[str, object]] = []
-    monkeypatch.setattr(orchestrate, "renew_run_lease", lambda *args, **kwargs: None)
+    _patch_monitor_lease(monkeypatch)
     monkeypatch.setattr(
         orchestrate,
         "release_run_lease",
         lambda *args, **kwargs: releases.append(kwargs) or True,
+    )
+    monkeypatch.setattr(
+        recovery,
+        "require_exact_terminal_coverage",
+        lambda *args: SimpleNamespace(
+            input_sha256="a" * 64,
+            force_rescrape=True,
+            items=(WorkItem(item_id="1"),),
+            result_ids={"1"},
+            failure_ids=set(),
+            completed_ids={"1"},
+            terminal_evidence_sha256="b" * 64,
+            candidate_count=1,
+            candidate_evidence_sha256="d" * 64,
+            conflict_policy_version=1,
+            conflict_evidence_sha256="c" * 64,
+            resolved_conflict_count=0,
+            invalid_resolution_count=0,
+        ),
     )
     monkeypatch.setattr(
         orchestrate,
