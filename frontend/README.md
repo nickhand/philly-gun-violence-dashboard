@@ -305,11 +305,15 @@ Worker redirects a bare dashboard path with a query to the slash form so it
 enters the slash-subtree route without capturing nearby path prefixes.
 
 The Cloudflare build copies the static `_headers` file to the Workers Assets
-root, validates base-path assets, indexability, security headers, and route
-ownership, then deploys with the exact Wrangler version in `package-lock.json`.
-Follow [the cutover runbook](../docs/cloudflare-cutover.md). Production deploys
-remain explicit and require green API, download, indexing, browser, and rollback
-checks; a push alone does not deploy this Worker.
+root and validates base-path assets, indexability, security headers, account,
+and Worker identity. On `main`, the frontend quality workflow archives that
+exact tested `.output`, uploads a commit-tagged Worker version without changing
+routes, and activates it only after all selected gates pass. It verifies the
+exact Nuxt build on all five public pages and confirms the terminal active
+version; a frontend-specific failure restores the captured prior version. The
+full production smoke runs afterward as a health report and cannot trigger an
+automatic rollback. `npm run deploy:nuxt:production` remains an operator-only
+emergency command. Follow [the cutover runbook](../docs/cloudflare-cutover.md).
 
 The Nuxt dashboard owns the production Explore route and its map, filter,
 chart, address-search, and download interactions. Netlify remains outside the

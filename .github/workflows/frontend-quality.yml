@@ -17,10 +17,22 @@ on:
   schedule:
     - cron: "30 9 * * 1"
   workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: Deploy the validated main-branch artifact to production
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
-  group: frontend-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: >-
+    frontend-quality-${{
+    ((github.event_name == 'push' ||
+    (github.event_name == 'workflow_dispatch' && inputs.deploy_production)) &&
+    github.ref == 'refs/heads/main') && 'main-release' ||
+    github.run_id }}
+  queue: max
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -30,6 +42,7 @@ jobs:
     name: Route frontend quality jobs
     runs-on: ubuntu-24.04
     outputs:
+      release: ${{ steps.scope.outputs.release }}
       unit: ${{ steps.scope.outputs.unit }}
       browser: ${{ steps.scope.outputs.browser }}
       lighthouse: ${{ steps.scope.outputs.lighthouse }}
@@ -68,6 +81,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm install --global npm@11.18.0
       - run: npm ci
+      - name: Audit production dependencies before a release
+        if: needs.changes.outputs.release == 'true'
+        run: npm audit --package-lock-only --audit-level=high
       - run: npm run test:lighthouse:policy
       - run: npm run type-check
       - run: npm run type-check:nuxt
@@ -80,6 +96,52 @@ jobs:
         run: npm run build:nuxt:cloudflare:staging
       - name: Build and validate production Cloudflare artifact
         run: npm run build:nuxt:cloudflare:production
+      - name: Package the exact production Cloudflare artifact
+        if: >-
+          needs.changes.outputs.release == 'true' &&
+          (github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.deploy_production))
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -f .output/server/index.mjs
+          test -f .output/public/philly-gun-violence-map/_nuxt/builds/latest.json
+          jq -n \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg run_id "${SOURCE_RUN_ID}" \
+            '{schema_version: 1, source_sha: $source_sha, run_id: $run_id}' \
+            > .output/.deployment-source.json
+          tar \
+            --sort=name \
+            --mtime='UTC 1970-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --create \
+            --gzip \
+            --file "${RUNNER_TEMP}/frontend-cloudflare-production.tgz" \
+            .output
+          (
+            cd "${RUNNER_TEMP}"
+            sha256sum frontend-cloudflare-production.tgz \
+              > frontend-cloudflare-production.tgz.sha256
+          )
+      - name: Preserve the production Cloudflare artifact
+        if: >-
+          needs.changes.outputs.release == 'true' &&
+          (github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.deploy_production))
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-cloudflare-production-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/frontend-cloudflare-production.tgz
+            ${{ runner.temp }}/frontend-cloudflare-production.tgz.sha256
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -203,3 +265,327 @@ jobs:
           require_routed_job "${UNIT_SELECTED}" "${UNIT_RESULT}" "unit"
           require_routed_job "${BROWSER_SELECTED}" "${BROWSER_RESULT}" "browser"
           require_routed_job "${LIGHTHOUSE_SELECTED}" "${LIGHTHOUSE_RESULT}" "lighthouse"
+
+  deploy-production:
+    name: Deploy validated frontend to Cloudflare
+    needs: [changes, unit, gate]
+    if: >-
+      !cancelled() &&
+      github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.release == 'true' &&
+      needs.unit.result == 'success' &&
+      needs.gate.result == 'success' &&
+      (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_production))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: frontend-production
+      cancel-in-progress: false
+    environment:
+      name: frontend-production
+      url: https://www.nickhand.dev/philly-gun-violence-map/
+    outputs:
+      deployed: ${{ steps.deploy.outputs.deployed }}
+      previous_version: ${{ steps.previous.outputs.version }}
+      version: ${{ steps.deploy.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Reject a superseded source revision
+        id: source
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          latest_sha="$(git rev-parse FETCH_HEAD)"
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "${latest_sha}"; then
+            echo "deploy=false" >> "${GITHUB_OUTPUT}"
+            echo "Skipping ${GITHUB_SHA}; it is not an ancestor of current main ${latest_sha}." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          python3 .github/ci/scope.py \
+            --workflow frontend \
+            --event push \
+            --before "${GITHUB_SHA}" \
+            --head "${latest_sha}" \
+            > "${RUNNER_TEMP}/frontend-since-source.scope"
+          if grep -Fxq "release=true" "${RUNNER_TEMP}/frontend-since-source.scope"; then
+            echo "deploy=false" >> "${GITHUB_OUTPUT}"
+            echo "Skipping superseded frontend artifact ${GITHUB_SHA}; release inputs changed in ${latest_sha}." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo "deploy=true" >> "${GITHUB_OUTPUT}"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.source.outputs.deploy == 'true'
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install the pinned deployment toolchain
+        if: steps.source.outputs.deploy == 'true'
+        working-directory: frontend
+        run: |
+          npm install --global npm@11.18.0
+          npm ci
+      - name: Download the same-run production artifact
+        if: steps.source.outputs.deploy == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: frontend-cloudflare-production-${{ github.run_id }}
+          path: ${{ runner.temp }}/frontend-release
+      - name: Verify and restore the production artifact
+        if: steps.source.outputs.deploy == 'true'
+        env:
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/frontend-release"
+          sha256sum --check frontend-cloudflare-production.tgz.sha256
+          tar --extract --gzip --file frontend-cloudflare-production.tgz --directory "${GITHUB_WORKSPACE}/frontend"
+          jq -e \
+            --arg source_sha "${GITHUB_SHA}" \
+            --arg run_id "${EXPECTED_RUN_ID}" \
+            '.schema_version == 1 and .source_sha == $source_sha and .run_id == $run_id' \
+            "${GITHUB_WORKSPACE}/frontend/.output/.deployment-source.json"
+          node "${GITHUB_WORKSPACE}/frontend/scripts/check-cloudflare-output.mjs" production
+      - name: Recheck main immediately before deployment
+        id: ready
+        if: steps.source.outputs.deploy == 'true'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          latest_sha="$(git rev-parse FETCH_HEAD)"
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "${latest_sha}"; then
+            echo "deploy=false" >> "${GITHUB_OUTPUT}"
+            echo "Skipping ${GITHUB_SHA}; it is not an ancestor of current main ${latest_sha}." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          python3 .github/ci/scope.py \
+            --workflow frontend \
+            --event push \
+            --before "${GITHUB_SHA}" \
+            --head "${latest_sha}" \
+            > "${RUNNER_TEMP}/frontend-since-source.scope"
+          if grep -Fxq "release=true" "${RUNNER_TEMP}/frontend-since-source.scope"; then
+            echo "deploy=false" >> "${GITHUB_OUTPUT}"
+            echo "Skipping superseded frontend artifact ${GITHUB_SHA}; release inputs changed in ${latest_sha}." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo "deploy=true" >> "${GITHUB_OUTPUT}"
+      - name: Capture the exact rollback version
+        id: previous
+        if: steps.ready.outputs.deploy == 'true'
+        working-directory: frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          npx --no-install wrangler deployments status --env production --json \
+            > "${RUNNER_TEMP}/cloudflare-before.json"
+          jq -e '.versions | length == 1 and .[0].percentage == 100' \
+            "${RUNNER_TEMP}/cloudflare-before.json"
+          version="$(jq -r '.versions[0].version_id' "${RUNNER_TEMP}/cloudflare-before.json")"
+          test -n "${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Upload the exact validated Worker version
+        id: upload
+        if: steps.ready.outputs.deploy == 'true'
+        working-directory: frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          message="commit=${GITHUB_SHA} run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          upload_rc=0
+          npx --no-install wrangler versions upload \
+            --env production \
+            --strict \
+            --tag "${tag}" \
+            --message "${message}" || upload_rc=$?
+          version=""
+          for _ in {1..10}; do
+            if npx --no-install wrangler versions list --env production --json \
+              > "${RUNNER_TEMP}/cloudflare-versions.json"; then
+              version="$(jq -r \
+                --arg tag "${tag}" \
+                '[.[] | select(.annotations["workers/tag"] == $tag)] | if length == 1 then .[0].id else "" end' \
+                "${RUNNER_TEMP}/cloudflare-versions.json")"
+              if [[ -n "${version}" ]]; then
+                break
+              fi
+            fi
+            sleep 3
+          done
+          if [[ -z "${version}" ]]; then
+            echo "Worker upload did not reconcile to tag ${tag}; command_rc=${upload_rc}." >&2
+            exit 1
+          fi
+          npx --no-install wrangler versions view "${version}" --env production --json \
+            > "${RUNNER_TEMP}/cloudflare-version.json"
+          jq -e \
+            --arg id "${version}" \
+            --arg tag "${tag}" \
+            --arg sha "${GITHUB_SHA}" \
+            '.id == $id and .annotations["workers/tag"] == $tag and (.annotations["workers/message"] | contains($sha))' \
+            "${RUNNER_TEMP}/cloudflare-version.json"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Activate the exact uploaded Worker version
+        id: activate
+        if: steps.upload.outputs.version != ''
+        working-directory: frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VERSION: ${{ steps.upload.outputs.version }}
+          PREVIOUS_VERSION: ${{ steps.previous.outputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          latest_sha="$(git rev-parse FETCH_HEAD)"
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "${latest_sha}"; then
+            echo "Skipping activation; ${GITHUB_SHA} is not an ancestor of current main ${latest_sha}." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          python3 "${GITHUB_WORKSPACE}/.github/ci/scope.py" \
+            --workflow frontend \
+            --event push \
+            --before "${GITHUB_SHA}" \
+            --head "${latest_sha}" \
+            > "${RUNNER_TEMP}/frontend-before-activation.scope"
+          if grep -Fxq "release=true" "${RUNNER_TEMP}/frontend-before-activation.scope"; then
+            echo "Skipping activation; frontend release inputs changed in current main ${latest_sha}." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          npx --no-install wrangler deployments status --env production --json \
+            > "${RUNNER_TEMP}/cloudflare-before-activation.json"
+          current="$(jq -er \
+            'if (.versions | length == 1) and .versions[0].percentage == 100 then .versions[0].version_id else error("deployment is not a single version at 100 percent") end' \
+            "${RUNNER_TEMP}/cloudflare-before-activation.json")"
+          if [[ "${current}" != "${PREVIOUS_VERSION}" ]]; then
+            echo "Refusing activation because production changed from captured version ${PREVIOUS_VERSION} to ${current}." >&2
+            exit 1
+          fi
+          activation_rc=0
+          npx --no-install wrangler versions deploy "${VERSION}@100%" \
+            --env production \
+            --message "activate commit=${GITHUB_SHA} run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --yes || activation_rc=$?
+          active_version=""
+          for _ in {1..10}; do
+            if npx --no-install wrangler deployments status --env production --json \
+              > "${RUNNER_TEMP}/cloudflare-after.json"; then
+              if jq -e '(.versions | length == 1) and (.versions[0].percentage == 100)' \
+                "${RUNNER_TEMP}/cloudflare-after.json" >/dev/null; then
+                active_version="$(jq -r '.versions[0].version_id' "${RUNNER_TEMP}/cloudflare-after.json")"
+                if [[ "${active_version}" == "${VERSION}" ]]; then
+                  break
+                fi
+              fi
+            fi
+            sleep 3
+          done
+          if [[ "${active_version}" != "${VERSION}" ]]; then
+            echo "Worker activation did not reconcile to ${VERSION}; active=${active_version:-unknown}; command_rc=${activation_rc}." >&2
+            exit 1
+          fi
+          test "${VERSION}" != "${PREVIOUS_VERSION}"
+          echo "activated=true" >> "${GITHUB_OUTPUT}"
+      - name: Verify the exact production build
+        id: smoke
+        if: steps.activate.outputs.activated == 'true'
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          build_id="$(jq -er '.id' .output/public/philly-gun-violence-map/_nuxt/builds/latest.json)"
+          python3 "${GITHUB_WORKSPACE}/.github/ci/check_frontend_release.py" \
+            --app-base-url https://www.nickhand.dev/philly-gun-violence-map \
+            --expected-build-id "${build_id}"
+      - name: Attest the terminal active Worker version
+        id: deploy
+        if: steps.smoke.outcome == 'success'
+        working-directory: frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VERSION: ${{ steps.upload.outputs.version }}
+          PREVIOUS_VERSION: ${{ steps.previous.outputs.version }}
+        run: |
+          set -euo pipefail
+          npx --no-install wrangler deployments status --env production --json \
+            > "${RUNNER_TEMP}/cloudflare-terminal.json"
+          jq -e \
+            --arg version "${VERSION}" \
+            '(.versions | length == 1) and (.versions[0].percentage == 100) and (.versions[0].version_id == $version)' \
+            "${RUNNER_TEMP}/cloudflare-terminal.json"
+          echo "deployed=true" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "Deployed Cloudflare Worker version \`${VERSION}\` from commit \`${GITHUB_SHA}\`."
+            echo
+            echo "Rollback version: \`${PREVIOUS_VERSION}\`."
+          } >> "${GITHUB_STEP_SUMMARY}"
+      - name: Reconcile or roll back an unverified activation
+        if: >-
+          (failure() || cancelled()) &&
+          steps.upload.outputs.version != '' &&
+          steps.deploy.outcome != 'success'
+        working-directory: frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VERSION: ${{ steps.upload.outputs.version }}
+          PREVIOUS_VERSION: ${{ steps.previous.outputs.version }}
+        run: |
+          set -euo pipefail
+          npx --no-install wrangler deployments status --env production --json \
+            > "${RUNNER_TEMP}/cloudflare-before-rollback.json"
+          current="$(jq -er \
+            'if (.versions | length == 1) and .versions[0].percentage == 100 then .versions[0].version_id else error("deployment is not a single version at 100 percent") end' \
+            "${RUNNER_TEMP}/cloudflare-before-rollback.json")"
+          if [[ "${current}" == "${PREVIOUS_VERSION}" ]]; then
+            echo "No rollback was needed; production remains on captured version \`${PREVIOUS_VERSION}\`." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          if [[ "${current}" != "${VERSION}" ]]; then
+            echo "No rollback was attempted because production moved independently to ${current}." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          npx --no-install wrangler versions deploy "${PREVIOUS_VERSION}@100%" \
+            --env production \
+            --message "automatic rollback after frontend smoke failure in run ${GITHUB_RUN_ID}" \
+            --yes
+          npx --no-install wrangler deployments status --env production --json \
+            > "${RUNNER_TEMP}/cloudflare-after-rollback.json"
+          jq -e \
+            --arg previous "${PREVIOUS_VERSION}" \
+            '(.versions | length == 1) and (.versions[0].percentage == 100) and (.versions[0].version_id == $previous)' \
+            "${RUNNER_TEMP}/cloudflare-after-rollback.json"
+          echo "Restored Cloudflare Worker version \`${PREVIOUS_VERSION}\` after the frontend-specific smoke failed." \
+            >> "${GITHUB_STEP_SUMMARY}"
+      - name: Record rollback instructions
+        if: always() && steps.previous.outputs.version != ''
+        env:
+          PREVIOUS_VERSION: ${{ steps.previous.outputs.version }}
+        run: |
+          {
+            echo
+            echo "If later investigation finds a frontend-specific problem, first verify that this run's version is still active; do not roll back based only on the cross-system smoke."
+            echo
+            echo "\`cd frontend && npx wrangler versions deploy ${PREVIOUS_VERSION}@100% --env production --yes\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  post-deploy-smoke:
+    name: Verify deployed production contracts
+    needs: deploy-production
+    if: needs.deploy-production.outputs.deployed == 'true'
+    uses: ./.github/workflows/production-smoke.yml
+    secrets:
+      PRODUCTION_SMOKE_HEARTBEAT_URL: ${{ secrets.PRODUCTION_SMOKE_HEARTBEAT_URL }}

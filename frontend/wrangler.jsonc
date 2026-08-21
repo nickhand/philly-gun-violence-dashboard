@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
+  "account_id": "8ee768918988df338ff5e82a233f9e32",
   "name": "philly-gun-violence-dashboard",
   "main": ".output/server/index.mjs",
   "compatibility_date": "2026-08-11",

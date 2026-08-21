@@ -177,11 +177,14 @@ npm run build:nuxt
 **Deployment:**
 The canonical frontend is the `philly-gun-violence-dashboard-production`
 Cloudflare Worker on the exact `/philly-gun-violence-map` namespace. GitHub
-Actions validates pushes; production deployment remains an explicit release
-step via `npm run deploy:nuxt:production` after CI succeeds. The legacy Netlify
-site is retained only for the documented rollback window. Its checked-in build
-ignore rule cancels every Git-triggered build, so pushing this repository cannot
-silently replace the frozen rollback origin.
+Actions packages the exact tested production artifact and automatically promotes
+it after the selected type, unit, browser, Lighthouse, dependency, and build
+gates pass on `main`. The release is commit-tagged, serialized, checked against
+the current frontend source, verified by exact Nuxt build ID, and rolled back to
+the captured Worker version if the frontend-specific smoke fails. The broader
+production smoke reports cross-system health without driving rollback. The
+legacy Netlify site remains frozen until the first automated release is proven;
+its checked-in ignore rule still cancels every Git-triggered build.
 
 ## Deployment (Fly.io)
 - `fly.toml` defines the public API app.

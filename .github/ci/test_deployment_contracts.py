@@ -11,6 +11,9 @@ from types import ModuleType
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
+ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset(
+    {"./.github/workflows/production-smoke.yml"}
+)
 
 EXTERNAL_SCHEDULE_COUNTS = {
     "courts-scrape.yml": 1,
@@ -125,16 +128,55 @@ class DeploymentContracts(unittest.TestCase):
             with self.subTest(crawler=crawler):
                 self.assertIn(crawler, checker)
 
+    def test_frontend_deploys_only_the_exact_green_main_artifact(self) -> None:
+        source = (WORKFLOWS / "frontend-quality.yml").read_text()
+        smoke = (WORKFLOWS / "production-smoke.yml").read_text()
+        checker = (REPOSITORY_ROOT / ".github/ci/check_frontend_release.py").read_text()
+        output_checker = (
+            REPOSITORY_ROOT / "frontend/scripts/check-cloudflare-output.mjs"
+        ).read_text()
+
+        self.assertIn("release: ${{ steps.scope.outputs.release }}", source)
+        self.assertIn("Package the exact production Cloudflare artifact", source)
+        self.assertIn("frontend-cloudflare-production-${{ github.run_id }}", source)
+        self.assertIn("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", source)
+        self.assertIn("group: frontend-production", source)
+        self.assertIn("'main-release'", source)
+        self.assertIn("queue: max", source)
+        self.assertIn("cancel-in-progress: false", source)
+        self.assertIn("name: frontend-production", source)
+        self.assertIn("github.ref == 'refs/heads/main'", source)
+        self.assertGreaterEqual(source.count("git rev-parse FETCH_HEAD"), 3)
+        self.assertGreaterEqual(source.count("release=true"), 3)
+        self.assertIn("CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}", source)
+        self.assertIn("npm audit --package-lock-only --audit-level=high", source)
+        self.assertIn("overwrite: true", source)
+        self.assertIn("wrangler versions upload \\", source)
+        self.assertIn("wrangler versions deploy \"${VERSION}@100%\"", source)
+        self.assertIn("--strict", source)
+        self.assertIn('"workers/tag"', source)
+        self.assertIn("Reconcile or roll back an unverified activation", source)
+        self.assertIn("PRODUCTION_SMOKE_HEARTBEAT_URL: ${{ secrets.PRODUCTION_SMOKE_HEARTBEAT_URL }}", source)
+        self.assertIn("check_frontend_release.py", source)
+        self.assertIn("uses: ./.github/workflows/production-smoke.yml", source)
+        self.assertIn("workflow_call:", smoke)
+        self.assertIn("expected build ID must not be blank", checker)
+        self.assertIn("production page contains noindex", checker)
+        self.assertIn('config.account_id, "8ee768918988df338ff5e82a233f9e32"', output_checker)
+        self.assertIn('environment.name, "philly-gun-violence-dashboard-production"', output_checker)
+
     def test_workflows_pin_actions_and_declare_permissions(self) -> None:
         for workflow in _workflow_files():
             source = workflow.read_text()
             with self.subTest(workflow=workflow.name):
                 self.assertIn("\npermissions:\n", source)
                 for action in _action_references(source):
-                    self.assertFalse(
-                        action.startswith("./"),
-                        "local actions require recursive pinning and trigger validation",
-                    )
+                    if action.startswith("./"):
+                        self.assertIn(action, ALLOWED_LOCAL_REUSABLE_WORKFLOWS)
+                        target = REPOSITORY_ROOT / action.removeprefix("./")
+                        self.assertTrue(target.is_file())
+                        self.assertIn("workflow_call:", target.read_text())
+                        continue
                     self.assertRegex(action, r"@[0-9a-f]{40}$")
 
     def test_action_reference_parser_covers_step_and_reusable_workflow_forms(self) -> None:
@@ -174,6 +216,10 @@ class DeploymentContracts(unittest.TestCase):
         )
         self.assertIn("--network none", source)
         self.assertIn("--read-only", source)
+        self.assertIn(
+            '-ignore \'unexpected key "queue" for "concurrency" section\'',
+            source,
+        )
 
     def test_scheduler_deploy_prevents_overlapping_cron_machines(self) -> None:
         scheduler_config = (REPOSITORY_ROOT / "fly.scheduler.toml").read_text()

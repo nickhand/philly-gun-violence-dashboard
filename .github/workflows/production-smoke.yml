@@ -1,6 +1,10 @@
 name: Production smoke and freshness
 
 on:
+  workflow_call:
+    secrets:
+      PRODUCTION_SMOKE_HEARTBEAT_URL:
+        required: true
   workflow_dispatch:
 
 permissions:

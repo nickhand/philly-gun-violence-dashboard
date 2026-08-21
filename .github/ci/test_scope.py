@@ -95,9 +95,14 @@ class TriggerContracts(unittest.TestCase):
                 "unit",
                 "lighthouse",
             },
-            ("frontend", "frontend/wrangler.jsonc"): {"unit"},
-            ("frontend", "frontend/app/app.vue"): {"unit", "browser"},
-            ("frontend", "frontend/src/main.ts"): {"unit", "browser", "lighthouse"},
+            ("frontend", "frontend/wrangler.jsonc"): {"release", "unit"},
+            ("frontend", "frontend/app/app.vue"): {"release", "unit", "browser"},
+            ("frontend", "frontend/src/main.ts"): {
+                "release",
+                "unit",
+                "browser",
+                "lighthouse",
+            },
             ("security", "packages/api/uv.lock"): {"api"},
             ("security", "packages/etl/uv.lock"): {"etl"},
             ("security", "packages/dashboard-utils/uv.lock"): {"dashboard"},
@@ -206,8 +211,28 @@ class TriggerContracts(unittest.TestCase):
                 self.assertTrue(decisions["lighthouse"])
                 self.assertFalse(decisions["browser"])
 
+    def test_only_runtime_inputs_select_a_frontend_release(self) -> None:
+        for path in (
+            "frontend/app/app.vue",
+            "frontend/public/robots.txt",
+            "frontend/server/api/public-download-manifest.get.ts",
+            "frontend/src/data/style.json",
+            "frontend/wrangler.jsonc",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(SCOPE.classify("frontend", [path])["release"])
+
+        for path in (
+            "frontend/README.md",
+            "frontend/tests/unit/app/dashboard-explorer.spec.ts",
+            "frontend/tests/e2e/nuxt/dashboard.spec.ts",
+            "frontend/scripts/run-lighthouse.mjs",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(SCOPE.classify("frontend", [path])["release"])
+
     def test_main_pushes_are_not_cancelled_by_narrower_follow_up_diffs(self) -> None:
-        workflows = ("api", "etl", "frontend", "security", "config")
+        workflows = ("api", "etl", "security", "config")
         expected = "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
         for workflow in workflows:
             expected_group = (
@@ -220,6 +245,13 @@ class TriggerContracts(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 self.assertIn(expected, source)
                 self.assertIn(expected_group, source)
+
+        frontend = (
+            REPOSITORY_ROOT / ".github" / "workflows" / "frontend-quality.yml"
+        ).read_text()
+        self.assertIn("'main-release'", frontend)
+        self.assertIn("queue: max", frontend)
+        self.assertIn("cancel-in-progress: false", frontend)
 
     def test_manual_and_scheduled_runs_force_all_jobs(self) -> None:
         for workflow, groups in SCOPE.GROUPS.items():

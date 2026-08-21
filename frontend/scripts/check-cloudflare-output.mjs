@@ -34,6 +34,7 @@ assert.ok(
   "Pass either staging or production to the Cloudflare output checker.",
 );
 assert.equal(config.name, "philly-gun-violence-dashboard");
+assert.equal(config.account_id, "8ee768918988df338ff5e82a233f9e32");
 assert.equal(config.main, ".output/server/index.mjs");
 assert.equal(config.assets?.directory, ".output/public");
 assert.ok(config.compatibility_flags?.includes("nodejs_compat"));
@@ -67,10 +68,12 @@ assert.equal(
 );
 
 if (environmentName === "staging") {
+  assert.equal(environment.name, "philly-gun-violence-dashboard-staging");
   assert.equal(environment.workers_dev, true);
   assert.equal(environment.routes, undefined);
   assert.equal(environment.vars?.NUXT_PUBLIC_INDEXABLE, "false");
 } else {
+  assert.equal(environment.name, "philly-gun-violence-dashboard-production");
   assert.equal(environment.workers_dev, false);
   assert.equal(environment.vars?.NUXT_PUBLIC_INDEXABLE, "true");
   assert.deepEqual(
