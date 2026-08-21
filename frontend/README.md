@@ -5,9 +5,8 @@ charts, and filtering capabilities.
 
 The canonical production frontend is the Nuxt 4 application in `app/`, mounted
 at `/philly-gun-violence-map/` on Cloudflare Workers. The former Vue/Vite
-application in `src/` remains runnable only as a temporary Netlify rollback
-artifact; keep its public data and terminology contracts aligned until that
-rollback window closes.
+application in `src/` remains runnable locally as legacy reference code, but it
+is no longer a deployed rollback origin.
 
 ## Tech Stack
 
@@ -290,7 +289,7 @@ Production builds are optimized with:
 - CSS extraction
 - Asset hashing for cache busting
 
-The legacy output is in `dist/` and remains the temporary Netlify rollback build.
+The legacy output is in `dist/` for local compatibility checks only.
 Nuxt emits its server build in `.output/`. The pinned Wrangler configuration
 has separate environments:
 
@@ -316,9 +315,9 @@ automatic rollback. `npm run deploy:nuxt:production` remains an operator-only
 emergency command. Follow [the cutover runbook](../docs/cloudflare-cutover.md).
 
 The Nuxt dashboard owns the production Explore route and its map, filter,
-chart, address-search, and download interactions. Netlify remains outside the
-normal request path as a frozen temporary rollback origin; `netlify.toml`
-cancels every Git-triggered build. The main
+chart, address-search, and download interactions. The former Netlify project is
+stopped and repository-unlinked; production rollback uses a retained Cloudflare
+Worker version. The main
 `www.nickhand.dev/robots.txt` advertises the subpath sitemap because the app's
 own subpath robots file cannot set host-wide policy.
 

@@ -183,8 +183,9 @@ gates pass on `main`. The release is commit-tagged, serialized, checked against
 the current frontend source, verified by exact Nuxt build ID, and rolled back to
 the captured Worker version if the frontend-specific smoke fails. The broader
 production smoke reports cross-system health without driving rollback. The
-legacy Netlify site remains frozen until the first automated release is proven;
-its checked-in ignore rule still cancels every Git-triggered build.
+first automated release completed successfully on August 21, 2026. The former
+Netlify project is stopped and repository-unlinked; rollback uses the retained
+prior Cloudflare Worker version rather than a second hosting platform.
 
 ## Deployment (Fly.io)
 - `fly.toml` defines the public API app.

@@ -3,7 +3,8 @@
 Status: the Nuxt application is now the canonical Cloudflare production
 frontend. The phase descriptions below are an implementation record; references
 to parallel or future work describe the state at that phase, not today's
-topology. The Vite/Netlify build is retained only as a temporary rollback.
+topology. The legacy Vite app remains available locally as an implementation
+reference; the Netlify deployment is retired.
 
 The migration introduces Nuxt only where the current product needs it. The
 standing rule is: **if it can be simpler, simplify it.**
@@ -345,5 +346,5 @@ root.
 
 That slice proved build portability rather than changing hosting. A later
 staging canary covered runtime SSR, API failure, cache, observability, and
-crawler checks before production routing moved. The retained Netlify build is
-still the rollback path without moving or modifying the FastAPI service.
+crawler checks before production routing moved. Rollback now restores a retained
+Cloudflare Worker version without moving or modifying the FastAPI service.

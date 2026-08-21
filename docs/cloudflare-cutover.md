@@ -1,13 +1,17 @@
 # Cloudflare migration and dashboard cutover
 
-The migration has two separate changes:
+Status: completed. Cloudflare became the canonical dashboard host on August 18,
+2026; the first attested automated release completed on August 21, and the
+dashboard Netlify project was then stopped and repository-unlinked. Sections
+1–6 preserve the original migration sequence as a historical record.
+
+The migration had two separate changes:
 
 1. make Cloudflare authoritative for `nickhand.dev` and move the main site;
 2. route only `/philly-gun-violence-map` and its subtree to the Nuxt Worker.
 
-Do not combine those changes. Keeping them separate preserves the current
-Netlify dashboard as the rollback origin while the DNS and main-site migration
-settle.
+They were intentionally separated so DNS, main-site routing, and the dashboard
+could be verified independently.
 
 Cloudflare references:
 
@@ -26,7 +30,8 @@ Cloudflare references:
 - Confirm the Fly API identity can read `public/downloads/manifest.json`, and
   that no S3 lifecycle rule can expire a release still named by the current or
   previous application-data pointer.
-- Keep the existing Netlify deployment available.
+- Keep the then-existing rollback origin available until Cloudflare cutover was
+  verified.
 
 ## 2. Deploy the API contract first
 
@@ -69,16 +74,16 @@ new pointer format before the API and manifest-read IAM grant are deployed.
    from multiple resolvers. Re-enable DNSSEC through Cloudflare only after the
    zone is active and stable.
 
-At this point Cloudflare is authoritative DNS, but the current Netlify site and
-dashboard should still be serving traffic.
+At this historical checkpoint Cloudflare was authoritative DNS while the old
+dashboard origin was still retained temporarily.
 
 ## 4. Move the main `nickhand.dev` site
 
 The main-site source is in `~/Public/nickhand.dev`. Deploy that project to its
 own Cloudflare canary first, verify every public route and redirect, and then
-move the `www` origin. Its Worker must retain compatibility proxies to the
-legacy Netlify dashboard and Fair Measure deployments before the origin moves;
-otherwise those path-mounted apps would disappear during this step. Use a
+move the `www` origin. During the migration its Worker retained compatibility
+proxies for the legacy dashboard and Fair Measure origins so those path-mounted
+apps did not disappear during this step. Use a
 Cloudflare zone redirect to send the apex to `www` while preserving the full
 path and query string. Do not add the new dashboard Worker route in this step.
 
@@ -130,8 +135,10 @@ security headers, analytics decision, and that production contains no
 
 ## Rollback
 
-Disable or remove the two production Worker routes. The request then reaches
-the main-site Worker, whose compatibility proxy returns the legacy Netlify
-dashboard without changing the API or data pipeline. Keep both that proxy and
-the legacy deployment until the Nuxt release has completed its monitoring
-window.
+Every automated release captures the sole active production Worker version
+before activation. A frontend-specific verification failure restores that
+version automatically, provided the active-version compare-and-swap guard still
+matches the release. For a manual rollback, verify the current active version
+has not changed, then use Wrangler's version rollback command recorded in the
+GitHub deployment summary. The retired Netlify project is not a supported
+rollback path.

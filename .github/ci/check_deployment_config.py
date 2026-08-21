@@ -180,25 +180,6 @@ def check_fly_scheduler() -> None:
     _require("http_service" not in config, "scheduler must not expose an HTTP service")
 
 
-def check_netlify() -> None:
-    config = _load("netlify.toml")
-    build = _table(config.get("build"), "Netlify build configuration must be a table")
-    _require(
-        build.get("ignore") == "true",
-        "Netlify Git builds must stay frozen",
-    )
-    environment = _table(build.get("environment"), "Netlify environment must be a table")
-    _require(
-        environment.get("VITE_PUBLIC_BASE") == "/philly-gun-violence-map/",
-        "Netlify public base changed",
-    )
-    redirects = _tables(config.get("redirects"), "Netlify redirects must be a table list")
-    _require(bool(redirects), "Netlify redirects are required")
-    sources = [redirect.get("from") for redirect in redirects]
-    _require(len(sources) == len(set(sources)), "Netlify redirect sources must be unique")
-    _require("/philly-gun-violence-map/*" in sources, "Netlify subpath fallback is missing")
-
-
 def check_runtime_docker_inputs() -> None:
     api = (REPOSITORY_ROOT / "packages/api/Dockerfile").read_text()
     scraper = (REPOSITORY_ROOT / "packages/etl/Dockerfile").read_text()
@@ -276,7 +257,6 @@ def main() -> int:
     try:
         check_fly_api()
         check_fly_scheduler()
-        check_netlify()
         check_runtime_docker_inputs()
         check_package_metadata_inputs()
     except (ConfigurationError, OSError, tomllib.TOMLDecodeError, TypeError) as exc:

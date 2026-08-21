@@ -17,7 +17,6 @@ on:
       - "packages/etl/README.md"
       - "fly.toml"
       - "fly.scheduler.toml"
-      - "netlify.toml"
   push:
     branches: [main]
     paths:
@@ -35,7 +34,6 @@ on:
       - "packages/etl/README.md"
       - "fly.toml"
       - "fly.scheduler.toml"
-      - "netlify.toml"
 
 concurrency:
   group: config-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}

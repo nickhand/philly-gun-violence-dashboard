@@ -1,13 +1,13 @@
 # Frontend modernization: Nuxt, civic UI, SEO, and hosting
 
-Status: completed; Nuxt is production on Cloudflare Workers and the legacy Vite
-app remains temporarily available only for rollback
+Status: completed; Nuxt is production on Cloudflare Workers, automated releases
+are active, and the former Netlify project is stopped and repository-unlinked
 Original plan: 2026-08-15; production cutover: 2026-08-18
 
 The document below preserves the decisions and gates used during migration.
 Future-tense and “current Netlify” language in the phase plan describes the
-historical state at that gate; use `README.md`, `frontend/README.md`, and the
-cutover runbook for the live topology.
+historical state at that gate; it is not the live topology. Use `README.md`,
+`frontend/README.md`, and the cutover runbook for current operations.
 
 ## Decision summary
 

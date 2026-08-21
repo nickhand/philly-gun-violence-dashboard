@@ -26,7 +26,6 @@ CONFIG_TRIGGERS = (
     "packages/etl/README.md",
     "fly.toml",
     "fly.scheduler.toml",
-    "netlify.toml",
 )
 
 TRIGGERS: dict[str, tuple[str, ...]] = {
