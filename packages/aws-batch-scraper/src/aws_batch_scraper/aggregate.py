@@ -22,6 +22,7 @@ from pydantic import (
 )
 
 from aws_batch_scraper.config import WorkerConfig
+from aws_batch_scraper.resolution_paths import RESULT_CONFLICT_RESOLUTION_ROOT
 from aws_batch_scraper.result_semantics import (
     SEMANTIC_OBSERVATION_FIELDS,
     semantic_observation,
@@ -297,7 +298,7 @@ def _validate_v2_conflict_evidence(
 
 
 def _resolution_prefix(config: WorkerConfig, run_id: str) -> str:
-    return f"{config.s3_scraper_prefix}/runs/{run_id}/result-conflict-resolutions/"
+    return f"{config.s3_scraper_prefix}/runs/{run_id}/{RESULT_CONFLICT_RESOLUTION_ROOT}/"
 
 
 def _validate_resolution_record(

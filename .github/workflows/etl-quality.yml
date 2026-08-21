@@ -198,7 +198,7 @@ jobs:
             --image philly-courts-scraper:ci \
             --expected-distro-name ubuntu \
             --expected-distro-version 26.04 \
-            --required-packages "python:playwright=1.62.0,deb:google-chrome-stable=151.0.7922.173-1,binary:node=24.18.1" \
+            --required-packages "python:playwright=1.62.0,deb:google-chrome-stable=151.0.7922.173-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4,binary:node=24.18.1" \
             --required-chrome-executable-sha256 "sha256:7bacb4ffdce01ef0f6a2a53123d5e9fb4817e2d50b5e3bd6be10642663669f50" \
             --forbid-chrome-sandbox \
             --forbid-setuid-setgid-files \

@@ -215,7 +215,10 @@ The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
 same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
-date. It full-upgrades that snapshot before installing Ubuntu's native Python
+date. The pinned snapshot includes Canonical's `libcurl3t64-gnutls`
+`8.18.0-1ubuntu2.4` security update from USN-8651-1; the image build and SBOM
+gate both assert that exact package version.
+It full-upgrades that snapshot before installing Ubuntu's native Python
 (3.13 or newer) and a checksum-pinned Google Chrome 151.0.7922.173 package.
 The Playwright client is pinned to 1.62.0, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly

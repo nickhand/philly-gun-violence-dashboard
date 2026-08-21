@@ -179,6 +179,9 @@ verified by exact readback. Missing, malformed, tampered, mismatched, or orphan
 resolution evidence fails closed. Neither review nor aggregation edits or deletes
 the original conflict. The report exposes resolved/unresolved counts, the
 conflict-policy version, and a deterministic policy-bound evidence digest.
+Production task and workflow roles must be denied object mutation access to both
+`result-conflict-resolutions/v1/` and `terminal-decision-resolutions/v1/`; import
+`HUMAN_REVIEW_RESOLUTION_PATHS` when generating or auditing that IAM boundary.
 
 Each object validates as `ScrapeResult`:
 

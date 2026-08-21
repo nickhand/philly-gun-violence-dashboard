@@ -103,12 +103,14 @@ rejected candidate body, and resolution body. Its strict record also binds the
 canonical body/semantic observation, decision winner, rejected observation,
 timezone-aware review time, reviewer, and nonblank rationale. Use
 `write_accept_terminal_decision_resolution` only with all three expected
-digests from the reviewed evidence. ECS task roles and GitHub workflow roles
-must not have `s3:PutObject` access to this prefix: an operator/admin IAM
+digests from the reviewed evidence. The earlier reviewed-canonical protocol uses
+the equally privileged `result-conflict-resolutions/v1/` namespace. ECS task
+roles and GitHub workflow roles must not have object mutation access to either
+resolution namespace: an operator/admin IAM
 principal plus CloudTrail is the actual authentication boundary for the human
 review; `reviewed_by` alone is not. The runtime exports
-`TERMINAL_DECISION_RESOLUTION_PATH` so IAM policy generation and audits can bind
-the exact namespace without duplicating its string.
+`HUMAN_REVIEW_RESOLUTION_PATHS` so IAM policy generation and audits must bind
+the complete exact namespace inventory without duplicating either string.
 
 The transport is deliberately at-least-once. A true concurrent Standard SQS
 duplicate can repeat one portal lookup, and a DLQ send can be duplicated if its

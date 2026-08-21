@@ -13,6 +13,7 @@ from typing import Literal, TypeGuard, cast
 from mypy_boto3_s3.client import S3Client
 
 from aws_batch_scraper.config import WorkerConfig
+from aws_batch_scraper.resolution_paths import TERMINAL_DECISION_RESOLUTION_PATH
 from aws_batch_scraper.result_semantics import semantic_observation
 from aws_batch_scraper.strict_json import decode_strict_json_object
 from aws_batch_scraper.types import ScrapeResult, ScrapeStatus
@@ -21,9 +22,6 @@ JOURNAL_SCHEMA_VERSION = 1
 DISPOSITION_SCHEMA_VERSION = 1
 DECISION_SCHEMA_VERSION = 1
 RESOLUTION_SCHEMA_VERSION = 1
-# This namespace is a security boundary: production IAM must grant workers and
-# workflow automation read access only. Human operators are the sole writers.
-TERMINAL_DECISION_RESOLUTION_PATH = "terminal-decision-resolutions/v1"
 TerminalKind = Literal["result", "failure"]
 DispositionOutcome = Literal["created", "duplicate", "conflict"]
 _CANDIDATE_FIELDS = frozenset(

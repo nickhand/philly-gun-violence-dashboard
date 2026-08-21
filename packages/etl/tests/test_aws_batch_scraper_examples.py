@@ -25,8 +25,9 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
     assert expected_base in source
-    assert "ARG UBUNTU_SNAPSHOT=20260819T160000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20260819T160000Z"' in source
+    assert "ARG UBUNTU_SNAPSHOT=20260819T170000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20260819T170000Z"' in source
+    assert "20260819T160000Z" not in source
     assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 3
     assert 'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update' in source
     assert "--yes --no-install-recommends full-upgrade" in source
@@ -34,6 +35,9 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
         'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update'
     )
     assert "snapshot.ubuntu.com_ubuntu_${UBUNTU_SNAPSHOT}_dists_${suite}_InRelease" in source
+    assert "libcurl3t64-gnutls" in source
+    assert ' = "8.18.0-1ubuntu2.4"' in source
+    assert 'test -z "$(dpkg --audit)"' in source
     assert source.count("|| exit 1;") >= 2
     assert "apt-get update" not in source
     assert "snapshot.debian.org" not in source
@@ -158,6 +162,7 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     assert "--forbid-chrome-sandbox" in source
     assert "--forbid-setuid-setgid-files" in source
     assert "--required-chrome-sandbox-sha256" not in source
+    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4" in source
     assert "root:root:755" not in source
     assert "root:root:4755" not in source
     assert "image_entrypoint=" in source
@@ -175,6 +180,7 @@ def test_release_and_smoke_run_standalone_chrome_freshness_script() -> None:
 
     script = "packages/etl/src/etl/chrome_release.py"
     assert f'aws_batch_scraper_browser_freshness_script := "{script}"' in justfile
+    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4" in justfile
     assert 'python3 "{{aws_batch_scraper_browser_freshness_script}}"' in recipe
     assert f"python3 {script}" in smoke
 
