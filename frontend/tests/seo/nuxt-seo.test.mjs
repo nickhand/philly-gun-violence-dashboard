@@ -644,6 +644,10 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
       document.querySelector("#explorer")?.getAttribute("aria-label"),
       "Explore the record",
     );
+    assert.ok(
+      document.querySelector("section#explorer[data-nosnippet]"),
+      "volatile explorer summaries and category counts must be excluded from search snippets",
+    );
 
     const summaries = dashboardSummaries(document);
     assert.equal(summaries.length, 2);
@@ -654,6 +658,20 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
     assert.match(
       summaries[1],
       /This map shows the victims of gun violence: 1 nonfatal and 1 fatal shooting victims so far in 2023\s*\./,
+    );
+    assert.equal(
+      document.querySelectorAll(
+        ".civic-legacy-dashboard-header__summary > span[data-nosnippet]",
+      ).length,
+      2,
+      "volatile homicide and shooting summaries must be excluded from search snippets",
+    );
+    assert.deepEqual(
+      [...document.querySelectorAll("[data-nosnippet]")].map(
+        (element) => element.tagName,
+      ),
+      ["SPAN", "SPAN", "SECTION"],
+      "data-nosnippet must stay on element types supported by Google",
     );
     const clientFallback = document.querySelector(
       ".civic-legacy-map-explorer--fallback",
@@ -696,9 +714,19 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
       document.querySelector("title")?.textContent?.trim(),
       "Philadelphia Gun Violence Dashboard | Interactive Shootings Map & Data",
     );
-    assert.match(
-      document.querySelector('meta[name="description"]')?.getAttribute("content") ?? "",
-      /explore 2 Philadelphia shooting-victim records in 2023/i,
+    const evergreenDescription =
+      "Explore an interactive map and current data on fatal and nonfatal shooting victims in Philadelphia.";
+    assert.equal(
+      document.querySelector('meta[name="description"]')?.getAttribute("content"),
+      evergreenDescription,
+    );
+    assert.equal(
+      document.querySelector('meta[property="og:description"]')?.getAttribute("content"),
+      evergreenDescription,
+    );
+    assert.equal(
+      document.querySelector('meta[name="twitter:description"]')?.getAttribute("content"),
+      evergreenDescription,
     );
     assert.equal(document.querySelectorAll('link[rel="canonical"]').length, 1);
     assert.equal(
@@ -724,6 +752,7 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
       .map((script) => JSON.parse(script.textContent ?? "{}"))
       .find((value) => value["@type"] === "WebPage");
     assert.equal(structuredData?.url, canonicalBase);
+    assert.equal(structuredData?.description, evergreenDescription);
     assert.equal("dateModified" in structuredData, false);
 
     const skipLink = document.querySelector('a[href="#main-content"]');

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDataDate, formatDataNumber } from "~/utils/formatData";
+import { formatDataNumber } from "~/utils/formatData";
 import {
   formatPercentChange,
   sumCompleteAnnualCounts,
@@ -189,25 +189,20 @@ function changeYear(event: Event): void {
   });
 }
 
-const description = computed(() => {
-  const snapshot = stats.value;
-  if (!snapshot) {
-    return "Explore Philadelphia shooting-victim records by year and place.";
-  }
-  return `Through ${formatDataDate(snapshot.shootings_data_through)}, explore ${formatDataNumber(snapshot.current_total)} Philadelphia shooting-victim records in ${snapshot.current_year}.`;
-});
+const description =
+  "Explore an interactive map and current data on fatal and nonfatal shooting victims in Philadelphia.";
 
 useSeoMeta({
   title: "Philadelphia Gun Violence Dashboard | Interactive Shootings Map & Data",
-  description: () => description.value,
+  description,
   ogType: "website",
   ogTitle: "Philadelphia Gun Violence Dashboard",
-  ogDescription: () => description.value,
+  ogDescription: description,
   ogUrl: canonicalUrl,
   ogImage: `${siteUrl}/og-image.png`,
   twitterCard: "summary_large_image",
   twitterTitle: "Philadelphia Gun Violence Dashboard",
-  twitterDescription: () => description.value,
+  twitterDescription: description,
   twitterImage: `${siteUrl}/og-image.png`,
 });
 
@@ -222,7 +217,7 @@ useHead(() => ({
         "@id": `${canonicalUrl}#webpage`,
         name: "Philadelphia Gun Violence Dashboard",
         url: canonicalUrl,
-        description: description.value,
+        description,
         ...createDashboardPageProvenance(entityIds),
         mainEntity: { "@id": entityIds.dashboardDataset },
         about: { "@id": entityIds.dashboardDataset },
@@ -289,49 +284,51 @@ useHead(() => ({
         :class="{ 'is-loading': !homicideContext }"
         aria-live="polite"
       >
-        <template v-if="allYearsHomicidesIncomplete">
-          An all-years homicide total is unavailable because one or more annual
-          totals are missing.
-        </template>
-        <template v-else-if="homicideContext?.mode === 'all'">
-          There {{ homicideContext.count === 1 ? "has" : "have" }} been
-          <span class="fatal">
-            {{ formatDataNumber(homicideContext.count) }}
-            {{ homicideContext.count === 1 ? "homicide" : "homicides" }}
-          </span>
-          {{ " " }}<span class="date-color">since {{ homicideContext.year }}</span>.
-        </template>
-        <template v-else-if="homicideContext?.mode === 'past'">
-          In total, there {{ homicideContext.count === 1 ? "was" : "were" }}
-          <span class="fatal">
-            {{ formatDataNumber(homicideContext.count) }}
-            {{ homicideContext.count === 1 ? "homicide" : "homicides" }}
-          </span>
-          in
-          <span class="date-color">
-            {{ homicideContext.year }}{{ homicideContext.comparison ? "," : "" }}
-          </span>
-          <template v-if="homicideContext.comparison">
-            {{ " " }}{{ homicideContext.comparison }} from
-            {{ homicideContext.year - 1 }}
-          </template>.
-        </template>
-        <template v-else-if="homicideContext">
-          There {{ homicideContext.count === 1 ? "has" : "have" }} been
-          <span class="fatal">
-            {{ formatDataNumber(homicideContext.count) }}
-            {{ homicideContext.count === 1 ? "homicide" : "homicides" }}
-          </span>
-          in
-          <span class="date-color">
-            {{ homicideContext.year }}{{ homicideContext.comparison ? "," : "" }}
-          </span>
-          <template v-if="homicideContext.comparison">
-            {{ " " }}{{ homicideContext.comparison }} from
-            {{ homicideContext.year - 1 }}
-          </template>.
-        </template>
-        <template v-else>Homicide totals are temporarily unavailable.</template>
+        <span data-nosnippet>
+          <template v-if="allYearsHomicidesIncomplete">
+            An all-years homicide total is unavailable because one or more annual
+            totals are missing.
+          </template>
+          <template v-else-if="homicideContext?.mode === 'all'">
+            There {{ homicideContext.count === 1 ? "has" : "have" }} been
+            <span class="fatal">
+              {{ formatDataNumber(homicideContext.count) }}
+              {{ homicideContext.count === 1 ? "homicide" : "homicides" }}
+            </span>
+            {{ " " }}<span class="date-color">since {{ homicideContext.year }}</span>.
+          </template>
+          <template v-else-if="homicideContext?.mode === 'past'">
+            In total, there {{ homicideContext.count === 1 ? "was" : "were" }}
+            <span class="fatal">
+              {{ formatDataNumber(homicideContext.count) }}
+              {{ homicideContext.count === 1 ? "homicide" : "homicides" }}
+            </span>
+            in
+            <span class="date-color">
+              {{ homicideContext.year }}{{ homicideContext.comparison ? "," : "" }}
+            </span>
+            <template v-if="homicideContext.comparison">
+              {{ " " }}{{ homicideContext.comparison }} from
+              {{ homicideContext.year - 1 }}
+            </template>.
+          </template>
+          <template v-else-if="homicideContext">
+            There {{ homicideContext.count === 1 ? "has" : "have" }} been
+            <span class="fatal">
+              {{ formatDataNumber(homicideContext.count) }}
+              {{ homicideContext.count === 1 ? "homicide" : "homicides" }}
+            </span>
+            in
+            <span class="date-color">
+              {{ homicideContext.year }}{{ homicideContext.comparison ? "," : "" }}
+            </span>
+            <template v-if="homicideContext.comparison">
+              {{ " " }}{{ homicideContext.comparison }} from
+              {{ homicideContext.year - 1 }}
+            </template>.
+          </template>
+          <template v-else>Homicide totals are temporarily unavailable.</template>
+        </span>
       </p>
 
       <p
@@ -339,27 +336,29 @@ useHead(() => ({
         :class="{ 'is-loading': !shootingContext }"
         aria-live="polite"
       >
-        <template v-if="shootingContext">
-          This map shows the victims of gun violence:
-          <span class="nonfatal">
-            {{ formatDataNumber(shootingContext.nonfatal) }} nonfatal
-          </span>
-          and
-          <span class="fatal">
-            {{ formatDataNumber(shootingContext.fatal) }} fatal
-          </span>
-          shooting victims
-          <template v-if="selectedYear === stats?.current_year">
-            so far in <span class="date-color">{{ selectedYear }}.</span>
+        <span data-nosnippet>
+          <template v-if="shootingContext">
+            This map shows the victims of gun violence:
+            <span class="nonfatal">
+              {{ formatDataNumber(shootingContext.nonfatal) }} nonfatal
+            </span>
+            and
+            <span class="fatal">
+              {{ formatDataNumber(shootingContext.fatal) }} fatal
+            </span>
+            shooting victims
+            <template v-if="selectedYear === stats?.current_year">
+              so far in <span class="date-color">{{ selectedYear }}.</span>
+            </template>
+            <template v-else-if="selectedYear === null">
+              since <span class="date-color">{{ stats?.minimum_year }}.</span>
+            </template>
+            <template v-else>
+              in <span class="date-color">{{ selectedYear }}.</span>
+            </template>
           </template>
-          <template v-else-if="selectedYear === null">
-            since <span class="date-color">{{ stats?.minimum_year }}.</span>
-          </template>
-          <template v-else>
-            in <span class="date-color">{{ selectedYear }}.</span>
-          </template>
-        </template>
-        <template v-else>&nbsp;</template>
+          <template v-else>&nbsp;</template>
+        </span>
       </p>
     </header>
 
@@ -367,6 +366,7 @@ useHead(() => ({
       id="explorer"
       class="civic-legacy-explorer-shell"
       aria-label="Explore the record"
+      data-nosnippet
     >
       <ClientOnly v-if="stats && selectedYear !== undefined">
         <Suspense>
