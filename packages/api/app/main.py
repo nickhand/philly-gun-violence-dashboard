@@ -80,7 +80,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 DEFAULT_CORS_ORIGINS = (
-    "https://phillygunviolence.netlify.app",
     "https://www.nickhand.dev",
     "https://nickhand.dev",
     "http://localhost:3000",

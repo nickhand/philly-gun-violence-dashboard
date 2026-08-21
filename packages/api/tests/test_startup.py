@@ -66,6 +66,8 @@ class TestOpenAPI:
             "https://dashboard-canary.example.com",
         )
         assert "https://dashboard-canary.example.com" in main._cors_origins()
+        assert "https://www.nickhand.dev" in main._cors_origins()
+        assert "https://phillygunviolence.netlify.app" not in main._cors_origins()
         assert "null" not in main._cors_origins()
 
     def test_shooting_download_contracts(self):
