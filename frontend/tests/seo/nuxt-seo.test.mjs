@@ -1570,14 +1570,8 @@ test("content routes render complete, unique crawler responses", async () => {
         "Philadelphia shooting-victim and homicide statistics",
       );
       assert.deepEqual(dataset?.isBasedOn, [
-        {
-          "@id":
-            "https://opendataphilly.org/datasets/shooting-victims/#dataset",
-        },
-        {
-          "@id":
-            "https://www.phillypolice.com/crime-data/crime-statistics/#dataset",
-        },
+        "https://opendataphilly.org/datasets/shooting-victims/",
+        "https://www.phillypolice.com/crime-data/crime-statistics/",
       ]);
       assert.deepEqual(dataset?.maintainer, {
         "@id": "https://www.nickhand.dev/#person",
@@ -1593,18 +1587,16 @@ test("content routes render complete, unique crawler responses", async () => {
           "Homicides",
         ],
       );
-      const shootingSource = structuredData?.["@graph"].find(
-        (entry) =>
-          entry["@id"] ===
-          "https://opendataphilly.org/datasets/shooting-victims/#dataset",
+      assert.equal(dataset?.creator?.["@type"], "Person");
+      assert.equal(dataset?.publisher?.["@type"], "Person");
+      assert.equal(dataset?.license?.["@type"], "CreativeWork");
+      assert.equal("isPartOf" in dataset, false);
+      assert.equal(
+        structuredData?.["@graph"].filter(
+          (entry) => entry["@type"] === "Dataset",
+        ).length,
+        1,
       );
-      assert.deepEqual(shootingSource?.publisher, {
-        "@id":
-          "https://www.phila.gov/departments/philadelphia-police-department/#organization",
-      });
-      assert.deepEqual(shootingSource?.includedInDataCatalog, {
-        "@id": "https://opendataphilly.org/#catalog",
-      });
       assert.equal("distribution" in dataset, false);
     }
 
@@ -1910,15 +1902,14 @@ test("content routes render complete, unique crawler responses", async () => {
         "@id": "https://www.nickhand.dev/#person",
       });
       assert.deepEqual(dataset?.isBasedOn, [
-        {
-          "@id":
-            "https://opendataphilly.org/datasets/shooting-victims/#dataset",
-        },
-        {
-          "@id": "https://ujsportal.pacourts.us/CaseSearch#webpage",
-        },
+        "https://opendataphilly.org/datasets/shooting-victims/",
+        "https://ujsportal.pacourts.us/CaseSearch",
       ]);
-      assert.match(dataset?.citation ?? "", /Philadelphia Police Department via OpenDataPhilly/);
+      assert.match(dataset?.creditText ?? "", /Philadelphia Police Department via OpenDataPhilly/);
+      assert.equal(dataset?.creator?.["@type"], "Person");
+      assert.equal(dataset?.publisher?.["@type"], "Person");
+      assert.equal(dataset?.license?.["@type"], "CreativeWork");
+      assert.equal("isPartOf" in dataset, false);
       assert.match(dataset?.description ?? "", /Each row represents one person/i);
       assert.match(
         dataset?.description ?? "",
@@ -1980,14 +1971,13 @@ test("content routes render complete, unique crawler responses", async () => {
       assert.deepEqual(structuredData?.mainEntity, {
         "@id": `${canonicalBase}/data#dataset`,
       });
-      assert.deepEqual(
-        structuredData?.citation?.map((entry) => entry["@id"]),
-        [
-          "https://opendataphilly.org/datasets/shooting-victims/#dataset",
-          "https://www.phillypolice.com/crime-data/crime-statistics/#dataset",
-          "https://ujsportal.pacourts.us/CaseSearch#webpage",
-        ],
-      );
+      assert.deepEqual(structuredData?.isBasedOn, [
+        "https://opendataphilly.org/datasets/shooting-victims/",
+        "https://www.phillypolice.com/crime-data/crime-statistics/",
+        "https://ujsportal.pacourts.us/CaseSearch",
+      ]);
+      assert.equal("citation" in structuredData, false);
+      assert.doesNotMatch(JSON.stringify(structuredData), /"@type":"Dataset"/);
       const mainText = normalizedText(document.querySelector("main"));
       const recordScope = document.querySelector(
         '[aria-labelledby="record-scope"]',

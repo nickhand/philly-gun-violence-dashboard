@@ -6,8 +6,9 @@ import {
 import {
   createDashboardDatasetProvenance,
   createDashboardPageProvenance,
-  createPublicSourceEntities,
   getDashboardEntityIds,
+  PPD_HOMICIDE_SOURCE_URL,
+  PPD_SHOOTING_SOURCE_URL,
 } from "~/utils/structuredData";
 
 const { canonicalBaseUrl } = useRuntimeConfig().public;
@@ -170,14 +171,10 @@ const structuredData = computed(() => {
         },
       ],
       isBasedOn: [
-        { "@id": entityIds.shootingSourceDataset },
-        { "@id": entityIds.homicideSourceDataset },
+        PPD_SHOOTING_SOURCE_URL,
+        PPD_HOMICIDE_SOURCE_URL,
       ],
-      citation: [
-        `Philadelphia Gun Violence Dashboard. “Philadelphia shooting-victim and homicide statistics.” Shooting-victim records through ${formatDate(snapshot.shootings_data_through)}; Philadelphia Police Department homicide totals through ${formatDate(snapshot.homicides_data_through)}. ${canonicalUrl}.`,
-        { "@id": entityIds.shootingSourceDataset },
-        { "@id": entityIds.homicideSourceDataset },
-      ],
+      creditText: `Philadelphia Police Department shooting-victim records through ${formatDate(snapshot.shootings_data_through)} via OpenDataPhilly; Philadelphia Police Department homicide totals through ${formatDate(snapshot.homicides_data_through)}.`,
       keywords: [
         "Philadelphia gun violence",
         "shooting victims",
@@ -186,7 +183,6 @@ const structuredData = computed(() => {
       ],
       isAccessibleForFree: true,
     });
-    graph.push(...createPublicSourceEntities(entityIds));
   }
 
   return { "@context": "https://schema.org", "@graph": graph };

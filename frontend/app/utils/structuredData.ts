@@ -90,6 +90,18 @@ export function createDashboardIdentityEntities(
   ];
 }
 
+export function createDashboardPersonEntity(
+  ids: DashboardEntityIds,
+): StructuredDataNode {
+  return {
+    "@type": "Person",
+    "@id": ids.person,
+    name: "Nick Hand",
+    url: ids.profileUrl,
+    sameAs: [NICK_HAND_GITHUB_URL],
+  };
+}
+
 export function createDashboardPageProvenance(
   ids: DashboardEntityIds,
 ): StructuredDataNode {
@@ -105,51 +117,13 @@ export function createDashboardDatasetProvenance(
   ids: DashboardEntityIds,
 ): StructuredDataNode {
   return {
-    isPartOf: { "@id": ids.website },
-    creator: { "@id": ids.person },
+    creator: createDashboardPersonEntity(ids),
     maintainer: { "@id": ids.person },
-    publisher: { "@id": ids.person },
+    publisher: createDashboardPersonEntity(ids),
+    license: {
+      "@type": "CreativeWork",
+      name: "Licensing and terms for dashboard data",
+      url: `${ids.siteUrl}/data#terms-methods`,
+    },
   };
-}
-
-export function createPublicSourceEntities(
-  ids: DashboardEntityIds,
-): StructuredDataNode[] {
-  return [
-    {
-      "@type": "GovernmentOrganization",
-      "@id": ids.policeDepartment,
-      name: "Philadelphia Police Department",
-      url: PPD_ORGANIZATION_URL,
-    },
-    {
-      "@type": "DataCatalog",
-      "@id": ids.openDataCatalog,
-      name: "OpenDataPhilly",
-      description:
-        "The official open-data repository for the City of Philadelphia and a catalog of open data in the Philadelphia region.",
-      url: OPEN_DATA_PHILLY_URL,
-    },
-    {
-      "@type": "Dataset",
-      "@id": ids.shootingSourceDataset,
-      name: "Shooting Victims",
-      description:
-        "Citywide shooting-victim records published by the Philadelphia Police Department, including police officer-involved shootings.",
-      url: PPD_SHOOTING_SOURCE_URL,
-      creator: { "@id": ids.policeDepartment },
-      publisher: { "@id": ids.policeDepartment },
-      includedInDataCatalog: { "@id": ids.openDataCatalog },
-    },
-    {
-      "@type": "Dataset",
-      "@id": ids.homicideSourceDataset,
-      name: "Philadelphia Police Department homicide statistics",
-      description:
-        "Citywide homicide statistics published by the Philadelphia Police Department.",
-      url: PPD_HOMICIDE_SOURCE_URL,
-      creator: { "@id": ids.policeDepartment },
-      publisher: { "@id": ids.policeDepartment },
-    },
-  ];
 }

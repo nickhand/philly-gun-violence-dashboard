@@ -5,7 +5,6 @@ import {
   createDashboardDatasetProvenance,
   createDashboardIdentityEntities,
   createDashboardPageProvenance,
-  createPublicSourceEntities,
   getDashboardEntityIds,
 } from "../../../app/utils/structuredData";
 
@@ -45,29 +44,29 @@ describe("dashboard structured-data identity", () => {
       author: { "@id": ids.person },
     });
     expect(createDashboardDatasetProvenance(ids)).toMatchObject({
-      isPartOf: { "@id": ids.website },
-      creator: { "@id": ids.person },
+      creator: {
+        "@type": "Person",
+        "@id": ids.person,
+        name: "Nick Hand",
+      },
       maintainer: { "@id": ids.person },
+      publisher: {
+        "@type": "Person",
+        "@id": ids.person,
+        name: "Nick Hand",
+      },
+      license: {
+        "@type": "CreativeWork",
+        name: "Licensing and terms for dashboard data",
+        url: `${canonicalUrl}/data#terms-methods`,
+      },
     });
+    expect(createDashboardDatasetProvenance(ids)).not.toHaveProperty(
+      "isPartOf",
+    );
   });
 
-  it("keeps the derivative publisher distinct from the original PPD sources", () => {
-    const sources = createPublicSourceEntities(ids);
-    const shootingSource = sources.find(
-      (entry) => entry["@id"] === ids.shootingSourceDataset,
-    );
-    const homicideSource = sources.find(
-      (entry) => entry["@id"] === ids.homicideSourceDataset,
-    );
-
-    expect(shootingSource).toMatchObject({
-      publisher: { "@id": ids.policeDepartment },
-      includedInDataCatalog: { "@id": ids.openDataCatalog },
-    });
-    expect(homicideSource).toMatchObject({
-      publisher: { "@id": ids.policeDepartment },
-    });
-    expect(shootingSource?.publisher).not.toEqual({ "@id": ids.person });
+  it("models external sources as links instead of republishing their datasets", () => {
     expect(createCourtSourceEntity(ids)).toMatchObject({
       "@type": "WebPage",
       "@id": "https://ujsportal.pacourts.us/CaseSearch#webpage",

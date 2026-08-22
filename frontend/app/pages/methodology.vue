@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  createCourtSourceEntity,
   createDashboardPageProvenance,
   getDashboardEntityIds,
   PPD_HOMICIDE_SOURCE_URL,
@@ -43,22 +42,10 @@ useHead(() => ({
         ...createDashboardPageProvenance(entityIds),
         mainEntity: { "@id": entityIds.dashboardDataset },
         about: { "@id": entityIds.dashboardDataset },
-        citation: [
-          {
-            "@type": "Dataset",
-            "@id": entityIds.shootingSourceDataset,
-            name: "Shooting Victims",
-            url: PPD_SHOOTING_SOURCE_URL,
-            publisher: { "@id": entityIds.policeDepartment },
-          },
-          {
-            "@type": "Dataset",
-            "@id": entityIds.homicideSourceDataset,
-            name: "Philadelphia Police Department homicide statistics",
-            url: PPD_HOMICIDE_SOURCE_URL,
-            publisher: { "@id": entityIds.policeDepartment },
-          },
-          createCourtSourceEntity(entityIds),
+        isBasedOn: [
+          PPD_SHOOTING_SOURCE_URL,
+          PPD_HOMICIDE_SOURCE_URL,
+          UJS_CASE_SEARCH_URL,
         ],
       }).replace(/</g, "\\u003c"),
     },

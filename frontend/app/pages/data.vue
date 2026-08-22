@@ -356,10 +356,11 @@ useHead(() => {
                 "Court-search result status",
               ].map((name) => ({ "@type": "PropertyValue", name })),
               isBasedOn: [
-                { "@id": entityIds.shootingSourceDataset },
-                { "@id": entityIds.courtSourcePage },
+                PPD_SHOOTING_SOURCE_URL,
+                UJS_CASE_SEARCH_URL,
               ],
-              citation: citationText.value,
+              creditText:
+                "Data from the Philadelphia Police Department via OpenDataPhilly, with automated public case-search result status from the Pennsylvania Unified Judicial System.",
               keywords: [
                 "Philadelphia gun violence",
                 "shooting victims",
@@ -394,8 +395,6 @@ useHead(() => {
                   },
                 ]
               : []),
-            ...createPublicSourceEntities(entityIds),
-            createCourtSourceEntity(entityIds),
           ],
         }).replace(/</g, "\\u003c"),
       },
