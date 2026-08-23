@@ -5,6 +5,7 @@ import {
   searchPhiladelphiaAddresses,
   type AddressResult,
 } from "~/utils/geocoding";
+import { track } from "~/utils/analytics";
 
 const props = defineProps<{ resetKey: number }>();
 const emit = defineEmits<{
@@ -101,6 +102,7 @@ function selectResult(result: AddressResult): void {
   results.value = [];
   activeIndex.value = -1;
   open.value = false;
+  track("location_searched", { found: true });
   emit("select", result);
 }
 

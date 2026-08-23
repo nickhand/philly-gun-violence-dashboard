@@ -211,6 +211,7 @@ The canonical Nuxt app supports:
 ```env
 NUXT_PUBLIC_API_BASE_URL=http://localhost:8000
 NUXT_PUBLIC_DOWNLOADS_BASE_URL=https://data.example.org/downloads
+NUXT_PUBLIC_POSTHOG_KEY=phc_your_project_token
 NUXT_PUBLIC_SITE_URL=https://www.nickhand.dev
 NUXT_PUBLIC_CANONICAL_BASE_URL=https://www.nickhand.dev/philly-gun-violence-map
 NUXT_APP_BASE_URL=/philly-gun-violence-map/
@@ -238,28 +239,39 @@ results.
 
 ## Analytics
 
-The legacy Vite frontend uses [PostHog](https://posthog.com/) when a production
-`VITE_POSTHOG_KEY` is configured. The Nuxt release does not initialize PostHog;
-make an explicit privacy and analytics decision before adding it rather than
-assuming the legacy integration carried over.
+The canonical Nuxt frontend uses [PostHog](https://posthog.com/) in production
+when `NUXT_PUBLIC_POSTHOG_KEY` is configured. The browser-safe project token is
+set only in the production Wrangler environment, so development and staging do
+not send analytics or contaminate production data. The client is loaded from a
+deferred bundle and analytics failures never prevent the dashboard from
+loading.
 
-Legacy tracked events include:
+The migration preserves the legacy privacy settings: autocapture and session
+recording are disabled, anonymous persistence uses `localStorage`, and person
+profiles are created only for explicitly identified users. Initial and Nuxt
+client-side page navigation pageviews are captured automatically; application
+events remain explicit.
+
+Tracked events include:
 
 - **Pageviews & sessions** - Automatic page tracking
 - **User interactions** - Year changes, filter usage, layer toggles
-- **Data downloads** - Track when users export data
+- **Data downloads** - Track requests from the explorer and data page
+- **Print requests** - Track annual-count and map print actions
 - **External links** - Track clicks to data sources and GitHub
 
-Analytics are only enabled in the legacy production build with a valid
-`VITE_POSTHOG_KEY`. In development, all tracking calls are no-ops.
+The legacy rollback build still uses `VITE_POSTHOG_KEY`. Both integrations are
+production-only; without the matching key, all tracking calls are no-ops.
 
-Legacy event names:
+Event names:
+
 - `year_changed` - User changes the year filter
 - `filter_toggled` - User modifies any filter (checkbox, slider, switch)
 - `map_layer_changed` - User toggles a map layer
-- `aggregation_changed` - User changes aggregation geography
+- `choropleth_changed` - User changes aggregation geography
 - `location_searched` - User searches for an address
-- `data_downloaded` - User exports data (CSV/GeoJSON)
+- `data_download_requested` - User requests a CSV or GeoJSON download
+- `print_requested` - User requests a printable annual-count table or map
 - `external_link_clicked` - User clicks an external link
 
 ## API Integration

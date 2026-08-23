@@ -451,6 +451,11 @@ useHead(() => {
               <CivicFileDownloadLink
                 :href="publicRecordDownload.url"
                 :filename="publicRecordDownload.filename"
+                data-analytics-dataset="shooting_records"
+                data-analytics-download="all"
+                data-analytics-format="csv"
+                :data-analytics-record-count="publicRecordDownload.rowCount ?? undefined"
+                data-analytics-source="data"
                 format="CSV"
                 :size-bytes="publicRecordDownload.sizeBytes"
                 variant="button"
@@ -828,6 +833,10 @@ useHead(() => {
                       <CivicFileDownloadLink
                         :href="reference.url"
                         :filename="reference.filename"
+                        :data-analytics-dataset="reference.joinField"
+                        data-analytics-download="reference"
+                        data-analytics-format="geojson"
+                        data-analytics-source="data"
                         format="GeoJSON"
                         :size-bytes="reference.sizeBytes"
                         type="application/geo+json"

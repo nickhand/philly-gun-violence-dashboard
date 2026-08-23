@@ -80,6 +80,12 @@ export default defineNuxtConfig({
         "https://philly-gun-violence-dashboard-api.fly.dev",
       downloadsBaseUrl:
         process.env.NUXT_PUBLIC_DOWNLOADS_BASE_URL ?? defaultDownloadsBaseUrl,
+      posthogHost:
+        process.env.NUXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
+      posthogKey:
+        process.env.NUXT_PUBLIC_POSTHOG_KEY ??
+        process.env.VITE_POSTHOG_KEY ??
+        "",
       canonicalBaseUrl,
       indexable,
     },

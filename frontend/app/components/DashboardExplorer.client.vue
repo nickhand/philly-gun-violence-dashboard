@@ -50,6 +50,7 @@ import {
   summarizeShootingRecords,
   type ShootingRecordResult,
 } from "~/utils/shootingRecords";
+import { track } from "~/utils/analytics";
 
 const props = defineProps<{
   initialCategorySummary?: CategorySummary;
@@ -246,8 +247,25 @@ function updateRange(
   filters.value = { ...filters.value, [dimension]: value };
 }
 
+function trackRangeChange(
+  dimension: ShootingRangeDimension,
+  value: NumericRange,
+): void {
+  track("filter_toggled", {
+    filter: dimension,
+    type: "slider",
+    value,
+  });
+}
+
 function updateExcludeUnknownAge(value: boolean): void {
   if (!filters.value) return;
+  track("filter_toggled", {
+    enabled: value,
+    filter: "age",
+    type: "slider",
+    value: filters.value.age,
+  });
   filters.value = { ...filters.value, excludeUnknownAge: value };
 }
 
@@ -256,9 +274,15 @@ function updateBooleanFilter(
   event: Event,
 ): void {
   if (!filters.value) return;
+  const enabled = (event.target as HTMLInputElement).checked;
+  track("filter_toggled", {
+    enabled,
+    filter: filter === "fatalOnly" ? "fatal" : "has_court_case",
+    type: "switch",
+  });
   filters.value = {
     ...filters.value,
-    [filter]: (event.target as HTMLInputElement).checked,
+    [filter]: enabled,
   };
 }
 
@@ -267,6 +291,17 @@ function updateCategory(
   values: Array<number | string>,
 ): void {
   if (!filters.value) return;
+  const previous = new Set(filters.value[dimension]);
+  const next = new Set(values);
+  for (const value of new Set([...previous, ...next])) {
+    if (previous.has(value) === next.has(value)) continue;
+    track("filter_toggled", {
+      enabled: next.has(value),
+      filter: dimension,
+      type: "checkbox",
+      value,
+    });
+  }
   filters.value = {
     ...filters.value,
     [dimension]: values,
@@ -307,17 +342,43 @@ function replaceMapLayers(next: MapLayerId[]): void {
 }
 
 function updateMapLayers(values: Array<number | string>): void {
+  const previous = new Set(selectedToggleableLayers.value);
   const next = mapLayerItems
     .map((item) => item.value as ToggleableMapLayerId)
     .filter((value) => values.includes(value));
+  trackMapLayerChanges(previous, new Set(next));
   savedToggleableLayers.value = next;
   if (!boundaryLayer.value) replaceMapLayers(next);
 }
 
 function selectOnlyMapLayer(value: number | string): void {
   const layer = value as ToggleableMapLayerId;
+  if (boundaryLayer.value) {
+    track("choropleth_changed", {
+      layer: null,
+      previous_layer: boundaryLayer.value,
+    });
+  }
+  trackMapLayerChanges(
+    new Set(selectedToggleableLayers.value),
+    new Set([layer]),
+  );
   savedToggleableLayers.value = [layer];
   replaceMapLayers([layer]);
+}
+
+function trackMapLayerChanges(
+  previous: Set<ToggleableMapLayerId>,
+  next: Set<ToggleableMapLayerId>,
+): void {
+  for (const { value } of mapLayerItems) {
+    const layer = value as ToggleableMapLayerId;
+    if (previous.has(layer) === next.has(layer)) continue;
+    track("map_layer_changed", {
+      layer,
+      visible: next.has(layer),
+    });
+  }
 }
 
 function formatBoundaryOpacity(value: number): string {
@@ -325,6 +386,10 @@ function formatBoundaryOpacity(value: number): string {
 }
 
 function updateBoundaryLayer(value: string): void {
+  track("choropleth_changed", {
+    layer: value || null,
+    previous_layer: boundaryLayer.value,
+  });
   if (value) {
     const current = getToggleableMapLayers(props.layers);
     if (current.length > 0) savedToggleableLayers.value = current;
@@ -596,6 +661,7 @@ onBeforeUnmount(() => {
                   :range="filters.timeInMs"
                   :resettable="false"
                   :step="60_000"
+                  @change="trackRangeChange('timeInMs', $event)"
                   @update:range="updateRange('timeInMs', $event)"
                 />
               </DashboardFilterPanel>
@@ -614,6 +680,7 @@ onBeforeUnmount(() => {
                   :range="filters.dateInMs"
                   :resettable="false"
                   :step="86_400_000"
+                  @change="trackRangeChange('dateInMs', $event)"
                   @update:range="updateRange('dateInMs', $event)"
                 />
               </DashboardFilterPanel>
@@ -633,6 +700,7 @@ onBeforeUnmount(() => {
                   :resettable="false"
                   :step="1"
                   show-exclude-missing
+                  @change="trackRangeChange('age', $event)"
                   @update:exclude-missing="updateExcludeUnknownAge"
                   @update:range="updateRange('age', $event)"
                 />

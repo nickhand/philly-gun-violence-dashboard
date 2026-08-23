@@ -302,6 +302,8 @@ useHead(() => ({
                 class="usa-button usa-button--outline civic-print-button"
                 type="button"
                 aria-label="Print counts by year"
+                data-analytics-print="annual_counts"
+                data-analytics-source="stats"
                 title="Print counts by year"
                 @click="printCountsByYear"
               >

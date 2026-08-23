@@ -21,6 +21,9 @@ import {
 import type { ShootingRow } from "../../../app/utils/shootingRecords";
 import { shootingRows } from "../../fixtures/shootings";
 
+const trackAnalytics = vi.hoisted(() => vi.fn());
+vi.mock("~/utils/analytics", () => ({ track: trackAnalytics }));
+
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json" },
@@ -142,6 +145,9 @@ describe("Philadelphia address search", () => {
       expect.objectContaining({ id: 20, lat: 39.9501, lon: -75.1642 }),
     );
     expect((input.element as HTMLInputElement).value).toBe("1 S Broad Street");
+    expect(trackAnalytics).toHaveBeenCalledWith("location_searched", {
+      found: true,
+    });
     wrapper.unmount();
   });
 
@@ -401,6 +407,14 @@ describe("legacy data downloads", () => {
     );
     await wrapper.get("form").trigger("submit");
     await vi.waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+
+    expect(trackAnalytics).toHaveBeenCalledWith("data_download_requested", {
+      aggregate_by: null,
+      data_selection: "filtered",
+      format: "csv",
+      record_count: 2,
+      source_page: "explorer",
+    });
 
     expect(downloadedAs).toMatch(/^shootings-filtered-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test-download");

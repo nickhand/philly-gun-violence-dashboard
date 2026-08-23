@@ -7,6 +7,7 @@ import {
   type ShootingDownloadOptions,
 } from "~/utils/shootingDownloads";
 import type { ShootingRow } from "~/utils/shootingRecords";
+import { track } from "~/utils/analytics";
 
 const props = defineProps<{
   allRows: ShootingRow[];
@@ -133,6 +134,13 @@ function handleDialogKeydown(event: KeyboardEvent): void {
 
 async function download(): Promise<void> {
   if (state.value === "working") return;
+  track("data_download_requested", {
+    aggregate_by: aggregateBy.value,
+    data_selection: selection.value,
+    format: format.value,
+    record_count: selectedCount.value,
+    source_page: "explorer",
+  });
   const id = ++preparationId;
   const controller = new AbortController();
   preparationController = controller;

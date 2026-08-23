@@ -1675,6 +1675,8 @@ onBeforeUnmount(() => {
         <button
           class="civic-dashboard-map-print-button"
           type="button"
+          data-analytics-print="map"
+          data-analytics-source="explorer"
           :disabled="printDisabled"
           @click="printMap"
         >

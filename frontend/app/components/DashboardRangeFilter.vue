@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 import CivicCheckboxField from "../../layers/civic-ui/app/components/CivicCheckboxField.vue";
 import type {
@@ -30,10 +30,14 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
+  change: [value: NumericRange];
   reset: [];
   "update:excludeMissing": [value: boolean];
   "update:range": [value: NumericRange];
 }>();
+
+const lowerInput = ref<HTMLInputElement | null>(null);
+const upperInput = ref<HTMLInputElement | null>(null);
 
 const maximumBinCount = computed(() =>
   Math.max(...props.bins.map((item) => item.length), 1),
@@ -118,6 +122,13 @@ function updateExcludeMissing(value: boolean): void {
   emit("update:excludeMissing", value);
 }
 
+function commitRange(): void {
+  emit("change", [
+    Number(lowerInput.value?.value ?? props.range[0]),
+    Number(upperInput.value?.value ?? props.range[1]),
+  ]);
+}
+
 function barHeight(item: ShootingHistogramBin): string {
   return `${(item.length / maximumBinCount.value) * 100}%`;
 }
@@ -196,6 +207,7 @@ function isSelected(item: ShootingHistogramBin): boolean {
       </label>
       <input
         :id="`${id}-lower`"
+        ref="lowerInput"
         class="civic-dashboard-range-filter__dual-input civic-dashboard-range-filter__dual-input--lower"
         type="range"
         :min="defaultRange[0]"
@@ -203,6 +215,7 @@ function isSelected(item: ShootingHistogramBin): boolean {
         :step="step"
         :value="range[0]"
         :aria-valuetext="formatValue(range[0])"
+        @change="commitRange"
         @input="updateLower"
       />
 
@@ -214,6 +227,7 @@ function isSelected(item: ShootingHistogramBin): boolean {
       </label>
       <input
         :id="`${id}-upper`"
+        ref="upperInput"
         class="civic-dashboard-range-filter__dual-input civic-dashboard-range-filter__dual-input--upper"
         type="range"
         :min="defaultRange[0]"
@@ -221,6 +235,7 @@ function isSelected(item: ShootingHistogramBin): boolean {
         :step="step"
         :value="range[1]"
         :aria-valuetext="formatValue(range[1])"
+        @change="commitRange"
         @input="updateUpper"
       />
     </div>

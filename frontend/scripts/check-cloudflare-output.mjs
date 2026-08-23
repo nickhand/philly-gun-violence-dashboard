@@ -19,12 +19,14 @@ const environmentName = process.argv[2];
 const environment = config.env?.[environmentName];
 const hstsHeader = /Strict-Transport-Security/i;
 
-function readJavaScriptTree(directory) {
+function readJavaScriptTree(directory, extension = ".mjs") {
   return readdirSync(directory, { withFileTypes: true })
     .flatMap((entry) => {
       const path = join(directory, entry.name);
-      if (entry.isDirectory()) return readJavaScriptTree(path);
-      return entry.name.endsWith(".mjs") ? [readFileSync(path, "utf8")] : [];
+      if (entry.isDirectory()) return readJavaScriptTree(path, extension);
+      return entry.name.endsWith(extension)
+        ? [readFileSync(path, "utf8")]
+        : [];
     })
     .join("\n");
 }
@@ -72,10 +74,20 @@ if (environmentName === "staging") {
   assert.equal(environment.workers_dev, true);
   assert.equal(environment.routes, undefined);
   assert.equal(environment.vars?.NUXT_PUBLIC_INDEXABLE, "false");
+  assert.equal(
+    environment.vars?.NUXT_PUBLIC_POSTHOG_KEY,
+    undefined,
+    "Staging must not send events to the production PostHog project.",
+  );
 } else {
   assert.equal(environment.name, "philly-gun-violence-dashboard-production");
   assert.equal(environment.workers_dev, false);
   assert.equal(environment.vars?.NUXT_PUBLIC_INDEXABLE, "true");
+  assert.match(
+    environment.vars?.NUXT_PUBLIC_POSTHOG_KEY ?? "",
+    /^phc_[A-Za-z0-9_-]+$/,
+    "Production is missing its PostHog project token.",
+  );
   assert.deepEqual(
     environment.routes,
     [
@@ -97,6 +109,10 @@ assert.ok(
 
 const cloudflareHeaders = readFileSync(join(publicDirectory, "_headers"), "utf8");
 const workerJavaScript = readJavaScriptTree(join(output, "server"));
+const clientJavaScript = readJavaScriptTree(
+  join(appPublicDirectory, "_nuxt"),
+  ".js",
+);
 assert.match(cloudflareHeaders, /philly-gun-violence-map\/_nuxt/);
 if (environmentName === "staging") {
   assert.match(
@@ -124,6 +140,16 @@ if (environmentName === "staging") {
     workerJavaScript,
     hstsHeader,
     "The production Worker routes are missing the HSTS policy.",
+  );
+  assert.match(
+    clientJavaScript,
+    /https:\/\/us\.i\.posthog\.com/,
+    "The production client is missing the deferred PostHog integration.",
+  );
+  assert.match(
+    clientJavaScript,
+    /capture_pageview.{0,30}history_change/,
+    "The production PostHog client is missing SPA pageview capture.",
   );
 }
 

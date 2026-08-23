@@ -41,6 +41,7 @@
         "NUXT_PUBLIC_CANONICAL_BASE_URL": "https://www.nickhand.dev/philly-gun-violence-map",
         "NUXT_PUBLIC_DOWNLOADS_BASE_URL": "https://d2cemhjkwenjmb.cloudfront.net",
         "NUXT_PUBLIC_INDEXABLE": "true",
+        "NUXT_PUBLIC_POSTHOG_KEY": "phc_xW4AqiFfnINktDcHGcS5Ugc14GZo0XICN9FhLGLPBJS",
         "NUXT_PUBLIC_SITE_URL": "https://www.nickhand.dev"
       }
     }

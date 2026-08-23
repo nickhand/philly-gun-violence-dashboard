@@ -16,6 +16,9 @@ import {
   shootingsMeta,
 } from "../../fixtures/shootings";
 
+const trackAnalytics = vi.hoisted(() => vi.fn());
+vi.mock("~/utils/analytics", () => ({ track: trackAnalytics }));
+
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
@@ -364,6 +367,10 @@ describe("DashboardExplorer", () => {
     expect(mapLayers).toBeDefined();
     await mapLayers!.get("#dashboard-map-layer-0").setValue(false);
     expect(routerReplace).toHaveBeenLastCalledWith({ query: { layers: "" } });
+    expect(trackAnalytics).toHaveBeenCalledWith("map_layer_changed", {
+      layer: "point-locations",
+      visible: false,
+    });
     expect(
       mapLayers!.find('button[aria-label="Reset Map layers filter"]').exists(),
     ).toBe(false);
@@ -371,9 +378,18 @@ describe("DashboardExplorer", () => {
     expect(routerReplace).toHaveBeenLastCalledWith({
       query: { layers: "zip-codes" },
     });
+    expect(trackAnalytics).toHaveBeenCalledWith("choropleth_changed", {
+      layer: "zip-codes",
+      previous_layer: null,
+    });
 
     await wrapper.get("#dashboard-fatal-filter").setValue(true);
     await nextTick();
+    expect(trackAnalytics).toHaveBeenCalledWith("filter_toggled", {
+      enabled: true,
+      filter: "fatal",
+      type: "switch",
+    });
     expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "fatal only: true",
@@ -421,6 +437,11 @@ describe("DashboardExplorer", () => {
     expect(ageFilter).toBeDefined();
     await ageFilter!.get('input[type="range"]').setValue(30);
     await nextTick();
+    expect(trackAnalytics).toHaveBeenCalledWith("filter_toggled", {
+      filter: "age",
+      type: "slider",
+      value: [30, 100],
+    });
     expect(wrapper.emitted("summary")).toBeUndefined();
     expect(wrapper.get('[data-test="point-map"]').text()).toContain(
       "3 filtered map records",
@@ -551,6 +572,10 @@ describe("DashboardExplorer", () => {
 
       expect(routerReplace).toHaveBeenLastCalledWith({
         query: { layers: queryValue },
+      });
+      expect(trackAnalytics).toHaveBeenCalledWith("choropleth_changed", {
+        layer: null,
+        previous_layer: "zip-codes",
       });
 
       // Route props are owned by the page in production. Mirror that update so

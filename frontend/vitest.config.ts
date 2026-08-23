@@ -42,6 +42,7 @@ export default defineConfig({
         "app/components/DashboardPointMap.client.vue",
         "app/components/DashboardRangeFilter.vue",
         "app/utils/geocoding.ts",
+        "app/utils/analytics.ts",
         "app/utils/mapLayers.ts",
         "app/utils/mapOverlays.ts",
         "app/utils/mapPrint.ts",

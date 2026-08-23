@@ -18,6 +18,7 @@ import {
   createDashboardPageProvenance,
   getDashboardEntityIds,
 } from "~/utils/structuredData";
+import { track } from "~/utils/analytics";
 
 interface ShootingContext {
   fatal: number;
@@ -180,6 +181,10 @@ const preservedYearParams = computed(() =>
 function changeYear(event: Event): void {
   const value = (event.target as HTMLSelectElement).value;
   const currentYear = stats.value?.current_year;
+  track("year_changed", {
+    year: value,
+    previous_year: selectedYearValue.value,
+  });
   void router.replace({
     query: {
       ...route.query,
