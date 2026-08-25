@@ -37,12 +37,12 @@ GOOGLE_INRELEASE_URL: Final = f"{GOOGLE_REPOSITORY_URL}/dists/stable/InRelease"
 GOOGLE_PACKAGES_PATH: Final = "main/binary-amd64/Packages.gz"
 GOOGLE_PACKAGES_URL: Final = f"{GOOGLE_REPOSITORY_URL}/dists/stable/{GOOGLE_PACKAGES_PATH}"
 
-PINNED_CHROME_VERSION: Final = "151.0.7922.173-1"
-PINNED_CHROME_PRODUCT_VERSION: Final = "151.0.7922.173"
+PINNED_CHROME_VERSION: Final = "152.0.7977.64-1"
+PINNED_CHROME_PRODUCT_VERSION: Final = "152.0.7977.64"
 PINNED_CHROME_FILENAME: Final = (
-    "pool/main/g/google-chrome-stable/google-chrome-stable_151.0.7922.173-1_amd64.deb"
+    "pool/main/g/google-chrome-stable/google-chrome-stable_152.0.7977.64-1_amd64.deb"
 )
-PINNED_CHROME_SHA256: Final = "878e5ab495b8a694980fca61bc09b37e651ccedce2291c73434d16e48a2646fd"
+PINNED_CHROME_SHA256: Final = "4eae0736a812d9bc851cd2937f7af00e47dbaf8305845eed452703ff009873c7"
 
 _MAX_KEY_BYTES: Final = 1_000_000
 _MAX_INRELEASE_BYTES: Final = 1_000_000

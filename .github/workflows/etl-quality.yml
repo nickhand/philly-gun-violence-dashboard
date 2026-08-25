@@ -174,7 +174,7 @@ jobs:
           inspection_runtime_flags=(--rm --read-only --network none --tmpfs "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m")
           test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -c 'printf %s "$HOME"')" = "/tmp/app-home"
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'"
-          test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci google-chrome --product-version)" = "151.0.7922.173"
+          test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci google-chrome --product-version)" = "152.0.7977.64"
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test ! -e /opt/google/chrome/chrome-sandbox; test ! -e /ms-playwright; test ! -e /usr/bin/pebble; test ! -e /etc/apt/sources.list.d/google-chrome.list; test ! -e /etc/cron.daily/google-chrome; test ! -e /etc/default/google-chrome; test ! -e /usr/share/keyrings/google-linux-signing-keyring.gpg; test ! -e /opt/google/chrome/cron'
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test -x /bin/false'
           if docker run "${runtime_flags[@]}" philly-courts-scraper:ci /bin/false; then
@@ -190,7 +190,7 @@ jobs:
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl courts monitor --help
           # Match Fargate's default outer security profile: only Chrome's nested
           # sandbox is disabled for this courts browser launch.
-          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True, channel='chrome', chromium_sandbox=False); assert browser.version == '151.0.7922.173', browser.version; browser.close(); context.stop()"
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True, channel='chrome', chromium_sandbox=False); assert browser.version == '152.0.7977.64', browser.version; browser.close(); context.stop()"
       - name: Generate SBOMs and scan the exact production image
         working-directory: packages/aws-batch-scraper
         run: |
@@ -198,8 +198,8 @@ jobs:
             --image philly-courts-scraper:ci \
             --expected-distro-name ubuntu \
             --expected-distro-version 26.04 \
-            --required-packages "python:playwright=1.62.0,deb:google-chrome-stable=151.0.7922.173-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4,binary:node=24.18.1" \
-            --required-chrome-executable-sha256 "sha256:7bacb4ffdce01ef0f6a2a53123d5e9fb4817e2d50b5e3bd6be10642663669f50" \
+            --required-packages "python:playwright=1.62.0,deb:google-chrome-stable=152.0.7977.64-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4,binary:node=24.18.1" \
+            --required-chrome-executable-sha256 "sha256:44bd90e776ea03a952242b3536d4a10a2e43c64a227c243af2840f07f1f0ed17" \
             --forbid-chrome-sandbox \
             --forbid-setuid-setgid-files \
             --output-directory "${RUNNER_TEMP}/scraper-image-scan"
