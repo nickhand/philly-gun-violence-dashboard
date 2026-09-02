@@ -113,35 +113,56 @@ def test_courts_image_strips_all_setuid_and_setgid_bits_after_installs() -> None
 
 
 def test_daily_homicide_workflow_installs_the_same_exact_chrome() -> None:
-    """The host-run homicide job must not use a drifting runner browser."""
+    """The host-run homicide job must install the repository-locked browser."""
     repo_root = Path(__file__).resolve().parents[3]
     source = (repo_root / ".github/workflows/daily-homicide-sync.yml").read_text()
-    product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
-    assert PINNED_CHROME_FILENAME in source
-    assert PINNED_CHROME_SHA256 in source
-    assert f"'{PINNED_CHROME_VERSION}'" in source
-    assert f"'{product_version}'" in source
-    assert "python3 packages/etl/src/etl/chrome_release.py" in source
+    assert 'chrome_lock="packages/etl/chrome-lock.json"' in source
+    for selector in (
+        ".source.repository",
+        ".package.filename",
+        ".package.sha256",
+        ".package.version",
+        ".package.product_version",
+        ".executable.path",
+        ".executable.sha256",
+    ):
+        assert f"jq -er '{selector}'" in source
+    assert '"${chrome_repository}/${chrome_filename}"' in source
+    assert '"${chrome_package_sha256}"' in source
+    assert "sha256sum --check --strict" in source
+    assert '"${chrome_package_version}"' in source
+    assert '"${chrome_product_version}"' in source
+    assert '"${chrome_executable_path}"' in source
+    assert '"${chrome_executable_sha256}"' in source
+    assert "chrome_release.py" not in source
     assert "--retry 3 --retry-all-errors --max-time 120" in source
     assert "--allow-downgrades" in source
+    assert "--reinstall" in source
     assert "playwright install" not in source
     assert "/etc/apt/sources.list.d/google-chrome.list" in source
-    assert source.index("Verify pinned Chrome is still the signed stable release") < source.index(
-        "aws-actions/configure-aws-credentials"
-    )
     assert source.index("Install exact Google Chrome release") < source.index(
         "aws-actions/configure-aws-credentials"
     )
     assert source.index("aws-actions/configure-aws-credentials") < source.index("Run homicides ETL")
 
 
-def test_etl_quality_uses_the_signed_chrome_freshness_verifier() -> None:
-    """Container CI must reject a Chrome pin that is no longer stable."""
+def test_etl_quality_checks_generated_chrome_consumers_without_live_lookup() -> None:
+    """Container CI must build only from the validated repository lock."""
     repo_root = Path(__file__).resolve().parents[3]
     source = (repo_root / ".github/workflows/etl-quality.yml").read_text()
 
-    assert "uv run python -m etl.chrome_release" in source
+    render = "uv run python scripts/render_chrome_lock.py --check"
+    assert render in source
+    assert source.index(render) < source.index("Build production scraper image")
+    assert "chrome_release.py" not in source
+    assert "update_chrome_release.py" not in source
+    assert "jq -er '.package.product_version'" in source
+    assert "jq -er '.package.version'" in source
+    assert "jq -er '.executable.sha256'" in source
+    assert "${chrome_product_version}" in source
+    assert "${chrome_package_version}" in source
+    assert "${chrome_executable_sha256}" in source
 
 
 def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
@@ -171,18 +192,30 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     assert "philly-courts-scraper:ci /bin/false" in source
 
 
-def test_release_and_smoke_run_standalone_chrome_freshness_script() -> None:
-    """Release gates must not depend on separately installed ETL metadata."""
+def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
+    """Local image release checks generation drift without gating production probes."""
     repo_root = Path(__file__).resolve().parents[3]
     justfile = (repo_root / "Justfile").read_text()
     recipe = (repo_root / "packages/aws-batch-scraper/just/aws-batch-scraper.just").read_text()
     smoke = (repo_root / ".github/workflows/production-smoke.yml").read_text()
 
-    script = "packages/etl/src/etl/chrome_release.py"
-    assert f'aws_batch_scraper_browser_freshness_script := "{script}"' in justfile
+    script = "packages/etl/scripts/render_chrome_lock.py"
+    assert f'aws_batch_scraper_browser_lock_script := "{script}"' in justfile
     assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4" in justfile
-    assert 'python3 "{{aws_batch_scraper_browser_freshness_script}}"' in recipe
-    assert f"python3 {script}" in smoke
+    assert "scraper-check-browser-lock:" in recipe
+    assert 'python3 "{{aws_batch_scraper_browser_lock_script}}" --check' in recipe
+    build_dependency = (
+        "scraper-build-container: scraper-require-release-target scraper-check-browser-lock"
+    )
+    push_dependency = (
+        "scraper-push-container: scraper-require-release-target scraper-check-browser-lock"
+    )
+    assert build_dependency in recipe
+    assert push_dependency in recipe
+    assert "chrome_release.py" not in justfile
+    assert "chrome_release.py" not in recipe
+    assert "chrome_release.py" not in smoke
+    assert "chrome-lock.json" not in smoke
 
 
 def test_simple_scraper_example_imports_and_scrapes() -> None:

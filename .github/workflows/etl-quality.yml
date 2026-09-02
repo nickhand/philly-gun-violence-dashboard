@@ -1,6 +1,7 @@
 name: ETL quality
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "packages/etl/**"
@@ -11,6 +12,7 @@ on:
       - "ruff.toml"
       - "ty.toml"
       - "uv.toml"
+      - ".github/workflows/chrome-update.yml"
       - ".github/workflows/daily-homicide-sync.yml"
       - ".github/workflows/etl-quality.yml"
       - ".github/workflows/production-smoke.yml"
@@ -26,6 +28,7 @@ on:
       - "ruff.toml"
       - "ty.toml"
       - "uv.toml"
+      - ".github/workflows/chrome-update.yml"
       - ".github/workflows/daily-homicide-sync.yml"
       - ".github/workflows/etl-quality.yml"
       - ".github/workflows/production-smoke.yml"
@@ -82,11 +85,11 @@ jobs:
         with:
           version: "0.12.0"
       - name: Ruff lint
-        run: uv run --group dev ruff check src tests
+        run: uv run --group dev ruff check src tests scripts
       - name: Ruff format
-        run: uv run --group dev ruff format --check src tests
+        run: uv run --group dev ruff format --check src tests scripts
       - name: ty
-        run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src
+        run: uv run --group dev ty check --config-file ../../ty.toml --error-on-warning --output-format github src scripts
       - name: Tests
         run: uv run --group dev pytest tests
 
@@ -158,13 +161,15 @@ jobs:
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.12.0"
-      - name: Verify pinned Chrome is still the signed stable release
+      - name: Verify generated Chrome pin consumers
         working-directory: packages/etl
-        run: uv run python -m etl.chrome_release
+        run: uv run python scripts/render_chrome_lock.py --check
       - name: Build production scraper image
         run: docker build --file packages/etl/Dockerfile --tag philly-courts-scraper:ci .
       - name: Smoke-test production scraper image
         run: |
+          set -euo pipefail
+          chrome_product_version="$(jq -er '.package.product_version' packages/etl/chrome-lock.json)"
           test "$(docker inspect --format '{{.Config.User}}' philly-courts-scraper:ci)" = "app"
           test "$(docker inspect --format '{{json .Config.Cmd}}' philly-courts-scraper:ci)" = '["gv-dashboard-etl","courts","worker"]'
           image_entrypoint="$(docker inspect --format '{{json .Config.Entrypoint}}' philly-courts-scraper:ci)"
@@ -174,7 +179,7 @@ jobs:
           inspection_runtime_flags=(--rm --read-only --network none --tmpfs "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m")
           test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -c 'printf %s "$HOME"')" = "/tmp/app-home"
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'"
-          test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci google-chrome --product-version)" = "152.0.7977.64"
+          test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci google-chrome --product-version)" = "${chrome_product_version}"
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test ! -e /opt/google/chrome/chrome-sandbox; test ! -e /ms-playwright; test ! -e /usr/bin/pebble; test ! -e /etc/apt/sources.list.d/google-chrome.list; test ! -e /etc/cron.daily/google-chrome; test ! -e /etc/default/google-chrome; test ! -e /usr/share/keyrings/google-linux-signing-keyring.gpg; test ! -e /opt/google/chrome/cron'
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test -x /bin/false'
           if docker run "${runtime_flags[@]}" philly-courts-scraper:ci /bin/false; then
@@ -190,16 +195,20 @@ jobs:
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci gv-dashboard-etl courts monitor --help
           # Match Fargate's default outer security profile: only Chrome's nested
           # sandbox is disabled for this courts browser launch.
-          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True, channel='chrome', chromium_sandbox=False); assert browser.version == '152.0.7977.64', browser.version; browser.close(); context.stop()"
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "from playwright.sync_api import sync_playwright; context = sync_playwright().start(); browser = context.chromium.launch(headless=True, channel='chrome', chromium_sandbox=False); assert browser.version == '${chrome_product_version}', browser.version; browser.close(); context.stop()"
       - name: Generate SBOMs and scan the exact production image
         working-directory: packages/aws-batch-scraper
         run: |
+          set -euo pipefail
+          chrome_lock="${GITHUB_WORKSPACE}/packages/etl/chrome-lock.json"
+          chrome_package_version="$(jq -er '.package.version' "${chrome_lock}")"
+          chrome_executable_sha256="$(jq -er '.executable.sha256' "${chrome_lock}")"
           uv run aws-batch-scraper-release-image scan-local-image \
             --image philly-courts-scraper:ci \
             --expected-distro-name ubuntu \
             --expected-distro-version 26.04 \
-            --required-packages "python:playwright=1.62.0,deb:google-chrome-stable=152.0.7977.64-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4,binary:node=24.18.1" \
-            --required-chrome-executable-sha256 "sha256:44bd90e776ea03a952242b3536d4a10a2e43c64a227c243af2840f07f1f0ed17" \
+            --required-packages "python:playwright=1.62.0,deb:google-chrome-stable=${chrome_package_version},deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4,binary:node=24.18.1" \
+            --required-chrome-executable-sha256 "sha256:${chrome_executable_sha256}" \
             --forbid-chrome-sandbox \
             --forbid-setuid-setgid-files \
             --output-directory "${RUNNER_TEMP}/scraper-image-scan"

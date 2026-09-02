@@ -75,6 +75,13 @@ class TriggerContracts(unittest.TestCase):
             ("api", "README.md"): set(),
             ("etl", "packages/etl/src/etl/cli.py"): {"etl", "image"},
             ("etl", "packages/etl/tests/test_query.py"): {"etl"},
+            ("etl", "packages/etl/chrome-lock.json"): {
+                "etl",
+                "dashboard",
+                "scraper",
+                "image",
+            },
+            ("etl", ".github/workflows/chrome-update.yml"): {"etl"},
             ("etl", "packages/etl/.python-version"): {"etl"},
             ("etl", "packages/dashboard-utils/.python-version"): {"dashboard"},
             ("etl", "packages/dashboard-utils/src/dashboard_utils/aws.py"): {

@@ -1,0 +1,306 @@
+name: Chrome stable update
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: chrome-stable-update
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    name: Resolve signed release and open update
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      UPDATE_BRANCH: automation/chrome-stable
+      GH_TOKEN: ${{ secrets.CHROME_UPDATE_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.CHROME_UPDATE_TOKEN || github.token }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.12.0"
+      - name: Resolve the signed stable release
+        id: update
+        shell: bash
+        run: |
+          set -euo pipefail
+          lock="packages/etl/chrome-lock.json"
+          default_branch="${{ github.event.repository.default_branch }}"
+          old_version="$(jq -er '.package.version' "${lock}")"
+          old_product_version="$(jq -er '.package.product_version' "${lock}")"
+          old_milestone="${old_product_version%%.*}"
+          base_sha="$(git rev-parse HEAD)"
+
+          git switch --force-create "${UPDATE_BRANCH}" "origin/${default_branch}"
+          uv run --project packages/etl --locked --no-dev \
+            python packages/etl/scripts/update_chrome_release.py update
+          uv run --project packages/etl --locked --no-dev \
+            python packages/etl/scripts/render_chrome_lock.py --write
+          uv run --project packages/etl --locked --no-dev \
+            python packages/etl/scripts/render_chrome_lock.py --check
+
+          new_version="$(jq -er '.package.version' "${lock}")"
+          new_product_version="$(jq -er '.package.product_version' "${lock}")"
+          new_milestone="${new_product_version%%.*}"
+          changed=false
+          automatic_update=false
+          if git diff --quiet; then
+            printf 'Chrome stable is already pinned at %s.\n' "${new_version}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            changed_paths="$(git diff --name-only)"
+            unexpected_paths="$(printf '%s\n' "${changed_paths}" | grep -Ev \
+              '^(Justfile|packages/etl/chrome-lock\.json|packages/etl/Dockerfile|packages/etl/README\.md|packages/aws-batch-scraper/docs/container\.md|packages/aws-batch-scraper/tests/test_release_image\.py)$' || true)"
+            if [[ -n "${unexpected_paths}" ]]; then
+              printf 'Chrome update changed unexpected paths:\n%s\n' "${unexpected_paths}" >&2
+              exit 1
+            fi
+            changed=true
+            if [[ "${old_version}" != "${new_version}" && "${old_milestone}" == "${new_milestone}" ]]; then
+              automatic_update=true
+            fi
+          fi
+          {
+            printf 'old_version=%s\n' "${old_version}"
+            printf 'new_version=%s\n' "${new_version}"
+            printf 'old_milestone=%s\n' "${old_milestone}"
+            printf 'new_milestone=%s\n' "${new_milestone}"
+            printf 'base_sha=%s\n' "${base_sha}"
+            printf 'changed=%s\n' "${changed}"
+            printf 'automatic_update=%s\n' "${automatic_update}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Commit and push the generated update
+        if: steps.update.outputs.changed == 'true'
+        id: push
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_sha="$(git ls-remote --refs origin "refs/heads/${UPDATE_BRANCH}" | awk '{print $1}')"
+          reused=false
+          head_sha=""
+          if [[ -n "${remote_sha}" ]]; then
+            git fetch --no-tags origin \
+              "refs/heads/${UPDATE_BRANCH}:refs/remotes/origin/${UPDATE_BRANCH}"
+            if git diff --quiet "refs/remotes/origin/${UPDATE_BRANCH}" --; then
+              reused=true
+              head_sha="${remote_sha}"
+            fi
+          fi
+          if [[ "${reused}" != true ]]; then
+            if [[ -n "${remote_sha}" ]]; then
+              remote_base="$(git merge-base \
+                "origin/${{ github.event.repository.default_branch }}" \
+                "refs/remotes/origin/${UPDATE_BRANCH}")"
+              remote_commit_count="$(git rev-list --count \
+                "${remote_base}..refs/remotes/origin/${UPDATE_BRANCH}")"
+              bot_email='41898282+github-actions[bot]@users.noreply.github.com'
+              unexpected_identities="$(git log \
+                --format='%ae|%ce' \
+                "${remote_base}..refs/remotes/origin/${UPDATE_BRANCH}" | \
+                grep -Fvx "${bot_email}|${bot_email}" || true)"
+              unexpected_remote_paths="$(git diff --name-only \
+                "${remote_base}..refs/remotes/origin/${UPDATE_BRANCH}" | \
+                grep -Ev \
+                  '^(Justfile|packages/etl/chrome-lock\.json|packages/etl/Dockerfile|packages/etl/README\.md|packages/aws-batch-scraper/docs/container\.md|packages/aws-batch-scraper/tests/test_release_image\.py)$' || true)"
+              if [[ "${remote_commit_count}" -lt 1 || \
+                    -n "${unexpected_identities}" || \
+                    -n "${unexpected_remote_paths}" ]]; then
+                printf 'Refusing to overwrite a Chrome update branch containing human or out-of-scope changes.\n' >&2
+                exit 1
+              fi
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -- \
+              Justfile \
+              packages/etl/chrome-lock.json \
+              packages/etl/Dockerfile \
+              packages/etl/README.md \
+              packages/aws-batch-scraper/docs/container.md \
+              packages/aws-batch-scraper/tests/test_release_image.py
+            git diff --cached --check
+            git commit -m "chore: update pinned Chrome stable release"
+            head_sha="$(git rev-parse HEAD)"
+            if [[ -n "${remote_sha}" ]]; then
+              git push \
+                --force-with-lease="refs/heads/${UPDATE_BRANCH}:${remote_sha}" \
+                origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+            else
+              git push origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+            fi
+          fi
+          {
+            printf 'head_sha=%s\n' "${head_sha}"
+            printf 'reused=%s\n' "${reused}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Open or refresh the update pull request
+        if: steps.update.outputs.changed == 'true'
+        id: pull_request
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="${{ github.event.repository.default_branch }}"
+          policy="Strictly newer same-milestone updates merge automatically after both validation workflows pass. Milestone changes and same-version republishes remain open for review."
+          body="$(printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+            'This automated change authenticated Google Chrome stable through its signed APT metadata, verified the package digest, derived the installed browser executable digest, and regenerated every checked-in consumer.' \
+            "- Previous package: ${{ steps.update.outputs.old_version }}" \
+            "- Candidate package: ${{ steps.update.outputs.new_version }}" \
+            "- Validation: ETL quality and repository configuration quality on commit ${{ steps.push.outputs.head_sha }}" \
+            "${policy}")"
+          matching_pulls="$(gh api \
+            --method GET \
+            "repos/${GITHUB_REPOSITORY}/pulls" \
+            --field state=open \
+            --field base="${default_branch}" \
+            --field head="${GITHUB_REPOSITORY_OWNER}:${UPDATE_BRANCH}" \
+            --field per_page=2)"
+          if [[ "$(jq 'length' <<< "${matching_pulls}")" -gt 1 ]]; then
+            printf 'More than one same-repository Chrome update pull request is open.\n' >&2
+            exit 1
+          fi
+          pr_number="$(jq -r '.[0].number // empty' <<< "${matching_pulls}")"
+          if [[ -z "${pr_number}" ]]; then
+            pr_url="$(gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base "${default_branch}" \
+              --head "${UPDATE_BRANCH}" \
+              --title 'chore: update pinned Chrome stable release' \
+              --body "${body}")"
+            pr_number="$(gh pr view "${pr_url}" --repo "${GITHUB_REPOSITORY}" --json number --jq '.number')"
+          else
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
+              --field title='chore: update pinned Chrome stable release' \
+              --field body="${body}" >/dev/null
+          fi
+          printf 'number=%s\n' "${pr_number}" >> "${GITHUB_OUTPUT}"
+          printf 'Opened or refreshed pull request #%s.\n' "${pr_number}" >> "${GITHUB_STEP_SUMMARY}"
+      - name: Validate the exact update commit
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="${{ steps.push.outputs.head_sha }}"
+          reused="${{ steps.push.outputs.reused }}"
+
+          latest_validation_run() {
+            local workflow="$1"
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow "${workflow}" \
+              --branch "${UPDATE_BRANCH}" \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json conclusion,databaseId,headSha,status | \
+              jq -c --arg head_sha "${head_sha}" \
+                '[.[] | select(.headSha == $head_sha)] | sort_by(.databaseId) | last // {}'
+          }
+
+          find_new_validation_run() {
+            local workflow="$1"
+            local prior_id="$2"
+            local snapshot
+            local run_id
+            local attempt
+            for ((attempt = 1; attempt <= 60; attempt++)); do
+              snapshot="$(latest_validation_run "${workflow}")"
+              run_id="$(jq -r '.databaseId // 0' <<< "${snapshot}")"
+              if [[ "${run_id}" -gt "${prior_id}" ]]; then
+                printf '%s\n' "${run_id}"
+                return 0
+              fi
+              sleep 10
+            done
+            printf 'Timed out waiting for %s to start on %s.\n' "${workflow}" "${head_sha}" >&2
+            return 1
+          }
+
+          prepare_validation_run() {
+            local workflow="$1"
+            local snapshot
+            local prior_id
+            local status
+            local conclusion
+            snapshot="$(latest_validation_run "${workflow}")"
+            prior_id="$(jq -r '.databaseId // 0' <<< "${snapshot}")"
+            status="$(jq -r '.status // empty' <<< "${snapshot}")"
+            conclusion="$(jq -r '.conclusion // empty' <<< "${snapshot}")"
+            if [[ "${reused}" == true && "${prior_id}" -gt 0 ]]; then
+              if [[ "${status}" != completed || "${conclusion}" == success ]]; then
+                printf '%s\n' "${prior_id}"
+                return 0
+              fi
+            fi
+            gh workflow run "${workflow}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --ref "${UPDATE_BRANCH}" >/dev/null
+            find_new_validation_run "${workflow}" "${prior_id}"
+          }
+
+          etl_run_id="$(prepare_validation_run etl-quality.yml)"
+          config_run_id="$(prepare_validation_run config-quality.yml)"
+          printf 'ETL validation run: %s\n' "${etl_run_id}" >> "${GITHUB_STEP_SUMMARY}"
+          printf 'Configuration validation run: %s\n' "${config_run_id}" >> "${GITHUB_STEP_SUMMARY}"
+          gh run watch "${etl_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          gh run watch "${config_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+      - name: Merge a validated same-milestone update
+        if: >-
+          steps.update.outputs.changed == 'true' &&
+          steps.update.outputs.automatic_update == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="${{ github.event.repository.default_branch }}"
+          pr_identity="$(gh pr view "${{ steps.pull_request.outputs.number }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json headRefOid,baseRefOid)"
+          tested_head_sha="${{ steps.push.outputs.head_sha }}"
+          tested_base_sha="${{ steps.update.outputs.base_sha }}"
+          if [[ "$(jq -r '.headRefOid' <<< "${pr_identity}")" != "${tested_head_sha}" ]]; then
+            printf 'The pull-request head changed during validation; leaving it open for the next updater run.\n' >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.baseRefOid' <<< "${pr_identity}")" != "${tested_base_sha}" ]]; then
+            printf 'The pull-request base changed during validation; leaving it open for the next updater run.\n' >&2
+            exit 1
+          fi
+          current_base_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/${default_branch}" \
+            --jq '.object.sha')"
+          if [[ "${current_base_sha}" != "${tested_base_sha}" ]]; then
+            printf 'The default branch advanced during validation; leaving the pull request open for the next updater run.\n' >&2
+            exit 1
+          fi
+          gh pr merge "${{ steps.pull_request.outputs.number }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --match-head-commit "${tested_head_sha}" \
+            --squash \
+            --delete-branch
+          printf 'Same-milestone update passed validation and was merged.\n' >> "${GITHUB_STEP_SUMMARY}"
+      - name: Report a milestone update
+        if: >-
+          steps.update.outputs.changed == 'true' &&
+          steps.update.outputs.automatic_update != 'true'
+        shell: bash
+        run: |
+          if [[ '${{ steps.update.outputs.old_version }}' == '${{ steps.update.outputs.new_version }}' ]]; then
+            reason='the signed package identity changed without a version change'
+          else
+            reason='the Chrome milestone changed'
+          fi
+          printf 'Pull request #%s is awaiting review because %s.\n' \
+            '${{ steps.pull_request.outputs.number }}' \
+            "${reason}" >> "${GITHUB_STEP_SUMMARY}"

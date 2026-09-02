@@ -1,3 +1,5 @@
+17 8 * * * python scripts/dispatch_workflow.py chrome-update.yml
+
 30 11 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml
 
 30 15 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml

@@ -34,9 +34,11 @@ VULNERABILITY_SOURCE_UPDATED_AT = "2026-08-19T13:45:00+00:00"
 IMAGE_PUSHED_AT = "2026-08-19T14:00:00+00:00"
 IMAGE_ID = "sha256:" + "c" * 64
 MANIFEST_DIGEST = "sha256:" + "d" * 64
-CHROME_PACKAGE_VERSION = "152.0.7977.64-1"
-CHROME_VERSION = "152.0.7977.64"
-CHROME_SHA256 = "sha256:44bd90e776ea03a952242b3536d4a10a2e43c64a227c243af2840f07f1f0ed17"
+# BEGIN GENERATED: chrome-lock-test-constants
+CHROME_PACKAGE_VERSION = "152.0.7977.75-1"
+CHROME_VERSION = "152.0.7977.75"
+CHROME_SHA256 = "sha256:3757a071aca19c20b45669f834691d9b698bfee8a8cdf1784f5454e52022d35c"
+# END GENERATED: chrome-lock-test-constants
 CHROME_SANDBOX_SHA256 = "sha256:18391bf9d217ddbde9956347cbb1346d2808a73ade4baa3f88a610447cf946b4"
 NOW = datetime(2026, 8, 19, 14, 30, tzinfo=timezone.utc)
 
@@ -1135,7 +1137,7 @@ def test_package_contract_requires_actual_system_chrome_and_playwright_node() ->
 
     with pytest.raises(ValueError, match="google-chrome-stable"):
         parse_package_requirements(
-            "python:playwright=1.62.0,binary:chrome=152.0.7977.64,binary:node=24.18.1"
+            f"python:playwright=1.62.0,binary:chrome={CHROME_VERSION},binary:node=24.18.1"
         )
 
 

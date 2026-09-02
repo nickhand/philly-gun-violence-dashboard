@@ -223,6 +223,11 @@ audits use a changing advisory database, so they run weekly even when lockfiles
 are unchanged; keeping this cadence outside GitHub prevents repository
 inactivity from silently disabling the security check.
 
+It also dispatches `chrome-update.yml` every morning. That workflow verifies
+Google's signed stable-channel metadata and maintains one checksum-pinned Chrome
+update pull request; keeping this cadence on Fly prevents the browser patch
+pipeline from silently stopping when GitHub disables inactive repository cron.
+
 Configure an independent dead-man check before enabling that schedule. Store
 its success-ping URL as the GitHub Actions secret
 `PRODUCTION_SMOKE_HEARTBEAT_URL` and set the service to alert when the daily ping
