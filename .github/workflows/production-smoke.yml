@@ -23,7 +23,7 @@ jobs:
       API_BASE_URL: https://philly-gun-violence-dashboard-api.fly.dev
       SITE_ORIGIN_URL: https://www.nickhand.dev
       APP_BASE_URL: https://www.nickhand.dev/philly-gun-violence-map
-      DOWNLOADS_BASE_URL: https://d2cemhjkwenjmb.cloudfront.net
+      DOWNLOADS_BASE_URL: https://downloads.nickhand.dev
       # Omission must fail closed after migration. Set the repository variable
       # explicitly to false only during the documented reader-first window.
       EXPECT_ATOMIC_RELEASE: ${{ vars.EXPECT_ATOMIC_RELEASE || 'true' }}

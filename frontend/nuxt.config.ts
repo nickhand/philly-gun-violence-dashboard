@@ -1,7 +1,7 @@
 import { createSharedResponseHeaders } from "./config/responseHeaders";
 
 const canonicalBasePath = "/philly-gun-violence-map/";
-const defaultDownloadsBaseUrl = "https://d2cemhjkwenjmb.cloudfront.net";
+const defaultDownloadsBaseUrl = "https://downloads.nickhand.dev";
 const appBaseUrl = process.env.NUXT_APP_BASE_URL ?? canonicalBasePath;
 const siteOrigin = (
   process.env.NUXT_PUBLIC_SITE_URL ?? "https://www.nickhand.dev"

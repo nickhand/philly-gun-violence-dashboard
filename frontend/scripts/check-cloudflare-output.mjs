@@ -62,7 +62,7 @@ assert.ok(
 assert.ok(environment, `Wrangler is missing its ${environmentName} environment.`);
 assert.equal(
   environment.vars?.NUXT_PUBLIC_DOWNLOADS_BASE_URL,
-  "https://d2cemhjkwenjmb.cloudfront.net",
+  "https://downloads.nickhand.dev",
 );
 assert.equal(
   environment.vars?.NUXT_PUBLIC_API_BASE_URL,

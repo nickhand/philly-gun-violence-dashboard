@@ -19,7 +19,7 @@
       "workers_dev": true,
       "vars": {
         "NUXT_PUBLIC_API_BASE_URL": "https://philly-gun-violence-dashboard-api.fly.dev",
-        "NUXT_PUBLIC_DOWNLOADS_BASE_URL": "https://d2cemhjkwenjmb.cloudfront.net",
+        "NUXT_PUBLIC_DOWNLOADS_BASE_URL": "https://downloads.nickhand.dev",
         "NUXT_PUBLIC_INDEXABLE": "false"
       }
     },
@@ -39,7 +39,7 @@
       "vars": {
         "NUXT_PUBLIC_API_BASE_URL": "https://philly-gun-violence-dashboard-api.fly.dev",
         "NUXT_PUBLIC_CANONICAL_BASE_URL": "https://www.nickhand.dev/philly-gun-violence-map",
-        "NUXT_PUBLIC_DOWNLOADS_BASE_URL": "https://d2cemhjkwenjmb.cloudfront.net",
+        "NUXT_PUBLIC_DOWNLOADS_BASE_URL": "https://downloads.nickhand.dev",
         "NUXT_PUBLIC_INDEXABLE": "true",
         "NUXT_PUBLIC_POSTHOG_KEY": "phc_xW4AqiFfnINktDcHGcS5Ugc14GZo0XICN9FhLGLPBJS",
         "NUXT_PUBLIC_SITE_URL": "https://www.nickhand.dev"

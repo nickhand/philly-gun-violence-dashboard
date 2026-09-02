@@ -219,7 +219,7 @@ NUXT_PUBLIC_INDEXABLE=true
 ```
 
 The tracked default for `NUXT_PUBLIC_DOWNLOADS_BASE_URL` is
-`https://d2cemhjkwenjmb.cloudfront.net`; override it only for an intentional
+`https://downloads.nickhand.dev`; override it only for an intentional
 download-host migration. It must point to public files, not the dashboard's
 internal application service. The public `manifest.json` supplies the current
 content-addressed file paths, exact sizes, checksums, and record/feature counts.
