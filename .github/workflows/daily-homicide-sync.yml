@@ -26,22 +26,33 @@ jobs:
       - uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
         with:
           tool: just
-      - name: Verify pinned Chrome is still the signed stable release
-        run: python3 packages/etl/src/etl/chrome_release.py
       - name: Install exact Google Chrome release
         run: |
+          set -euo pipefail
+          chrome_lock="packages/etl/chrome-lock.json"
+          chrome_repository="$(jq -er '.source.repository' "${chrome_lock}")"
+          chrome_filename="$(jq -er '.package.filename' "${chrome_lock}")"
+          chrome_package_sha256="$(jq -er '.package.sha256' "${chrome_lock}")"
+          chrome_package_version="$(jq -er '.package.version' "${chrome_lock}")"
+          chrome_product_version="$(jq -er '.package.product_version' "${chrome_lock}")"
+          chrome_executable_path="$(jq -er '.executable.path' "${chrome_lock}")"
+          chrome_executable_sha256="$(jq -er '.executable.sha256' "${chrome_lock}")"
           chrome_deb="${RUNNER_TEMP}/google-chrome-stable.deb"
           curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
             --retry 3 --retry-all-errors --max-time 120 \
             --output "${chrome_deb}" \
-            https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_152.0.7977.64-1_amd64.deb
+            "${chrome_repository}/${chrome_filename}"
           printf '%s  %s\n' \
-            '4eae0736a812d9bc851cd2937f7af00e47dbaf8305845eed452703ff009873c7' \
+            "${chrome_package_sha256}" \
             "${chrome_deb}" | sha256sum --check --strict
-          sudo apt-get install --yes --no-install-recommends --allow-downgrades "${chrome_deb}"
+          sudo apt-get install --yes --reinstall --no-install-recommends \
+            --allow-downgrades "${chrome_deb}"
           test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" = \
-            '152.0.7977.64-1'
-          test "$(google-chrome --product-version)" = '152.0.7977.64'
+            "${chrome_package_version}"
+          test "$(google-chrome --product-version)" = "${chrome_product_version}"
+          printf '%s  %s\n' \
+            "${chrome_executable_sha256}" \
+            "${chrome_executable_path}" | sha256sum --check --strict
           sudo rm -f \
             /etc/apt/sources.list.d/google-chrome.list \
             /etc/apt/trusted.gpg.d/google-chrome.gpg \

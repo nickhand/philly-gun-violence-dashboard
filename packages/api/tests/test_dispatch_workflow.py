@@ -95,6 +95,15 @@ def test_security_quality_uses_the_external_scheduler() -> None:
     assert request.full_url.endswith("/security-quality.yml/dispatches")
 
 
+def test_chrome_update_uses_the_external_scheduler() -> None:
+    opener = SequenceOpener([FakeResponse()])
+
+    dispatch_workflow("chrome-update.yml", token="secret", open_url=opener)
+
+    request, _ = opener.calls[0]
+    assert request.full_url.endswith("/chrome-update.yml/dispatches")
+
+
 def test_dispatch_retries_only_rate_limit_with_bounded_backoff() -> None:
     """An explicit 429 proves non-acceptance and is safe to retry."""
     opener = SequenceOpener([_http_error(429), FakeResponse()])

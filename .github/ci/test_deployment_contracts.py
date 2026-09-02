@@ -16,6 +16,7 @@ ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset(
 )
 
 EXTERNAL_SCHEDULE_COUNTS = {
+    "chrome-update.yml": 1,
     "courts-scrape.yml": 1,
     "daily-homicide-sync.yml": 1,
     "daily-shootings-sync.yml": 3,
@@ -24,6 +25,7 @@ EXTERNAL_SCHEDULE_COUNTS = {
 }
 DISPATCH_ONLY_WORKFLOWS = frozenset({*EXTERNAL_SCHEDULE_COUNTS, "courts-process.yml"})
 EXPECTED_CRONTAB_LINES = (
+    "17 8 * * * python scripts/dispatch_workflow.py chrome-update.yml",
     "30 11 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml",
     "30 15 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml",
     "30 17 * * * python scripts/dispatch_workflow.py daily-shootings-sync.yml",
@@ -127,6 +129,89 @@ class DeploymentContracts(unittest.TestCase):
         for crawler in ("OAI-SearchBot", "Claude-SearchBot", "PerplexityBot"):
             with self.subTest(crawler=crawler):
                 self.assertIn(crawler, checker)
+
+    def test_production_smoke_is_independent_of_the_chrome_release_feed(self) -> None:
+        source = (WORKFLOWS / "production-smoke.yml").read_text()
+
+        self.assertNotIn("chrome_release.py", source)
+        self.assertNotIn("update_chrome_release.py", source)
+        self.assertNotIn("chrome-lock.json", source)
+        self.assertNotIn("dl.google.com/linux/chrome", source)
+
+    def test_chrome_update_uses_one_validated_bot_pull_request(self) -> None:
+        source = (WORKFLOWS / "chrome-update.yml").read_text()
+        crontab = (REPOSITORY_ROOT / "packages/api/crontab").read_text()
+        updater = (REPOSITORY_ROOT / "packages/etl/scripts/update_chrome_release.py").read_text()
+        resolver = (REPOSITORY_ROOT / "packages/etl/src/etl/chrome_release.py").read_text()
+
+        self.assertNotIn("  schedule:", source)
+        self.assertIn("  workflow_dispatch:", source)
+        self.assertIn(
+            "17 8 * * * python scripts/dispatch_workflow.py chrome-update.yml",
+            crontab,
+        )
+        self.assertIn("group: chrome-stable-update", source)
+        self.assertIn("cancel-in-progress: false", source)
+        self.assertIn("actions: write", source)
+        self.assertIn("contents: write", source)
+        self.assertIn("pull-requests: write", source)
+        self.assertIn("UPDATE_BRANCH: automation/chrome-stable", source)
+        self.assertIn("secrets.CHROME_UPDATE_TOKEN || github.token", source)
+
+        update = "python packages/etl/scripts/update_chrome_release.py update"
+        render = "python packages/etl/scripts/render_chrome_lock.py"
+        self.assertIn(update, source)
+        self.assertIn(f"{render} --write", source)
+        self.assertIn(f"{render} --check", source)
+        self.assertLess(source.index(update), source.index(f"{render} --write"))
+        self.assertIn("update_chrome_lock()", updater)
+        self.assertIn("GOOGLE_SIGNING_KEY_FINGERPRINT", resolver)
+        self.assertIn('"gpgv"', resolver)
+        self.assertIn("older signed stable release", resolver)
+        self.assertIn('"${old_version}" != "${new_version}"', source)
+        self.assertIn("git diff --name-only", source)
+        self.assertIn("git diff --cached --check", source)
+        self.assertIn("--force-with-lease=", source)
+        self.assertIn('git diff --quiet "refs/remotes/origin/${UPDATE_BRANCH}"', source)
+        self.assertIn("printf 'reused=%s", source)
+        self.assertIn("unexpected_identities=", source)
+        self.assertIn("unexpected_remote_paths=", source)
+        self.assertIn("Refusing to overwrite a Chrome update branch", source)
+        self.assertIn("gh pr create", source)
+        self.assertIn('--field head="${GITHUB_REPOSITORY_OWNER}:${UPDATE_BRANCH}"', source)
+        self.assertIn("--method PATCH", source)
+        self.assertIn('"repos/${GITHUB_REPOSITORY}/pulls/${pr_number}"', source)
+
+        validation = source.split("- name: Validate the exact update commit", maxsplit=1)[1].split(
+            "- name: Merge a validated same-milestone update", maxsplit=1
+        )[0]
+        self.assertIn('head_sha="${{ steps.push.outputs.head_sha }}"', validation)
+        self.assertIn("select(.headSha ==", validation)
+        self.assertIn('gh workflow run "${workflow}"', validation)
+        self.assertIn('prepare_validation_run etl-quality.yml', validation)
+        self.assertIn('prepare_validation_run config-quality.yml', validation)
+        self.assertIn('"${reused}" == true', validation)
+        self.assertEqual(validation.count("gh run watch"), 2)
+        self.assertEqual(validation.count("--exit-status"), 2)
+
+        merge = source.split("- name: Merge a validated same-milestone update", maxsplit=1)[
+            1
+        ].split("- name: Report a milestone update", maxsplit=1)[0]
+        report = source.split("- name: Report a milestone update", maxsplit=1)[1]
+        self.assertIn("steps.update.outputs.automatic_update == 'true'", merge)
+        self.assertIn("--json headRefOid,baseRefOid", merge)
+        self.assertIn('tested_head_sha="${{ steps.push.outputs.head_sha }}"', merge)
+        self.assertIn('tested_base_sha="${{ steps.update.outputs.base_sha }}"', merge)
+        self.assertIn("'.headRefOid'", merge)
+        self.assertIn("'.baseRefOid'", merge)
+        self.assertIn('current_base_sha="$(gh api', merge)
+        self.assertIn('"${current_base_sha}" != "${tested_base_sha}"', merge)
+        self.assertIn("gh pr merge", merge)
+        self.assertIn('--match-head-commit "${tested_head_sha}"', merge)
+        self.assertIn("--squash", merge)
+        self.assertIn("--delete-branch", merge)
+        self.assertIn("steps.update.outputs.automatic_update != 'true'", report)
+        self.assertNotIn("gh pr merge", report)
 
     def test_frontend_deploys_only_the_exact_green_main_artifact(self) -> None:
         source = (WORKFLOWS / "frontend-quality.yml").read_text()

@@ -6,7 +6,7 @@
 #   aws_batch_scraper_cli := "gv-dashboard-etl"
 #   aws_batch_scraper_cli_group := "courts"
 #   aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
-#   aws_batch_scraper_browser_freshness_script := "etl/src/etl/chrome_release.py"
+#   aws_batch_scraper_browser_lock_script := "etl/scripts/render_chrome_lock.py"
 #   aws_batch_scraper_required_sbom_packages := "python:playwright=..."
 #   aws_batch_scraper_chrome_executable_sha256 := "sha256:..."
 #   aws_batch_scraper_chrome_sandbox_scan_args := "--forbid-chrome-sandbox ..."
@@ -18,11 +18,11 @@
 
 aws_batch_scraper_platform := "linux/amd64"
 
-# Fail before build or push when the project's signed browser-release check
-# says its repo-controlled pin is no longer current.
+# Fail before build or push when the authoritative browser lock and its
+# checked-in consumers disagree.
 [private]
-scraper-check-browser-freshness:
-	python3 "{{aws_batch_scraper_browser_freshness_script}}"
+scraper-check-browser-lock:
+	python3 "{{aws_batch_scraper_browser_lock_script}}" --check
 
 # Reject unsafe environment-derived shell arguments before login or Docker.
 # The Python preflight additionally proves clean-source identity and exact ECR
@@ -62,7 +62,7 @@ scraper-aws-login: scraper-require-release-target
 
 # Build the scraper container image locally.
 [group: "aws-batch-scraper"]
-scraper-build-container: scraper-require-release-target scraper-check-browser-freshness
+scraper-build-container: scraper-require-release-target scraper-check-browser-lock
 	cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image preflight --account-id "${AWS_ACCOUNT_ID}" --repository "${ECR_REPOSITORY_NAME:-ujs-scraper}" --region "${AWS_REGION:-us-east-1}" --tag "${SCRAPER_IMAGE_TAG}" --profile "${AWS_PROFILE:-}"
 	@set -euo pipefail; git archive --format=tar HEAD | docker buildx build --load --platform="{{aws_batch_scraper_platform}}" --label "org.opencontainers.image.revision=${SCRAPER_IMAGE_TAG}" -t "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" -f "{{aws_batch_scraper_dockerfile}}" -
 
@@ -73,7 +73,7 @@ scraper-scan-container: scraper-require-release-target
 
 # Push the exact locally scanned image ID to ECR.
 [group: "aws-batch-scraper"]
-scraper-push-container: scraper-require-release-target scraper-check-browser-freshness
+scraper-push-container: scraper-require-release-target scraper-check-browser-lock
 	cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image preflight --account-id "${AWS_ACCOUNT_ID}" --repository "${ECR_REPOSITORY_NAME:-ujs-scraper}" --region "${AWS_REGION:-us-east-1}" --tag "${SCRAPER_IMAGE_TAG}" --profile "${AWS_PROFILE:-}"
 	cd packages/aws-batch-scraper; uv run aws-batch-scraper-release-image verify-local-image --image "${ECR_REPOSITORY_NAME:-ujs-scraper}:${SCRAPER_IMAGE_TAG}" --tag "${SCRAPER_IMAGE_TAG}"
 	@set -euo pipefail; \

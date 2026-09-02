@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "https://dl.google.com/linux/chrome/deb",
+    "suite": "stable",
+    "component": "main"
+  },
+  "package": {
+    "name": "google-chrome-stable",
+    "architecture": "amd64",
+    "version": "152.0.7977.75-1",
+    "product_version": "152.0.7977.75",
+    "filename": "pool/main/g/google-chrome-stable/google-chrome-stable_152.0.7977.75-1_amd64.deb",
+    "sha256": "a0b7a64f768ffc0ff5ccc9260ad9ebb53fd16f7a131e2e36994da58b82d913df"
+  },
+  "executable": {
+    "path": "/opt/google/chrome/chrome",
+    "sha256": "3757a071aca19c20b45669f834691d9b698bfee8a8cdf1784f5454e52022d35c"
+  }
+}

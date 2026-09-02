@@ -218,8 +218,10 @@ same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
 date. The pinned snapshot includes Canonical's `libcurl3t64-gnutls`
 `8.18.0-1ubuntu2.4` security update from USN-8651-1; the image build and SBOM
 gate both assert that exact package version.
+<!-- BEGIN GENERATED: chrome-lock-product-version -->
 It full-upgrades that snapshot before installing Ubuntu's native Python
-(3.13 or newer) and a checksum-pinned Google Chrome 152.0.7977.64 package.
+(3.13 or newer) and a checksum-pinned Google Chrome 152.0.7977.75 package.
+<!-- END GENERATED: chrome-lock-product-version -->
 The Playwright client is pinned to 1.62.0, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly
 sets `chromium_sandbox=False`: Fargate's default seccomp profile does not permit
@@ -230,6 +232,25 @@ verifies those versions and launches Chrome as the production user under the
 same default outer seccomp behavior used by Fargate. The resulting release
 artifact is identified by its own immutable ECR digest, and its scan remains the
 fail-closed vulnerability gate.
+
+`chrome-lock.json` is the authoritative Chrome package and executable contract.
+After changing that lock, run
+`python3 packages/etl/scripts/render_chrome_lock.py --write` from the repository
+root to update its checked-in consumers. CI runs the same command with `--check`
+to reject missing markers, unexpected consumer structure, and generated drift.
+
+The Fly scheduler dispatches the `Chrome stable update` workflow every morning.
+It authenticates Google's signed repository metadata, downloads and verifies
+the selected package, refreshes the lock and all generated consumers, and opens
+or updates one automation pull request. It dispatches the complete ETL and
+repository-configuration suites on the exact update commit. A passing, strictly
+newer release within the current Chrome milestone is merged automatically; a
+new milestone or same-version republish remains open for review. Production
+smoke tests are independent of Chrome release drift, while scheduled ETL runs
+consume the reviewed lock instead of failing merely because Google published a
+newer release. The repository's Actions settings must allow `GITHUB_TOKEN` to
+create pull requests; an optional
+`CHROME_UPDATE_TOKEN` secret can supply a dedicated bot token instead.
 
 The browser context blocks service workers and intercepts every routed page
 request. It permits only HTTPS requests to the exact

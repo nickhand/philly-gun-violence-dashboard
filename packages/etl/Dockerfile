@@ -19,9 +19,11 @@ ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2
 # Fetch the exact signed Google Chrome package as a checksum-pinned build input.
 # Installing the local deb through apt lets Ubuntu resolve its runtime libraries
 # from the same signed snapshot as the rest of the image.
-ADD --checksum=sha256:4eae0736a812d9bc851cd2937f7af00e47dbaf8305845eed452703ff009873c7 \
-    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_152.0.7977.64-1_amd64.deb \
+# BEGIN GENERATED: chrome-lock-package
+ADD --checksum=sha256:a0b7a64f768ffc0ff5ccc9260ad9ebb53fd16f7a131e2e36994da58b82d913df \
+    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_152.0.7977.75-1_amd64.deb \
     /tmp/google-chrome-stable.deb
+# END GENERATED: chrome-lock-package
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
         /tmp/openssl.deb /tmp/ca-certificates.deb \
@@ -61,11 +63,11 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260819T170000Z" \
         tzdata \
         /tmp/google-chrome-stable.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
-        = "152.0.7977.64-1" \
+        = "152.0.7977.75-1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
         = "8.18.0-1ubuntu2.4" \
     && test -z "$(dpkg --audit)" \
-    && test "$(google-chrome --product-version)" = "152.0.7977.64" \
+    && test "$(google-chrome --product-version)" = "152.0.7977.75" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
         /tmp/google-chrome-stable.deb \
@@ -134,7 +136,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
         "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'" \
-    && test "$(google-chrome --product-version)" = "152.0.7977.64" \
+    && test "$(google-chrome --product-version)" = "152.0.7977.75" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
 

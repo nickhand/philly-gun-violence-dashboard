@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 REPOSITORY = "nickhand/philly-gun-violence-dashboard"
 ALLOWED_WORKFLOWS = frozenset(
     {
+        "chrome-update.yml",
         "courts-scrape.yml",
         "daily-homicide-sync.yml",
         "daily-shootings-sync.yml",

@@ -1,6 +1,7 @@
 name: Repository configuration quality
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - ".github/ci/**"

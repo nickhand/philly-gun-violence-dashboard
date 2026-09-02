@@ -4,46 +4,78 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
+import json
 import subprocess
+import sys
+import tarfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+import etl.chrome_release as chrome_release
 from etl.chrome_release import (
+    CHROME_LOCK_PATH,
     GOOGLE_INRELEASE_URL,
     GOOGLE_PACKAGES_PATH,
     GOOGLE_PACKAGES_URL,
+    GOOGLE_REPOSITORY_URL,
     GOOGLE_SIGNING_KEY_FINGERPRINT,
     GOOGLE_SIGNING_KEY_URL,
+    PINNED_CHROME_EXECUTABLE_SHA256,
     PINNED_CHROME_FILENAME,
     PINNED_CHROME_PRODUCT_VERSION,
     PINNED_CHROME_SHA256,
     PINNED_CHROME_VERSION,
     ChromeReleaseError,
+    load_chrome_lock,
+    update_chrome_lock,
     verify_pinned_chrome_release,
 )
 
 NOW = datetime(2026, 8, 19, 17, tzinfo=UTC)
 
 
-def test_container_build_uses_the_same_reviewed_chrome_pin() -> None:
-    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+def test_exported_constants_come_from_authoritative_lock() -> None:
+    lock = load_chrome_lock()
 
-    assert f"ADD --checksum=sha256:{PINNED_CHROME_SHA256}" in dockerfile
-    assert f"https://dl.google.com/linux/chrome/deb/{PINNED_CHROME_FILENAME}" in dockerfile
-    assert f'= "{PINNED_CHROME_VERSION}"' in dockerfile
-    assert f'= "{PINNED_CHROME_PRODUCT_VERSION}"' in dockerfile
+    assert CHROME_LOCK_PATH.name == "chrome-lock.json"
+    assert lock.package.version == PINNED_CHROME_VERSION
+    assert lock.package.product_version == PINNED_CHROME_PRODUCT_VERSION
+    assert lock.package.filename == PINNED_CHROME_FILENAME
+    assert lock.package.sha256 == PINNED_CHROME_SHA256
+    assert lock.executable.sha256 == PINNED_CHROME_EXECUTABLE_SHA256
 
 
-def _packages(*, version: str = PINNED_CHROME_VERSION) -> bytes:
+def _filename(version: str) -> str:
+    return f"pool/main/g/google-chrome-stable/google-chrome-stable_{version}_amd64.deb"
+
+
+def _newer_version() -> str:
+    milestone = int(PINNED_CHROME_PRODUCT_VERSION.split(".", maxsplit=1)[0]) + 1
+    return f"{milestone}.0.0.1-1"
+
+
+def _older_version() -> str:
+    milestone = int(PINNED_CHROME_PRODUCT_VERSION.split(".", maxsplit=1)[0]) - 1
+    assert milestone > 0
+    return f"{milestone}.0.0.1-1"
+
+
+def _packages(
+    *,
+    version: str = PINNED_CHROME_VERSION,
+    filename: str | None = None,
+    sha256: str = PINNED_CHROME_SHA256,
+) -> bytes:
     return (
         "Package: google-chrome-stable\n"
         "Architecture: amd64\n"
         f"Version: {version}\n"
-        f"Filename: {PINNED_CHROME_FILENAME}\n"
-        f"SHA256: {PINNED_CHROME_SHA256}\n"
+        f"Filename: {filename or _filename(version)}\n"
+        f"SHA256: {sha256}\n"
         "Description: browser\n"
     ).encode()
 
@@ -51,9 +83,14 @@ def _packages(*, version: str = PINNED_CHROME_VERSION) -> bytes:
 def _metadata(
     *,
     version: str = PINNED_CHROME_VERSION,
+    filename: str | None = None,
+    package_sha256: str = PINNED_CHROME_SHA256,
     publication_date: str = "Wed, 19 Aug 2026 16:14:15 UTC",
 ) -> tuple[bytes, bytes]:
-    packages_gzip = gzip.compress(_packages(version=version), mtime=0)
+    packages_gzip = gzip.compress(
+        _packages(version=version, filename=filename, sha256=package_sha256),
+        mtime=0,
+    )
     digest = hashlib.sha256(packages_gzip).hexdigest()
     inrelease = (
         "Origin: Google LLC\n"
@@ -101,12 +138,14 @@ class StubRunner:
 def _fetcher(
     inrelease: bytes,
     packages_gzip: bytes,
+    extra_payloads: dict[str, bytes] | None = None,
 ):
     payloads = {
         GOOGLE_SIGNING_KEY_URL: b"public-key",
         GOOGLE_INRELEASE_URL: inrelease,
         GOOGLE_PACKAGES_URL: packages_gzip,
     }
+    payloads.update(extra_payloads or {})
 
     def fetch(url: str, max_bytes: int) -> bytes:
         body = payloads[url]
@@ -131,9 +170,10 @@ def test_signed_current_stable_package_passes() -> None:
 
 
 def test_new_stable_version_fails_until_pin_is_updated() -> None:
-    inrelease, packages_gzip = _metadata(version="152.0.7977.65-1")
+    next_version = _newer_version()
+    inrelease, packages_gzip = _metadata(version=next_version)
 
-    with pytest.raises(ChromeReleaseError, match="no longer.*observed 152.0.7977.65-1"):
+    with pytest.raises(ChromeReleaseError, match=f"no longer.*observed {next_version}"):
         verify_pinned_chrome_release(
             fetcher=_fetcher(inrelease, packages_gzip),
             runner=StubRunner(),
@@ -238,3 +278,221 @@ def test_signature_verification_failure_is_not_treated_as_stale_metadata() -> No
             runner=runner,
             clock=lambda: NOW,
         )
+
+
+def _write_lock(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _lock_payload() -> dict[str, object]:
+    return json.loads(CHROME_LOCK_PATH.read_text(encoding="utf-8"))
+
+
+def test_lock_rejects_unknown_fields(tmp_path: Path) -> None:
+    path = tmp_path / "chrome-lock.json"
+    payload = _lock_payload()
+    payload["unexpected"] = True
+    _write_lock(path, payload)
+
+    with pytest.raises(ChromeReleaseError, match="unexpected: unexpected"):
+        load_chrome_lock(path)
+
+
+def test_lock_rejects_boolean_schema_version(tmp_path: Path) -> None:
+    path = tmp_path / "chrome-lock.json"
+    payload = _lock_payload()
+    payload["schema_version"] = True
+    _write_lock(path, payload)
+
+    with pytest.raises(ChromeReleaseError, match="schema_version"):
+        load_chrome_lock(path)
+
+
+def test_lock_rejects_inconsistent_product_version(tmp_path: Path) -> None:
+    path = tmp_path / "chrome-lock.json"
+    payload = _lock_payload()
+    package = payload["package"]
+    assert isinstance(package, dict)
+    package["product_version"] = "1.2.3.4"
+    _write_lock(path, payload)
+
+    with pytest.raises(ChromeReleaseError, match="product_version did not match"):
+        load_chrome_lock(path)
+
+
+def test_lock_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    path = tmp_path / "chrome-lock.json"
+    source = CHROME_LOCK_PATH.read_text(encoding="utf-8")
+    duplicate = source.replace(
+        '"schema_version": 1,',
+        '"schema_version": 1,\n  "schema_version": 1,',
+        1,
+    )
+    path.write_text(duplicate, encoding="utf-8")
+
+    with pytest.raises(ChromeReleaseError, match="duplicate key: schema_version"):
+        load_chrome_lock(path)
+
+
+def _ar_member(name: str, body: bytes) -> bytes:
+    header = b"".join(
+        (
+            f"{name}/".encode("ascii").ljust(16),
+            b"0".ljust(12),
+            b"0".ljust(6),
+            b"0".ljust(6),
+            b"100644".ljust(8),
+            str(len(body)).encode("ascii").ljust(10),
+            b"`\n",
+        )
+    )
+    assert len(header) == 60
+    return header + body + (b"\n" if len(body) % 2 else b"")
+
+
+def _chrome_deb(executable: bytes) -> bytes:
+    data_archive = io.BytesIO()
+    with tarfile.open(
+        fileobj=data_archive,
+        mode="w",
+        format=tarfile.USTAR_FORMAT,
+    ) as archive:
+        member = tarfile.TarInfo("./opt/google/chrome/chrome")
+        member.mode = 0o755
+        member.mtime = 0
+        member.size = len(executable)
+        archive.addfile(member, io.BytesIO(executable))
+    return (
+        b"!<arch>\n"
+        + _ar_member("debian-binary", b"2.0\n")
+        + _ar_member("data.tar", data_archive.getvalue())
+    )
+
+
+def test_updater_authenticates_downloads_hashes_and_writes_only_when_changed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock_path = tmp_path / "chrome-lock.json"
+    lock_path.write_bytes(CHROME_LOCK_PATH.read_bytes())
+    lock_path.chmod(0o640)
+    version = _newer_version()
+    filename = _filename(version)
+    executable = b"verified chrome executable\x00"
+    deb = _chrome_deb(executable)
+    package_sha256 = hashlib.sha256(deb).hexdigest()
+    inrelease, packages_gzip = _metadata(
+        version=version,
+        filename=filename,
+        package_sha256=package_sha256,
+    )
+    runner = StubRunner()
+    fetcher = _fetcher(
+        inrelease,
+        packages_gzip,
+        {f"{GOOGLE_REPOSITORY_URL}/{filename}": deb},
+    )
+
+    result = update_chrome_lock(
+        lock_path,
+        fetcher=fetcher,
+        runner=runner,
+        clock=lambda: NOW,
+    )
+
+    assert result.changed is True
+    assert result.lock.package.version == version
+    assert result.lock.package.sha256 == package_sha256
+    assert result.lock.executable.sha256 == hashlib.sha256(executable).hexdigest()
+    assert load_chrome_lock(lock_path) == result.lock
+    assert lock_path.stat().st_mode & 0o777 == 0o640
+    assert {path.name for path in tmp_path.iterdir()} == {"chrome-lock.json"}
+    rendered = lock_path.read_text(encoding="utf-8")
+    assert rendered == json.dumps(json.loads(rendered), indent=2) + "\n"
+    assert [call[0] for call in runner.calls] == ["gpg", "gpg", "gpgv"]
+
+    def reject_replace(*_arguments: object) -> None:
+        raise AssertionError("an unchanged lock must not be rewritten")
+
+    monkeypatch.setattr(chrome_release.os, "replace", reject_replace)
+    second = update_chrome_lock(
+        lock_path,
+        fetcher=fetcher,
+        runner=StubRunner(),
+        clock=lambda: NOW,
+    )
+    assert second.changed is False
+
+
+def test_updater_rejects_deb_not_matching_signed_checksum(tmp_path: Path) -> None:
+    lock_path = tmp_path / "chrome-lock.json"
+    lock_path.write_bytes(CHROME_LOCK_PATH.read_bytes())
+    original = lock_path.read_bytes()
+    version = _newer_version()
+    filename = _filename(version)
+    deb = _chrome_deb(b"chrome")
+    inrelease, packages_gzip = _metadata(
+        version=version,
+        filename=filename,
+        package_sha256="f" * 64,
+    )
+
+    with pytest.raises(ChromeReleaseError, match="package checksum"):
+        update_chrome_lock(
+            lock_path,
+            fetcher=_fetcher(
+                inrelease,
+                packages_gzip,
+                {f"{GOOGLE_REPOSITORY_URL}/{filename}": deb},
+            ),
+            runner=StubRunner(),
+            clock=lambda: NOW,
+        )
+
+    assert lock_path.read_bytes() == original
+    assert {path.name for path in tmp_path.iterdir()} == {"chrome-lock.json"}
+
+
+def test_updater_rejects_a_signed_version_rollback(tmp_path: Path) -> None:
+    lock_path = tmp_path / "chrome-lock.json"
+    lock_path.write_bytes(CHROME_LOCK_PATH.read_bytes())
+    original = lock_path.read_bytes()
+    version = _older_version()
+    filename = _filename(version)
+    deb = _chrome_deb(b"older signed chrome")
+    package_sha256 = hashlib.sha256(deb).hexdigest()
+    inrelease, packages_gzip = _metadata(
+        version=version,
+        filename=filename,
+        package_sha256=package_sha256,
+    )
+
+    with pytest.raises(ChromeReleaseError, match="older signed stable release"):
+        update_chrome_lock(
+            lock_path,
+            fetcher=_fetcher(
+                inrelease,
+                packages_gzip,
+                {f"{GOOGLE_REPOSITORY_URL}/{filename}": deb},
+            ),
+            runner=StubRunner(),
+            clock=lambda: NOW,
+        )
+
+    assert lock_path.read_bytes() == original
+    assert {path.name for path in tmp_path.iterdir()} == {"chrome-lock.json"}
+
+
+def test_cli_check_is_offline_and_read_only() -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts/update_chrome_release.py"
+
+    completed = subprocess.run(  # noqa: S603
+        [sys.executable, str(script), "check"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout == f"Chrome lock is valid: {PINNED_CHROME_VERSION}\n"
+    assert completed.stderr == ""
