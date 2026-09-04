@@ -220,7 +220,7 @@ date. The pinned snapshot includes Canonical's `libcurl3t64-gnutls`
 gate both assert that exact package version.
 <!-- BEGIN GENERATED: chrome-lock-product-version -->
 It full-upgrades that snapshot before installing Ubuntu's native Python
-(3.13 or newer) and a checksum-pinned Google Chrome 152.0.7977.75 package.
+(3.13 or newer) and a checksum-pinned Google Chrome 152.0.7977.82 package.
 <!-- END GENERATED: chrome-lock-product-version -->
 The Playwright client is pinned to 1.62.0, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly
