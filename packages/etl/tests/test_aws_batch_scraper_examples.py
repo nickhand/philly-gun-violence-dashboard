@@ -25,9 +25,9 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
     assert expected_base in source
-    assert "ARG UBUNTU_SNAPSHOT=20260819T170000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20260819T170000Z"' in source
-    assert "20260819T160000Z" not in source
+    assert "ARG UBUNTU_SNAPSHOT=20260911T140000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20260911T140000Z"' in source
+    assert "20260819T170000Z" not in source
     assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 3
     assert 'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update' in source
     assert "--yes --no-install-recommends full-upgrade" in source
@@ -36,18 +36,18 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     )
     assert "snapshot.ubuntu.com_ubuntu_${UBUNTU_SNAPSHOT}_dists_${suite}_InRelease" in source
     assert "libcurl3t64-gnutls" in source
-    assert ' = "8.18.0-1ubuntu2.4"' in source
+    assert ' = "8.18.0-1ubuntu2.5"' in source
     assert 'test -z "$(dpkg --audit)"' in source
     assert source.count("|| exit 1;") >= 2
     assert "apt-get update" not in source
     assert "snapshot.debian.org" not in source
     assert (
-        "ADD --checksum=sha256:c1f53878bdada693da7fb64a28c06b7dd65a43b8452e6fcad670c0d09c77f293"
+        "ADD --checksum=sha256:0cea6b98673ff88218b7e5f18c1bd42f06bdfcae6c1ebc9964adf3bc41420c19"
     ) in source
     assert (
         "ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90"
     ) in source
-    assert "openssl_3.5.5-1ubuntu3.3_amd64.deb" in source
+    assert "openssl_3.5.5-1ubuntu3.5_amd64.deb" in source
     assert "ca-certificates_20260601~26.04.1_all.deb" in source
     assert expected_chrome in source
     assert PINNED_CHROME_FILENAME in source
@@ -183,7 +183,7 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     assert "--forbid-chrome-sandbox" in source
     assert "--forbid-setuid-setgid-files" in source
     assert "--required-chrome-sandbox-sha256" not in source
-    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4" in source
+    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.5" in source
     assert "root:root:755" not in source
     assert "root:root:4755" not in source
     assert "image_entrypoint=" in source
@@ -201,7 +201,7 @@ def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
 
     script = "packages/etl/scripts/render_chrome_lock.py"
     assert f'aws_batch_scraper_browser_lock_script := "{script}"' in justfile
-    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.4" in justfile
+    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.5" in justfile
     assert "scraper-check-browser-lock:" in recipe
     assert 'python3 "{{aws_batch_scraper_browser_lock_script}}" --check' in recipe
     build_dependency = (

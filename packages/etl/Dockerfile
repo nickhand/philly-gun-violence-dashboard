@@ -4,16 +4,16 @@ FROM public.ecr.aws/ubuntu/ubuntu:26.04@sha256:889d056d5c6c0bfb55789ff3710681d68
 # Ubuntu 26.04's stock deb822 sources use Canonical's signed archive and support
 # apt snapshots. Validate the build argument before every apt transaction so a
 # caller cannot silently replace the reviewed package set with another date.
-ARG UBUNTU_SNAPSHOT=20260819T170000Z
+ARG UBUNTU_SNAPSHOT=20260911T140000Z
 
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
 # HTTPS. Bootstrap the exact CA dependency pair recorded in Canonical's signed
 # resolute-security Packages index for this snapshot before the first apt call.
-ADD --checksum=sha256:c1f53878bdada693da7fb64a28c06b7dd65a43b8452e6fcad670c0d09c77f293 \
-    https://snapshot.ubuntu.com/ubuntu/20260819T170000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.3_amd64.deb \
+ADD --checksum=sha256:0cea6b98673ff88218b7e5f18c1bd42f06bdfcae6c1ebc9964adf3bc41420c19 \
+    https://snapshot.ubuntu.com/ubuntu/20260911T140000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.5_amd64.deb \
     /tmp/openssl.deb
 ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 \
-    https://snapshot.ubuntu.com/ubuntu/20260819T170000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb \
+    https://snapshot.ubuntu.com/ubuntu/20260911T140000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb \
     /tmp/ca-certificates.deb
 
 # Fetch the exact signed Google Chrome package as a checksum-pinned build input.
@@ -28,20 +28,20 @@ ADD --checksum=sha256:9bb44e33031c2f2857cf36b4343051a12f93058e4b781e3c76313df87f
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
         /tmp/openssl.deb /tmp/ca-certificates.deb \
     && test "$(dpkg-query --show --showformat='${Version}' openssl)" \
-        = "3.5.5-1ubuntu3.3" \
+        = "3.5.5-1ubuntu3.5" \
     && test "$(dpkg-query --show --showformat='${Version}' ca-certificates)" \
         = "20260601~26.04.1" \
     && test -s /etc/ssl/certs/ca-certificates.crt \
     && rm -f /tmp/openssl.deb /tmp/ca-certificates.deb
 
-# The 17:00 snapshot is the first immutable hourly snapshot containing
-# Canonical's USN-8651-1 libcurl backport. Pin and assert it below so a stale
-# snapshot cannot silently reintroduce CVE-2026-11856.
+# The September 11 snapshot includes Canonical's security backports for
+# OpenSSL, Perl, Python, libcurl, and the other runtime libraries. Pin and
+# assert it below so stale packages cannot silently return to the image.
 #
 # Fargate's default seccomp profile cannot start Chrome's nested namespace
 # sandbox. The courts worker therefore disables that sandbox, so the runtime
 # image removes the otherwise unused privilege-bearing helper entirely.
-RUN test "$UBUNTU_SNAPSHOT" = "20260819T170000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20260911T140000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
     && for suite in resolute resolute-updates resolute-backports resolute-security; do \
@@ -65,7 +65,7 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260819T170000Z" \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
         = "153.0.8010.36-1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
-        = "8.18.0-1ubuntu2.4" \
+        = "8.18.0-1ubuntu2.5" \
     && test -z "$(dpkg --audit)" \
     && test "$(google-chrome --product-version)" = "153.0.8010.36" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \

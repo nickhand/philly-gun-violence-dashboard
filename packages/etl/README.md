@@ -215,9 +215,9 @@ The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
 same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
-date. The pinned snapshot includes Canonical's `libcurl3t64-gnutls`
-`8.18.0-1ubuntu2.4` security update from USN-8651-1; the image build and SBOM
-gate both assert that exact package version.
+date. The `20260911T140000Z` snapshot includes Canonical's security updates for
+OpenSSL, Perl, Python, libcurl, and the other runtime libraries. The image build
+and SBOM gate both assert `libcurl3t64-gnutls` version `8.18.0-1ubuntu2.5`.
 <!-- BEGIN GENERATED: chrome-lock-product-version -->
 It full-upgrades that snapshot before installing Ubuntu's native Python
 (3.13 or newer) and a checksum-pinned Google Chrome 153.0.8010.36 package.
@@ -263,8 +263,8 @@ policy change to investigate and review, not something the worker follows
 implicitly.
 
 The minimal Ubuntu base does not initially contain CA roots. Before its first
-apt transaction, the build bootstraps `openssl` 3.5.5-1ubuntu3.3 (SHA-256
-`c1f53878bdada693da7fb64a28c06b7dd65a43b8452e6fcad670c0d09c77f293`)
+apt transaction, the build bootstraps `openssl` 3.5.5-1ubuntu3.5 (SHA-256
+`0cea6b98673ff88218b7e5f18c1bd42f06bdfcae6c1ebc9964adf3bc41420c19`)
 and `ca-certificates` 20260601~26.04.1 (SHA-256
 `6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90`)
 from exact Canonical snapshot URLs. Those artifacts and hashes come from the
