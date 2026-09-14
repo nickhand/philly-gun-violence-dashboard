@@ -1,5 +1,5 @@
 # Use an ECR-supported LTS userspace and pin its exact linux/amd64 manifest.
-FROM public.ecr.aws/ubuntu/ubuntu:26.04@sha256:889d056d5c6c0bfb55789ff3710681d68e50713cb562d2196dc07110599c7a6f
+FROM public.ecr.aws/ubuntu/ubuntu:26.04@sha256:99b345756d0ddb56dd7ab9c8d26f6ab41364506c00757a8c5b7ee793ea07fca3
 
 # Ubuntu 26.04's stock deb822 sources use Canonical's signed archive and support
 # apt snapshots. Validate the build argument before every apt transaction so a
