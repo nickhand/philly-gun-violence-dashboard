@@ -20,8 +20,8 @@ ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2
 # Installing the local deb through apt lets Ubuntu resolve its runtime libraries
 # from the same signed snapshot as the rest of the image.
 # BEGIN GENERATED: chrome-lock-package
-ADD --checksum=sha256:9bb44e33031c2f2857cf36b4343051a12f93058e4b781e3c76313df87f6c8d32 \
-    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_153.0.8010.36-1_amd64.deb \
+ADD --checksum=sha256:a326defde54de2f1c0d46d8bf4b6b5f3f76f0c897bd30b20b025097139a05bde \
+    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_153.0.8010.47-1_amd64.deb \
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
@@ -63,11 +63,11 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260911T140000Z" \
         tzdata \
         /tmp/google-chrome-stable.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
-        = "153.0.8010.36-1" \
+        = "153.0.8010.47-1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
         = "8.18.0-1ubuntu2.5" \
     && test -z "$(dpkg --audit)" \
-    && test "$(google-chrome --product-version)" = "153.0.8010.36" \
+    && test "$(google-chrome --product-version)" = "153.0.8010.47" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
         /tmp/google-chrome-stable.deb \
@@ -136,7 +136,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
         "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'" \
-    && test "$(google-chrome --product-version)" = "153.0.8010.36" \
+    && test "$(google-chrome --product-version)" = "153.0.8010.47" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
 
