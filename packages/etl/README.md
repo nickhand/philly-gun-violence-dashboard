@@ -220,7 +220,7 @@ OpenSSL, Perl, Python, libcurl, and the other runtime libraries. The image build
 and SBOM gate both assert `libcurl3t64-gnutls` version `8.18.0-1ubuntu2.5`.
 <!-- BEGIN GENERATED: chrome-lock-product-version -->
 It full-upgrades that snapshot before installing Ubuntu's native Python
-(3.13 or newer) and a checksum-pinned Google Chrome 153.0.8010.47 package.
+(3.13 or newer) and a checksum-pinned Google Chrome 153.0.8010.52 package.
 <!-- END GENERATED: chrome-lock-product-version -->
 The Playwright client is pinned to 1.62.0, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly
