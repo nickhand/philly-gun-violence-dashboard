@@ -157,6 +157,9 @@ the complete shell/map/worker experience. The existing 315 KB shell and 65 KB
 analytics limits and all Lighthouse thresholds remain unchanged. This explicitly
 accounts for the security upgrade's added transfer cost, including the worker
 that Vite omits from its main manifest.
+Nuxt separately caps the dynamically loaded map JavaScript, including its worker,
+at 475 KiB gzip (measured at 447 KiB), while retaining the map CSS budget and the
+checks that keep all map assets out of every route's initial load.
 
 ## Project Structure
 

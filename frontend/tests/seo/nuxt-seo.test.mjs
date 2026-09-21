@@ -1138,7 +1138,9 @@ test("MapLibre is dynamically isolated and Nuxt emits no Vuetify code", async ()
       0,
     );
   assert.ok(
-    mapJavaScriptGzip <= 220 * 1024,
+    // Patched MapLibre 6 includes a separate worker (about 447 KiB together).
+    // Both remain outside every route's initial asset graph, checked above.
+    mapJavaScriptGzip <= 475 * 1024,
     `Dynamic map JavaScript is ${(mapJavaScriptGzip / 1024).toFixed(1)} KiB gzip`,
   );
   assert.ok(
