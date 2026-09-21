@@ -63,7 +63,12 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260921T180000Z" \
         'Homepage: https://github.com/containers/bubblewrap' \
         'Description: Upstream Bubblewrap security release for the courts image' \
         > /package/DEBIAN/control \
-    && dpkg-deb --root-owner-group --build /package /bubblewrap.deb
+    # Python tar creation also works under amd64 emulation, where this Ubuntu
+    # GNU tar requires unsupported stat syscalls. Keep the standard deb layout.
+    && python3 -c \
+        "import tarfile; from pathlib import Path; Path('/debian-binary').write_text('2.0\\n'); control = tarfile.open('/control.tar.gz', 'w:gz'); control.add('/package/DEBIAN/control', arcname='./control'); control.close(); data = tarfile.open('/data.tar.gz', 'w:gz'); data.add('/package/usr', arcname='./usr'); data.close()" \
+    && ar rD /bubblewrap.deb /debian-binary /control.tar.gz /data.tar.gz \
+    && dpkg-deb --info /bubblewrap.deb
 
 FROM ubuntu-base AS runtime
 COPY --from=bubblewrap-build /bubblewrap.deb /tmp/bubblewrap.deb
