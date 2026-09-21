@@ -8,7 +8,8 @@
  */
 
 import { onBeforeUnmount, type Ref } from "vue";
-import maplibregl, {
+import * as maplibregl from "maplibre-gl";
+import {
   type Map as MapLibreMap,
   type Popup,
   type MapLayerMouseEvent,

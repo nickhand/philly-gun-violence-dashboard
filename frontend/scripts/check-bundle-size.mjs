@@ -49,7 +49,18 @@ const mapFiles = collectChunkFiles(MAP_KEY);
 const analyticsFiles = manifest[ANALYTICS_KEY]
   ? collectChunkFiles(ANALYTICS_KEY)
   : new Set();
-const coreExperienceFiles = new Set([...appShellFiles, ...mapFiles]);
+// MapLibre 6 loads a separately bundled worker. Vite does not list worker
+// outputs in the main manifest, so include it explicitly rather than hiding
+// its transfer cost from the combined budget.
+const mapWorkerFiles = new Set(
+  readdirSync(join(distRoot, "assets"))
+    .filter((file) => /^maplibre-gl-worker-[\w-]+\.js$/.test(file))
+    .map((file) => `assets/${file}`),
+);
+if (mapWorkerFiles.size !== 1) {
+  throw new Error("Expected exactly one bundled MapLibre worker");
+}
+const coreExperienceFiles = new Set([...appShellFiles, ...mapFiles, ...mapWorkerFiles]);
 
 const budgets = [
   {
@@ -60,12 +71,18 @@ const budgets = [
   {
     label: "interactive map",
     files: mapFiles,
-    maxBytes: 240_000,
+    // Security migration from MapLibre 2 to patched 6: measured at 308 KB gzip.
+    maxBytes: 320_000,
   },
   {
-    label: "app shell + map",
+    label: "map worker",
+    files: mapWorkerFiles,
+    maxBytes: 155_000,
+  },
+  {
+    label: "app shell + map + worker",
     files: coreExperienceFiles,
-    maxBytes: 555_000,
+    maxBytes: 790_000,
   },
   {
     label: "deferred analytics",

@@ -140,12 +140,23 @@ checklist.
 
 The production build emits a Vite manifest and `npm run check:bundle` enforces
 gzip budgets for the initial app shell, the asynchronously loaded map, their
-combined core experience, and deferred analytics. The check also prevents the
-full Material Design icon font from being bundled again. Lighthouse runs three
+separate MapLibre worker, their combined core experience, and deferred analytics.
+The check also prevents the full Material Design icon font from being bundled
+again. Lighthouse runs three
 desktop audits against deterministic local data and a local map style. The
 direct Lighthouse runner stores HTML and JSON for every run plus a machine-
 readable summary, then enforces median scores and Core Web Vitals-oriented
 thresholds.
+
+The September 2026 security update migrates MapLibre 2 to patched MapLibre 6.
+Version 6 uses named ES-module exports and a separate worker; both apps explicitly
+bundle that worker with Vite so deployment paths and the development optimizer
+cannot strand it. The measured compressed map module is about 308 KB and its
+worker about 147 KB. Their bounded budgets are 320 KB and 155 KB, with 790 KB for
+the complete shell/map/worker experience. The existing 315 KB shell and 65 KB
+analytics limits and all Lighthouse thresholds remain unchanged. This explicitly
+accounts for the security upgrade's added transfer cost, including the worker
+that Vite omits from its main manifest.
 
 ## Project Structure
 

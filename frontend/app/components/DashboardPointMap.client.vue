@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import mapWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { FeatureCollection, Geometry } from "geojson";
 import type {
   ExpressionSpecification,
@@ -1140,7 +1141,8 @@ async function initializeMap(currentLoadId: number): Promise<void> {
 
   try {
     await import("maplibre-gl/dist/maplibre-gl.css");
-    const { default: maplibregl } = await import("maplibre-gl");
+    const maplibregl = await import("maplibre-gl");
+    maplibregl.setWorkerUrl(mapWorkerUrl);
     if (currentLoadId !== loadId || !mapContainer.value) return;
 
     const instance = new maplibregl.Map({
