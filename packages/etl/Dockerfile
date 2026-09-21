@@ -1,29 +1,20 @@
 # Use an ECR-supported LTS userspace and pin its exact linux/amd64 manifest.
-FROM public.ecr.aws/ubuntu/ubuntu:26.04@sha256:99b345756d0ddb56dd7ab9c8d26f6ab41364506c00757a8c5b7ee793ea07fca3
+FROM public.ecr.aws/ubuntu/ubuntu:26.04@sha256:99b345756d0ddb56dd7ab9c8d26f6ab41364506c00757a8c5b7ee793ea07fca3 AS ubuntu-base
 
 # Ubuntu 26.04's stock deb822 sources use Canonical's signed archive and support
 # apt snapshots. Validate the build argument before every apt transaction so a
 # caller cannot silently replace the reviewed package set with another date.
-ARG UBUNTU_SNAPSHOT=20260911T140000Z
+ARG UBUNTU_SNAPSHOT=20260921T180000Z
 
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
 # HTTPS. Bootstrap the exact CA dependency pair recorded in Canonical's signed
 # resolute-security Packages index for this snapshot before the first apt call.
 ADD --checksum=sha256:0cea6b98673ff88218b7e5f18c1bd42f06bdfcae6c1ebc9964adf3bc41420c19 \
-    https://snapshot.ubuntu.com/ubuntu/20260911T140000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.5_amd64.deb \
+    https://snapshot.ubuntu.com/ubuntu/20260921T180000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.5_amd64.deb \
     /tmp/openssl.deb
 ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 \
-    https://snapshot.ubuntu.com/ubuntu/20260911T140000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb \
+    https://snapshot.ubuntu.com/ubuntu/20260921T180000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb \
     /tmp/ca-certificates.deb
-
-# Fetch the exact signed Google Chrome package as a checksum-pinned build input.
-# Installing the local deb through apt lets Ubuntu resolve its runtime libraries
-# from the same signed snapshot as the rest of the image.
-# BEGIN GENERATED: chrome-lock-package
-ADD --checksum=sha256:29e0e4b5af01213915ffdb7f4e49a11956dc5fc591165c85af8688dcdff907ac \
-    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_153.0.8010.52-1_amd64.deb \
-    /tmp/google-chrome-stable.deb
-# END GENERATED: chrome-lock-package
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
         /tmp/openssl.deb /tmp/ca-certificates.deb \
@@ -34,14 +25,64 @@ RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
     && test -s /etc/ssl/certs/ca-certificates.crt \
     && rm -f /tmp/openssl.deb /tmp/ca-certificates.deb
 
-# The September 11 snapshot includes Canonical's security backports for
-# OpenSSL, Perl, Python, libcurl, and the other runtime libraries. Pin and
+# Canonical reverted its CVE-2026-87766 backport (USN-8779-2). Build the
+# checksum-pinned upstream fix as a real replacement package in a separate stage;
+# keep package ownership/version evidence and omit all build tools from runtime.
+FROM ubuntu-base AS bubblewrap-build
+ADD --checksum=sha256:9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314 \
+    https://github.com/containers/bubblewrap/releases/download/v0.12.0/bubblewrap-0.12.0.tar.xz \
+    /tmp/bubblewrap.tar.xz
+RUN test "$UBUNTU_SNAPSHOT" = "20260921T180000Z" \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -S "$UBUNTU_SNAPSHOT" \
+        --yes --no-install-recommends install \
+        build-essential meson pkg-config libcap-dev libselinux1-dev xz-utils \
+    && mkdir /build \
+    && tar --extract --xz --file /tmp/bubblewrap.tar.xz --directory /build \
+    && cd /build/bubblewrap-0.12.0 \
+    && CFLAGS="$(dpkg-buildflags --get CFLAGS)" \
+        CPPFLAGS="$(dpkg-buildflags --get CPPFLAGS)" \
+        LDFLAGS="$(dpkg-buildflags --get LDFLAGS)" \
+        meson setup build --prefix=/usr --buildtype=release \
+        -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled \
+        -Dselinux=enabled \
+    && meson compile -C build \
+    && meson test -C build test-utils --print-errorlogs \
+    && DESTDIR=/package meson install -C build \
+    && test "$(/package/usr/bin/bwrap --version)" = "bubblewrap 0.12.0" \
+    && mkdir -p /package/DEBIAN /package/usr/share/doc/bubblewrap \
+    && cp COPYING COPYING.LIB LICENSE /package/usr/share/doc/bubblewrap/ \
+    && printf '%s\n' \
+        'Package: bubblewrap' \
+        'Version: 0.12.0-0philly1' \
+        'Architecture: amd64' \
+        'Maintainer: Philadelphia Gun Violence Dashboard <noreply@github.com>' \
+        'Depends: libc6 (>= 2.43), libcap2 (>= 1:2.10), libselinux1 (>= 3.1)' \
+        'Homepage: https://github.com/containers/bubblewrap' \
+        'Description: Upstream Bubblewrap security release for the courts image' \
+        > /package/DEBIAN/control \
+    && dpkg-deb --root-owner-group --build /package /bubblewrap.deb
+
+FROM ubuntu-base AS runtime
+COPY --from=bubblewrap-build /bubblewrap.deb /tmp/bubblewrap.deb
+# Fetch the exact signed Google Chrome package as a checksum-pinned build input.
+# Installing the local deb through apt lets Ubuntu resolve its runtime libraries
+# from the same signed snapshot as the rest of the image.
+# BEGIN GENERATED: chrome-lock-package
+ADD --checksum=sha256:29e0e4b5af01213915ffdb7f4e49a11956dc5fc591165c85af8688dcdff907ac \
+    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_153.0.8010.52-1_amd64.deb \
+    /tmp/google-chrome-stable.deb
+# END GENERATED: chrome-lock-package
+
+# The September 21 snapshot includes Canonical's security backports for
+# OpenSSL, Perl, Python, libcurl, and libaom. Pin and
 # assert it below so stale packages cannot silently return to the image.
 #
 # Fargate's default seccomp profile cannot start Chrome's nested namespace
 # sandbox. The courts worker therefore disables that sandbox, so the runtime
 # image removes the otherwise unused privilege-bearing helper entirely.
-RUN test "$UBUNTU_SNAPSHOT" = "20260911T140000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20260921T180000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
     && for suite in resolute resolute-updates resolute-backports resolute-security; do \
@@ -61,16 +102,21 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260911T140000Z" \
         netbase \
         python3 \
         tzdata \
-        /tmp/google-chrome-stable.deb \
+        /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
         = "153.0.8010.52-1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
         = "8.18.0-1ubuntu2.5" \
+    && test "$(dpkg-query --show --showformat='${Version}' libaom3)" \
+        = "3.13.1-2ubuntu0.1" \
+    && test "$(dpkg-query --show --showformat='${Version}' bubblewrap)" \
+        = "0.12.0-0philly1" \
+    && test "$(bwrap --version)" = "bubblewrap 0.12.0" \
     && test -z "$(dpkg --audit)" \
     && test "$(google-chrome --product-version)" = "153.0.8010.52" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
-        /tmp/google-chrome-stable.deb \
+        /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
         /opt/google/chrome/chrome-sandbox \
         /etc/apt/sources.list.d/google-chrome.list \
         /etc/apt/trusted.gpg.d/google-chrome.gpg \

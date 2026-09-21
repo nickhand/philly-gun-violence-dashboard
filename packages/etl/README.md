@@ -221,9 +221,21 @@ The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
 same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
-date. The `20260911T140000Z` snapshot includes Canonical's security updates for
-OpenSSL, Perl, Python, libcurl, and the other runtime libraries. The image build
-and SBOM gate both assert `libcurl3t64-gnutls` version `8.18.0-1ubuntu2.5`.
+date. The `20260921T180000Z` snapshot includes Canonical's security updates for
+OpenSSL, Perl, Python, libcurl, and libaom. The image build and SBOM gate assert
+`libcurl3t64-gnutls` version `8.18.0-1ubuntu2.5` and `libaom3` version
+`3.13.1-2ubuntu0.1`.
+
+GTK's image-loader dependencies require Bubblewrap. Ubuntu reverted its
+CVE-2026-87766 fix in [USN-8779-2](https://ubuntu.com/security/notices/USN-8779-2),
+so a separate build stage compiles the checksum-pinned upstream
+[0.12.0 security release](https://github.com/containers/bubblewrap/releases/tag/v0.12.0)
+and runs its utility tests. The runtime installs the real replacement Debian
+package `bubblewrap=0.12.0-0philly1`, retaining package ownership, version, and
+upstream licenses for scanning. Compilers and source files stay in the build
+stage. Both the runtime assertion and SBOM gate require this patched version;
+neither scanner's vulnerability threshold is relaxed. Revisit this temporary
+package when Canonical supplies a complete supported fix.
 <!-- BEGIN GENERATED: chrome-lock-product-version -->
 It full-upgrades that snapshot before installing Ubuntu's native Python
 (3.13 or newer) and a checksum-pinned Google Chrome 153.0.8010.52 package.
