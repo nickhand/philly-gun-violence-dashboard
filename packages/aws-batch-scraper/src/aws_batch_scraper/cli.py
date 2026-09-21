@@ -2,6 +2,7 @@
 
 import csv
 import json
+import os
 import queue
 import random
 import threading
@@ -9,6 +10,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated, TypedDict
 
 import typer
@@ -330,7 +332,9 @@ def create_cli(
         App pre-populated with: submit, worker, monitor, aggregate, run_stats,
         failures, bench. Call ``app.command()`` to add plugin-specific commands.
     """
-    app = typer.Typer(name=name, help=f"{name.capitalize()} scraper ETL.")
+    app = typer.Typer(
+        name=name, help=f"{name.capitalize()} scraper ETL.", pretty_exceptions_show_locals=False
+    )
 
     @app.command()
     def submit(
@@ -539,9 +543,25 @@ def create_cli(
             phase = _SubmitPhase.WORKERS_STARTED
             write_task_arns(s3, config, run_id, task_arns)
             if monitor_in_ecs:
-                launch_monitor(ecs, config, run_id, monitor_cmd)
+                monitor_arn = launch_monitor(ecs, config, run_id, monitor_cmd)
                 monitor_started = True
                 phase = _SubmitPhase.MONITOR_STARTED
+                s3.put_object(
+                    Bucket=config.s3_bucket,
+                    Key=f"{config.s3_scraper_prefix}/runs/{run_id}/monitor-task.json",
+                    Body=json.dumps({"run_id": run_id, "task_arn": monitor_arn}).encode(),
+                    ContentType="application/json",
+                    IfNoneMatch="*",
+                )
+                if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+                    with Path(summary_path).open("a") as summary:
+                        summary.write(
+                            f"\nSubmitted {name} run `{run_id}` with {len(task_arns)} workers.\n\n"
+                            "Submission succeeded; scraping and publication are still pending. "
+                            "Consult the completion watchdog and processing workflow "
+                            "for subsequent failures.\n\n"
+                            f"Monitor: `{monitor_arn}`\n"
+                        )
 
             if wait:
                 synchronous_monitor_started = True
@@ -608,6 +628,68 @@ def create_cli(
             monitor_run(ecs, sqs, s3, config, resolved)
         else:
             monitor_until_empty(sqs, config, s3=None, run_id=None)
+
+    @app.command("health")
+    def health() -> None:
+        """Read current run health without modifying AWS or launching work."""
+        from aws_batch_scraper.aws import make_boto3_session
+        from aws_batch_scraper.health import check_run_health
+
+        try:
+            config = submitter_config_class()
+            session = make_boto3_session(config=config)
+            run_id, findings = check_run_health(session.client("s3"), session.client("ecs"), config)
+        except Exception as exc:
+            # A broken probe is unhealthy too. Keep its failure visible in the
+            # Actions summary without echoing exception text or settings secrets.
+            typer.echo(
+                json.dumps(
+                    {
+                        "run_id": None,
+                        "healthy": False,
+                        "findings": [
+                            f"Could not verify run health ({type(exc).__name__}); "
+                            "inspect AWS access and retained run evidence"
+                        ],
+                    }
+                )
+            )
+            raise typer.Exit(code=1) from None
+        typer.echo(json.dumps({"run_id": run_id, "healthy": not findings, "findings": findings}))
+        if findings:
+            raise typer.Exit(code=1)
+
+    @app.command("reconcile-retired-tasks")
+    def reconcile_retired_tasks(
+        run_id: Annotated[str, typer.Argument(help="Exact interrupted run to reconcile.")],
+        review_file: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+        execute: Annotated[bool, typer.Option(help="Write reviewed retirement evidence.")] = False,
+    ) -> None:
+        """Review expired ECS task records; preview only unless --execute is supplied."""
+        from aws_batch_scraper.aws import make_boto3_session
+        from aws_batch_scraper.task_reconciliation import (
+            RetirementReview,
+        )
+        from aws_batch_scraper.task_reconciliation import (
+            reconcile_retired_tasks as reconcile,
+        )
+
+        review = RetirementReview.model_validate_json(review_file.read_bytes())
+        if review.run_id != run_id:
+            raise typer.BadParameter("Review belongs to a different run")
+        config = submitter_config_class()
+        session = make_boto3_session(config=config)
+        reconcile(
+            session.client("s3"),
+            session.client("sqs"),
+            session.client("ecs"),
+            config,
+            review,
+            execute=execute,
+        )
+        typer.echo(
+            "Retirement evidence written" if execute else "Read-only retirement review passed"
+        )
 
     @app.command()
     def resume(

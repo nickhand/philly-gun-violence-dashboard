@@ -29,7 +29,8 @@ The preview fails closed when:
   A machine-written terminal-decision conflict is diagnostic evidence, not an
   adjudication. A later third candidate therefore blocks independently until it
   is reviewed too;
-- a previously recorded worker task is missing or is not `STOPPED`;
+- a previously recorded worker task is not `STOPPED`, or is missing without
+  a durable terminal observation or explicit reviewed retirement;
 - visible, in-flight, and delayed SQS estimates do not remain unchanged across
   the 60-second quiet window, or work remains in flight after recorded workers
   stop;
@@ -105,12 +106,12 @@ timezone-aware review time, reviewer, and nonblank rationale. Use
 `write_accept_terminal_decision_resolution` only with all three expected
 digests from the reviewed evidence. The earlier reviewed-canonical protocol uses
 the equally privileged `result-conflict-resolutions/v1/` namespace. ECS task
-roles and GitHub workflow roles must not have object mutation access to either
-resolution namespace: an operator/admin IAM
+roles and GitHub workflow roles must not have object mutation access to any
+human-review resolution namespace: an operator/admin IAM
 principal plus CloudTrail is the actual authentication boundary for the human
 review; `reviewed_by` alone is not. The runtime exports
 `HUMAN_REVIEW_RESOLUTION_PATHS` so IAM policy generation and audits must bind
-the complete exact namespace inventory without duplicating either string.
+the complete exact namespace inventory without duplicating namespace strings.
 
 The transport is deliberately at-least-once. A true concurrent Standard SQS
 duplicate can repeat one portal lookup, and a DLQ send can be duplicated if its
@@ -192,7 +193,136 @@ valid terminal object and select only genuinely missing work.
 Recovery does not currently support intentionally invalidating a trusted
 terminal incident for re-scraping. That requires a separately reviewed,
 append-only adjudication format bound to the original object hash; do not delete
-or overwrite terminal evidence as a substitute. Also perform the first recovery
-while ECS can still describe recorded stopped tasks (AWS retains stopped task
-details for a limited period); durable terminal task snapshots are a follow-up
-for arbitrarily old runs.
+or overwrite terminal evidence as a substitute. New monitors retain terminal task snapshots as described below. For older runs
+whose task details already expired, use the explicit retirement reconciliation;
+an ECS `MISSING` response alone never authorizes recovery.
+
+
+## Browser deadlines and durable task evidence
+
+The courts plugin uses `SupervisedScraper`: a parent process gives each portal
+operation a hard wall-clock budget while a spawned child reuses its browser.
+Scrapes have 300 seconds; startup, reset, artifact capture, and close each have
+30 seconds. Termination and forced termination each get two seconds. A broken
+or timed-out child is fatal to its ECS worker, leaving the receipt unacknowledged
+for SQS redelivery. The worker exits so container teardown also removes detached
+browser descendants. The supervisor does not launch replacement ECS tasks.
+Use the same-run recovery protocol after all original workers and monitors stop.
+
+Every monitor poll persists observed `STOPPED` workers at
+`runs/<run-id>/task-terminal/v1/<sha256-task-arn>.json` before using them for
+completion. These immutable records retain the run/cluster/task identity,
+observation time, stop details, and container exit codes without environment
+variables or secrets. Subsequent polls and restarted monitors reuse them without
+requiring ECS to retain the task forever. Failed or unknown exits remain failed
+or unknown; they cannot authorize normal monitor completion. Recovery needs
+proof the old workers stopped, then separately proves exact result coverage.
+
+## Historical tasks whose ECS records expired
+
+Use this only for an incomplete original run whose stopped-task observations
+predate durable snapshots. Preserve the incident logs first. Stop any genuinely
+stranded task through the operational change process and wait until **all**
+recorded and discoverable original/recovery workers and monitors stop. The
+command below does not stop anything or delete the active lease.
+
+An operator must review retained evidence demonstrating retirement for every
+missing ARN. Preserve the actual log/event excerpts with their timestamps and
+exact task identities; a `MISSING` response, silence, or an expired lease is not
+sufficient evidence. Record those excerpts in a UTF-8 JSON review file with:
+
+| Field | Required value |
+| --- | --- |
+| `schema_version` | `1` |
+| `run_id`, `cluster_arn` | Exact original run and ECS cluster |
+| `input_sha256` | Original manifest's immutable input digest |
+| `task_set_sha256` | SHA-256 of UTF-8 `json.dumps(sorted(read_prior_task_arns(s3, config, run_id)), separators=(",", ":"))` |
+| `lease_created_at` | Exact active original run-owner generation, timezone included |
+| `reviewed_at` | Actual timezone-aware review time, no older than 24 hours |
+| `reviewer`, `rationale` | Actual reviewing operator and specific reasoning |
+| `evidence` | Retained reviewed task/log evidence, not merely an expiring link |
+| `retired_task_arns` | Exactly the ARNs that currently return explicit ECS `MISSING` |
+| `conclusion` | `stopped-exit-status-unknown` |
+
+Use the configured operator AWS identity, with the exact pinned `uv` version,
+from `packages/etl`:
+
+```console
+uv run gv-dashboard-etl courts reconcile-retired-tasks RUN_ID --review-file review.json
+uv run gv-dashboard-etl courts reconcile-retired-tasks RUN_ID --review-file review.json --execute
+uv run gv-dashboard-etl courts resume RUN_ID
+uv run gv-dashboard-etl courts resume RUN_ID --execute --monitor-in-ecs
+```
+
+The first command is read-only. Execution repeats the input/task/lease checks,
+requires no live discovered workers or monitors, and requires a 60-second stable
+queue with no in-flight messages before appending records under
+`task-retirement-resolutions/v1/`. A changed lease, task inventory, input digest,
+transport/authorization error, or conflicting review blocks it. Retrying the
+same file is idempotent. Keep the file until every append has been confirmed.
+The review only supplies quiescence evidence to recovery: it never invents an
+exit code, certifies scraper success, or relaxes result/conflict/coverage checks.
+
+Only an operator/admin IAM identity may mutate this new review namespace;
+workers and workflow roles may read it. Deploy and audit explicit denies using
+`HUMAN_REVIEW_RESOLUTION_PATHS` before enabling this path. The self-reported
+reviewer field is audit metadata; IAM and CloudTrail provide the authorization
+boundary. These permissions are provisioned outside this repository.
+
+## Watchdog and rollout
+
+`uv run gv-dashboard-etl courts health` is a read-only JSON probe of the current
+run. It exits nonzero for expired unresolved leases, a failed/stale monitor,
+failed/missing worker evidence, stale worker progress, a run older than 12 hours,
+or an inability to verify health. New manifests require monitor/worker progress;
+missing diagnostics after ten minutes fail too. Old manifests remain inspectable
+without retroactively requiring the new diagnostic schema. Active runs that
+finish within the polling interval may never be observed by the watchdog; their
+completed lease and published metadata are the success evidence.
+
+Monitor status is written every poll to `monitor-state/v1/`; worker progress is
+written between queue deliveries at most once per minute to `worker-progress/v1/`.
+The watchdog uses a ten-minute silence threshold. It runs hourly at minute 45
+UTC through the Fly scheduler, so alert latency is up to the next hourly check.
+It never renews a lease, stops a task, retries a dispatch, or starts a scrape.
+
+The workflow independently checks `/meta/courts`: the last full, coverage-complete
+publication must be no older than eight days and must carry the supported
+publication/search/conflict contracts with no missing/extra/unresolved results.
+A valid `partial` publication with explicit permanent failures is allowed; it
+is not confused with incomplete coverage. Daily production smoke makes the same
+check before sending `PRODUCTION_SMOKE_HEARTBEAT_URL`. Thus the existing external
+dead-man check also detects stale courts, including scheduler/GitHub outages.
+The hourly watchdog itself uses GitHub failure notifications; it does not send
+the daily external heartbeat or silently add another alert service.
+
+Roll out in this order:
+
+1. Merge the workflow/probe and validate a manually dispatched
+   `courts-watchdog.yml`. It should report the current incident as unhealthy.
+   Verify GitHub failure notifications and the existing daily dead-man check
+   reach the intended operator; an Actions red X alone is not a delivery test.
+2. Audit runtime IAM: S3 get/list for these records, worker progress writes,
+   monitor status/terminal writes, and explicit mutation denies for **all**
+   human-review namespaces. Keep the existing lifecycle retention for recovery
+   evidence. Do not give the watchdog a dispatch token or auto-recovery powers.
+3. Build, scan, browser-smoke, and promote the new immutable scraper image using
+   the existing Chrome release gates and separate verified worker/monitor task
+   definitions. Preserve the previous digest and revisions for rollback.
+   Already-running containers continue using their original code.
+4. Deploy the Fly scheduler with `just fly-deploy-scheduler` through its existing
+   single-Machine guard. Verify the new hourly dispatch without introducing a
+   second scheduler. Workflow files alone do not activate this cadence.
+5. Recover the existing run using the reviewed evidence and read-only preview.
+   Reuse its valid checkpoints. If coverage is already exact and the queue is
+   empty, recovery launches no workers and only finalizes/dispatches processing.
+   Confirm the correlated `courts-process.yml` completes, `/meta/courts` advances
+   to that run, and a subsequent shootings publication adopts the court snapshot.
+   A green submission means ECS accepted tasks, not that data was published.
+
+If downstream dispatch was ambiguous or the manifest is already complete,
+follow the earlier process-only reconciliation instructions. Never bypass that
+fence by deleting `active-run.json`, purging SQS, or submitting a duplicate run.
+Rollback of the runtime restores the prior verified task revisions; diagnostic
+and retirement records are retained. Reverting the scheduler cadence requires
+redeploying the one scheduler, not creating a second schedule in GitHub.

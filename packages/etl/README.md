@@ -29,6 +29,12 @@ uv run gv-dashboard-etl homicides smoke
 uv run gv-dashboard-etl courts smoke
 ```
 
+Court workers use a reusable browser child with parent-enforced deadlines.
+`uv run gv-dashboard-etl courts health` reports run health without changing AWS;
+`courts resume RUN_ID` previews selective recovery from retained checkpoints.
+See the [recovery runbook](../aws-batch-scraper/docs/recovery.md) for historical
+ECS task retirement, monitoring, and the runtime/IAM/scheduler rollout.
+
 `gv-dashboard-etl courts fargate-smoke` is a container-only promotion probe;
 run it as the command override of one exact digest-backed worker task, as
 described under **Courts Scraper** below.

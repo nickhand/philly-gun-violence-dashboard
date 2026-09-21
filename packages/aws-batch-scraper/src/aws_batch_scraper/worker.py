@@ -22,11 +22,13 @@ from mypy_boto3_sqs.type_defs import MessageTypeDef
 
 from aws_batch_scraper.aws import make_boto3_session
 from aws_batch_scraper.config import WorkerConfig
+from aws_batch_scraper.health import WorkerProgress
 from aws_batch_scraper.result_semantics import (
     SEMANTIC_OBSERVATION_FIELDS,
     semantic_observation,
 )
 from aws_batch_scraper.strict_json import decode_strict_json_object
+from aws_batch_scraper.supervisor import ScraperProcessError, SupervisedScraper
 from aws_batch_scraper.terminal_journal import (
     CandidateJournalError,
     TerminalCandidate,
@@ -886,6 +888,7 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
     task_id = socket.gethostname()
     start_time = datetime.now(UTC)
     run_id = config.run_id
+    progress = WorkerProgress(s3, config, run_id, task_id)
 
     startup_delay = random.uniform(0, 30)
     logger.info(f"Startup jitter: sleeping {startup_delay:.1f}s before first poll")
@@ -899,6 +902,7 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
 
     try:
         while not shutdown.is_set():
+            progress.write()
             msg = _receive_message(sqs, config)
             if msg is None:
                 consecutive_empty += 1
@@ -953,8 +957,13 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
             t0 = time.perf_counter()
             result: ScrapeResult
             try:
-                signal.alarm(_SCRAPE_TIMEOUT_S)
+                if not isinstance(scraper, SupervisedScraper):
+                    signal.alarm(_SCRAPE_TIMEOUT_S)
                 result = scraper(item)
+            except ScraperProcessError:
+                # Exit the container so ECS reaps detached browser descendants.
+                # No terminal observation or SQS acknowledgement is fabricated.
+                raise
             except TimeoutError:
                 logger.warning(
                     f"Scrape timed out after {_SCRAPE_TIMEOUT_S}s for {item_id} "
@@ -1049,6 +1058,8 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
                     if callable(artifact_getter):
                         try:
                             artifacts = artifact_getter(item)
+                        except ScraperProcessError:
+                            raise
                         except Exception:
                             logger.debug(f"Failed to collect failure artifacts for {item_id}")
                         else:
@@ -1073,13 +1084,20 @@ def run_worker(scraper_factory: Callable[[], Scraper], config: WorkerConfig | No
 
     finally:
         try:
-            signal.alarm(15)
+            if not isinstance(scraper, SupervisedScraper):
+                signal.alarm(15)
             scraper.close()
+        except ScraperProcessError:
+            raise
         except Exception:
             pass
         finally:
             signal.alarm(0)
 
+        try:
+            progress.write(stopped=True)
+        except Exception:
+            logger.error("Could not write terminal worker progress for {}", run_id)
         end_time = datetime.now(UTC)
         runtime_seconds = (end_time - start_time).total_seconds()
         try:

@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 from aws_batch_scraper.aws import make_boto3_session
 from aws_batch_scraper.cli import create_cli
+from aws_batch_scraper.supervisor import SupervisedScraper
 from loguru import logger
 
 from etl.courts.config import CourtsSubmitterConfig, CourtsWorkerConfig
@@ -13,10 +14,19 @@ from etl.courts.extract import load_incidents
 from etl.courts.fargate_smoke import FARGATE_SMOKE_SUCCESS_MARKER, run_fargate_smoke
 from etl.courts.scraper.core import UJSPortalScraper
 
+
+def _portal_scraper() -> UJSPortalScraper:
+    return UJSPortalScraper(max_attempts=8, errors="ignore")
+
+
+def _supervised_scraper() -> SupervisedScraper:
+    return SupervisedScraper(_portal_scraper)
+
+
 app = create_cli(
     name="courts",
     script_name="gv-dashboard-etl",
-    scraper_factory=lambda: UJSPortalScraper(max_attempts=8, errors="ignore"),
+    scraper_factory=_supervised_scraper,
     input_loader=load_incidents,
     worker_config_class=CourtsWorkerConfig,
     submitter_config_class=CourtsSubmitterConfig,

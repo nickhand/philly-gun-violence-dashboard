@@ -157,6 +157,7 @@ def write_run_manifest(
         "queue_url": config.sqs_queue_url,
         "worker_count": worker_count,
         "terminal_candidate_journal_schema_version": 1,
+        "monitoring_contract_version": 1,
     }
     # The manifest is the run commit marker. Publish and reconcile the immutable
     # input first so no reader can observe a manifest created by this writer
@@ -915,7 +916,21 @@ def monitor_run(
     poll_interval: int = 30,
 ) -> None:
     """Block until all ECS tasks for run_id have stopped, then finalize the manifest."""
-    _monitor_run(ecs, sqs, s3, config, run_id, poll_interval=poll_interval)
+    from aws_batch_scraper.health import record_monitor_state
+
+    lease = read_run_lease(s3, config)
+    try:
+        _monitor_run(ecs, sqs, s3, config, run_id, poll_interval=poll_interval)
+    except Exception as exc:
+        if not isinstance(exc, (ManifestPublicationDeliveryUnknownError, WorkflowDispatchError)):
+            _record_monitor_recovery(s3, config, run_id, exc)
+        try:
+            if lease.run_id != run_id:
+                raise ValueError("Monitor no longer owns the active run")
+            record_monitor_state(s3, config, lease, error=exc)
+        except Exception:
+            logger.error("Could not persist monitor failure status for {}", run_id)
+        raise
 
 
 def _release_terminal_monitor_failure(
@@ -1066,7 +1081,7 @@ def _record_monitor_recovery(
         "run_id": run_id,
         "recorded_at": datetime.now(UTC).isoformat(),
         "error_type": f"{type(error).__module__}.{type(error).__qualname__}",
-        "detail": str(error),
+        "detail": "Monitor could not prove completion; inspect the restricted task logs.",
         "lease_action": "retained",
         "recovery_action": "same-run-resume",
     }
@@ -1102,26 +1117,18 @@ def _monitor_run(
     poll_interval: int,
 ) -> None:
     """Monitor implementation wrapped by terminal-failure lease handling."""
+    from aws_batch_scraper.health import record_monitor_state
+    from aws_batch_scraper.task_evidence import describe_tasks_with_evidence
+
+    terminal_tasks: dict[str, TaskTypeDef] = {}
     task_arns = get_task_arns(s3, config, run_id)
     started_at = datetime.now(UTC)
     logger.info(f"Monitoring {len(task_arns)} task(s) for run {run_id}...")
 
     while True:
         active_lease = renew_run_lease(s3, config, run_id)
-        response = ecs.describe_tasks(cluster=config.ecs_cluster_arn, tasks=task_arns)
-        failures = response.get("failures", [])
-        if failures:
-            raise RuntimeError(f"ECS failed to describe run tasks: {failures}")
-        tasks = response.get("tasks", [])
-        described_arns = {
-            task_arn
-            for task in tasks
-            if isinstance(task_arn := task.get("taskArn"), str) and task_arn
-        }
-        missing_arns = set(task_arns).difference(described_arns)
-        if missing_arns:
-            missing = ", ".join(sorted(missing_arns))
-            raise RuntimeError(f"ECS omitted {len(missing_arns)} run task(s): {missing}")
+        record_monitor_state(s3, config, active_lease)
+        tasks = describe_tasks_with_evidence(ecs, s3, config, run_id, task_arns, terminal_tasks)
         statuses = {t["taskArn"].split("/")[-1]: t["lastStatus"] for t in tasks}
         running = [arn for arn, s in statuses.items() if s not in _ECS_TERMINAL]
 
@@ -1132,31 +1139,20 @@ def _monitor_run(
         logger.info(f"Tasks: {status_summary} — {len(running)} still running")
 
         if not running:
-            try:
-                terminal_queue_counts = _require_empty_main_queue(sqs, config)
-                _assert_tasks_succeeded(tasks)
-                logger.info("All tasks stopped and queue is empty — run complete")
-                _finalize_manifest(
-                    s3,
-                    sqs,
-                    config,
-                    run_id,
-                    started_at,
-                    terminal_queue_counts=terminal_queue_counts,
-                    expected_lease_owner=run_id,
-                    expected_lease_created_at=active_lease.created_at,
-                )
-                return
-            except ManifestPublicationDeliveryUnknownError:
-                raise
-            except WorkflowDispatchError:
-                raise
-            except QueueTerminalEvidenceError as exc:
-                _record_monitor_recovery(s3, config, run_id, exc)
-                raise
-            except Exception as exc:
-                _record_monitor_recovery(s3, config, run_id, exc)
-                raise
+            terminal_queue_counts = _require_empty_main_queue(sqs, config)
+            _assert_tasks_succeeded(tasks)
+            logger.info("All tasks stopped and queue is empty — run complete")
+            _finalize_manifest(
+                s3,
+                sqs,
+                config,
+                run_id,
+                started_at,
+                terminal_queue_counts=terminal_queue_counts,
+                expected_lease_owner=run_id,
+                expected_lease_created_at=active_lease.created_at,
+            )
+            return
 
         time.sleep(poll_interval)
 

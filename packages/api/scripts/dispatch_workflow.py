@@ -13,6 +13,7 @@ ALLOWED_WORKFLOWS = frozenset(
     {
         "chrome-update.yml",
         "courts-scrape.yml",
+        "courts-watchdog.yml",
         "daily-homicide-sync.yml",
         "daily-shootings-sync.yml",
         "frontend-quality.yml",

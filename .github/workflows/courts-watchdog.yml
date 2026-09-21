@@ -1,0 +1,74 @@
+name: Courts completion watchdog
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  # Must run independently of a stuck submission/processing workflow.
+  group: courts-watchdog
+  cancel-in-progress: false
+
+jobs:
+  health:
+    name: Court run completion and publication freshness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check published court freshness
+        run: python3 .github/ci/check_courts_freshness.py --api-base-url https://philly-gun-violence-dashboard-api.fly.dev
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        if: ${{ !cancelled() }}
+        with:
+          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
+          aws-region: us-east-1
+          # Intersect the existing role with read-only probe permissions.
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::${{ vars.S3_BUCKET }}/${{ vars.S3_SCRAPER_PREFIX }}/*"},
+              {"Effect":"Allow","Action":"s3:ListBucket","Resource":"arn:aws:s3:::${{ vars.S3_BUCKET }}","Condition":{"StringLike":{"s3:prefix":"${{ vars.S3_SCRAPER_PREFIX }}/*"}}},
+              {"Effect":"Allow","Action":"ecs:DescribeTasks","Resource":"*"}
+            ]}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: ${{ !cancelled() }}
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        if: ${{ !cancelled() }}
+        with:
+          version: "0.12.0"
+      - name: Check AWS run without changing it
+        if: ${{ !cancelled() }}
+        working-directory: packages/etl
+        env:
+          ENV: prod
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
+          SQS_QUEUE_NAME: ${{ vars.SQS_QUEUE_NAME }}
+          SQS_DLQ_NAME: ${{ vars.SQS_DLQ_NAME }}
+          ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
+          ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
+          ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
+          ECS_MONITOR_TASK_DEFINITION: ${{ vars.ECS_MONITOR_TASK_DEFINITION }}
+          ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
+          ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
+        run: |
+          status=0
+          uv run --frozen gv-dashboard-etl courts health > "$RUNNER_TEMP/courts-health.json" || status=$?
+          cat "$RUNNER_TEMP/courts-health.json"
+          {
+            echo 'Courts run health'
+            echo '```json'
+            cat "$RUNNER_TEMP/courts-health.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo '::error title=Courts run needs attention::Run health failed. See the run summary and CloudWatch /ecs/ujs-scraper; do not submit a duplicate scrape.'
+          fi
+          exit "$status"

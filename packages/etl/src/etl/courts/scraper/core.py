@@ -313,6 +313,8 @@ class UJSPortalScraper:
                     content_type="image/png",
                 )
             )
+        except TimeoutError:
+            raise
         except Exception:
             logger.debug(f"Failed to capture failure screenshot for {item.item_id}")
 
@@ -324,6 +326,8 @@ class UJSPortalScraper:
                     content_type="text/html",
                 )
             )
+        except TimeoutError:
+            raise
         except Exception:
             logger.debug(f"Failed to capture failure HTML for {item.item_id}")
 
@@ -397,6 +401,8 @@ class UJSPortalScraper:
                             elapsed_ms=result.elapsed_ms,
                             page_title=result.page_title,
                         )
+                except TimeoutError:
+                    raise
                 except Exception as e:
                     logger.debug(f"Failed to parse results: {e}")
                     result = ClassificationResult(

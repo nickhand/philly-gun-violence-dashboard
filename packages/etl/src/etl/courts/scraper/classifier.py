@@ -9,7 +9,6 @@ Classifies each scrape attempt into one of six buckets:
 - UI_DRIFT_OR_UNKNOWN: Page loaded but expected anchors not found
 """
 
-import contextlib
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -214,8 +213,12 @@ def classify_case_search(
     row_count: int | None = None
     subreason: str | None = None
 
-    with contextlib.suppress(Exception):
+    try:
         page_title = page.title()
+    except TimeoutError:
+        raise
+    except Exception:
+        pass
 
     marker_hits["soft_block_status"] = net_observer.has_soft_block_status(SOFT_BLOCKED_STATUS_CODES)
     marker_hits["server_error_status"] = net_observer.has_server_error_status(
@@ -224,6 +227,8 @@ def classify_case_search(
 
     try:
         page_content = page.content()
+    except TimeoutError:
+        raise
     except Exception as e:
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         return ClassificationResult(
@@ -262,6 +267,8 @@ def classify_case_search(
         marker_hits["results_container"] = True
     except PlaywrightTimeoutError:
         pass
+    except TimeoutError:
+        raise
     except Exception as e:
         error_message = str(e)
         logger.debug(f"Error waiting for results container: {e}")
@@ -328,6 +335,8 @@ def classify_case_search(
     if results_container_visible:
         try:
             row_count = _count_result_rows(page)
+        except TimeoutError:
+            raise
         except Exception as exc:
             return result(
                 Classification.UI_DRIFT_OR_UNKNOWN,
@@ -345,6 +354,8 @@ def classify_case_search(
             )
         try:
             no_results_found, _ = _visible_no_results_marker(page)
+        except TimeoutError:
+            raise
         except Exception as exc:
             return result(
                 Classification.UI_DRIFT_OR_UNKNOWN,

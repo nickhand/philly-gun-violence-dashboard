@@ -7,6 +7,7 @@ from etl.shootings.cli import app as shootings_app
 from etl.streets.cli import app as streets_app
 
 app = typer.Typer(
+    pretty_exceptions_show_locals=False,
     help="ETL CLI for the Philadelphia Gun Violence Dashboard",
     no_args_is_help=True,
     add_completion=False,

@@ -113,6 +113,13 @@ container commands documented in the package READMEs.
 - The same external scheduler dispatches a daily production smoke workflow;
   failures make stale readiness, broken pages, or unavailable immutable
   downloads visible in GitHub Actions instead of relying on a liveness check.
+- An hourly courts watchdog independently reads scraper lease, task, and progress
+  evidence. It reports monitor/worker failure, ten-minute silence, runs older
+  than twelve hours, and court publication older than eight days. Daily smoke
+  gates its external success heartbeat on court freshness too. Court browsers
+  run in supervised child processes; monitors durably save stopped-task records
+  so selective recovery survives ECS history expiry. Historical missing records
+  need explicit operator-reviewed retirement, never an inferred successful exit.
 - It also dispatches the weekly dependency-security workflow, so advisory
   database updates remain checked even when repository files do not change and
   GitHub's inactivity rule cannot disable the cadence.
