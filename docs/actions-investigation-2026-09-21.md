@@ -1,6 +1,6 @@
 # GitHub Actions and courts investigation — September 21, 2026
 
-Investigation only: no production tasks, queues, leases, releases, credentials, or workflows were changed. Times below are UTC. GitHub main was `9042aa0d96387c73ab16a73a5154fdf4e52d85c4`; the local checkout was one Chrome-pin update behind main. The relevant scraper and monitoring code is unchanged by that update.
+This records the initial read-only investigation, before the subsequently authorized recovery and rollout. See [the rollout record](courts-recovery-rollout-2026-09-21.md) for the implemented changes and production outcome. Times below are UTC. GitHub main was `9042aa0d96387c73ab16a73a5154fdf4e52d85c4`; the local checkout was one Chrome-pin update behind main. The relevant scraper and monitoring code was unchanged by that update.
 
 ## Findings
 
