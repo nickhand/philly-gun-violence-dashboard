@@ -39,7 +39,8 @@ RUN test "$UBUNTU_SNAPSHOT" = "20260921T180000Z" \
         --yes --no-install-recommends install \
         build-essential meson pkg-config libcap-dev libselinux1-dev xz-utils \
     && mkdir /build \
-    && tar --extract --xz --file /tmp/bubblewrap.tar.xz --directory /build \
+    && python3 -c \
+        "import tarfile; tarfile.open('/tmp/bubblewrap.tar.xz').extractall('/build', filter='data')" \
     && cd /build/bubblewrap-0.12.0 \
     && CFLAGS="$(dpkg-buildflags --get CFLAGS)" \
         CPPFLAGS="$(dpkg-buildflags --get CPPFLAGS)" \
