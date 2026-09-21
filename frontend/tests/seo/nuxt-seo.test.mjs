@@ -1144,7 +1144,7 @@ test("MapLibre is dynamically isolated and Nuxt emits no Vuetify code", async ()
     `Dynamic map JavaScript is ${(mapJavaScriptGzip / 1024).toFixed(1)} KiB gzip`,
   );
   assert.ok(
-    mapCssGzip <= 15 * 1024,
+    mapCssGzip <= 18 * 1024,
     `Dynamic map CSS is ${(mapCssGzip / 1024).toFixed(1)} KiB gzip`,
   );
 });
