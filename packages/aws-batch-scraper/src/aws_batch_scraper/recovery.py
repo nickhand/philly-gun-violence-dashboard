@@ -14,6 +14,7 @@ import hashlib
 import json
 import secrets
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -485,7 +486,9 @@ def inventory_run(
             f"Run {run_id} has {len(unresolved_failure_conflicts)} unresolved "
             "failure-conflict artifact(s); recovery is blocked"
         )
-    for item_id, decision in decision_by_item.items():
+
+    def validate_canonical(item_id: str) -> None:
+        decision = decision_by_item[item_id]
         if item_id in results:
             canonical_kind = "result"
             canonical = results[item_id]
@@ -495,7 +498,7 @@ def inventory_run(
         else:
             # Candidate and decision precede compatibility CAS. The missing ID
             # remains safely resumable from the retained winning candidate.
-            continue
+            return
         canonical_body = s3.get_object(
             Bucket=config.s3_bucket,
             Key=decision.canonical_key,
@@ -508,6 +511,11 @@ def inventory_run(
             raise RecoveryInvariantError(
                 f"Run {run_id} terminal decision for {item_id} does not match canonical state"
             )
+
+    logger.info("Validating {} canonical decision bindings for {}", len(decision_by_item), run_id)
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        tuple(pool.map(validate_canonical, decision_by_item))
+    logger.info("Validated canonical decision bindings for {}", run_id)
     if journal_schema_version == 1:
         missing_decisions = sorted((result_ids | failure_ids).difference(decision_by_item))
         if missing_decisions:

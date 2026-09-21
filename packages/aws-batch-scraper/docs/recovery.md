@@ -200,6 +200,12 @@ an ECS `MISSING` response alone never authorizes recovery.
 
 ## Browser deadlines and durable task evidence
 
+Recovery validates terminal candidates, decisions, and their canonical object
+bindings with at most 16 concurrent reads per stage. Each invocation reads fresh
+evidence; no cache crosses the plan/revalidation boundary. Ordered results keep
+the evidence fingerprints deterministic, and malformed or unreadable objects
+still block recovery. Stage/count logs make a large inventory visibly active.
+
 The courts plugin uses `SupervisedScraper`: a parent process gives each portal
 operation a hard wall-clock budget while a spawned child reuses its browser.
 Scrapes have 300 seconds; startup, reset, artifact capture, and close each have

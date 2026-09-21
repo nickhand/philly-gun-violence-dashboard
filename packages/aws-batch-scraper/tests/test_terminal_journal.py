@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from io import BytesIO
+from threading import Barrier
 
 import pytest
 from aws_batch_scraper.config import WorkerConfig
@@ -13,6 +14,7 @@ from aws_batch_scraper.terminal_journal import (
     claim_terminal_decision,
     read_terminal_candidate_resolutions,
     read_terminal_candidates,
+    read_terminal_decisions,
     write_accept_terminal_decision_resolution,
     write_terminal_candidate,
     write_terminal_disposition,
@@ -399,3 +401,45 @@ def test_candidate_audit_rejects_untrusted_envelope_schema(
 
     with pytest.raises(CandidateJournalError, match=match):
         read_terminal_candidates(s3, _config(), "run-1")  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("kind", ["candidates", "decisions"])
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_inventory_reads_overlap_but_remain_ordered_and_fail_closed(monkeypatch, kind, corrupt):
+    s3 = FakeS3()
+    candidates = []
+    decisions = []
+    for item_id in ["3", "1", "2"]:
+        result = _result().model_copy(update={"item_id": item_id})
+        candidate = write_terminal_candidate(  # ty: ignore[invalid-argument-type]
+            s3,
+            _config(),
+            run_id="run-1",
+            item_id=item_id,
+            kind="result",
+            candidate_body=result.model_dump_json().encode(),
+            result=result,
+        )
+        candidates.append(candidate)
+        decisions.append(claim_terminal_decision(s3, _config(), candidate=candidate))  # ty: ignore[invalid-argument-type]
+    records = candidates if kind == "candidates" else decisions
+    keys = sorted(record.key for record in records)
+    if corrupt:
+        s3.objects[keys[-1]] = b"{}"
+    barrier = Barrier(3, timeout=5)
+    original_get = s3.get_object
+
+    def overlapping_get(*, Bucket, Key):
+        if Key in keys:
+            barrier.wait()
+        return original_get(Bucket=Bucket, Key=Key)
+
+    monkeypatch.setattr(s3, "get_object", overlapping_get)
+    reader = read_terminal_candidates if kind == "candidates" else read_terminal_decisions
+    if corrupt:
+        with pytest.raises(CandidateJournalError):
+            reader(s3, _config(), "run-1")  # ty: ignore[invalid-argument-type]
+    else:
+        actual = reader(s3, _config(), "run-1")  # ty: ignore[invalid-argument-type]
+        assert [record.key for record in actual] == keys
+        assert set(record.item_id for record in actual) == {"1", "2", "3"}
