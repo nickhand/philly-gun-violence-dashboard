@@ -20,7 +20,9 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
 
     # Dockerfile owns the reviewed digest. Dependabot may update that digest;
     # the release gates validate the exact image's OS and vulnerability scan.
-    expected_base = r"^FROM public\.ecr\.aws/ubuntu/ubuntu:26\.04@sha256:[0-9a-f]{64} AS ubuntu-base$"
+    expected_base = (
+        r"^FROM public\.ecr\.aws/ubuntu/ubuntu:26\.04@sha256:[0-9a-f]{64} AS ubuntu-base$"
+    )
     expected_chrome = f"ADD --checksum=sha256:{PINNED_CHROME_SHA256}"
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
