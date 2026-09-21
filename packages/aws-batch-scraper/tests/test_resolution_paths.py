@@ -4,6 +4,7 @@ from aws_batch_scraper.resolution_paths import (
     HUMAN_REVIEW_RESOLUTION_PATHS,
     RESULT_CONFLICT_RESOLUTION_PATH,
     RESULT_CONFLICT_RESOLUTION_ROOT,
+    TASK_RETIREMENT_RESOLUTION_PATH,
     TERMINAL_DECISION_RESOLUTION_PATH,
 )
 
@@ -15,5 +16,6 @@ def test_human_review_resolution_paths_include_both_adjudication_protocols() -> 
     assert HUMAN_REVIEW_RESOLUTION_PATHS == (
         RESULT_CONFLICT_RESOLUTION_PATH,
         TERMINAL_DECISION_RESOLUTION_PATH,
+        TASK_RETIREMENT_RESOLUTION_PATH,
     )
     assert len(set(HUMAN_REVIEW_RESOLUTION_PATHS)) == len(HUMAN_REVIEW_RESOLUTION_PATHS)

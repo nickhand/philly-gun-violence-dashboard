@@ -14,6 +14,7 @@ import hashlib
 import json
 import secrets
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -485,7 +486,9 @@ def inventory_run(
             f"Run {run_id} has {len(unresolved_failure_conflicts)} unresolved "
             "failure-conflict artifact(s); recovery is blocked"
         )
-    for item_id, decision in decision_by_item.items():
+
+    def validate_canonical(item_id: str) -> None:
+        decision = decision_by_item[item_id]
         if item_id in results:
             canonical_kind = "result"
             canonical = results[item_id]
@@ -495,7 +498,7 @@ def inventory_run(
         else:
             # Candidate and decision precede compatibility CAS. The missing ID
             # remains safely resumable from the retained winning candidate.
-            continue
+            return
         canonical_body = s3.get_object(
             Bucket=config.s3_bucket,
             Key=decision.canonical_key,
@@ -508,6 +511,11 @@ def inventory_run(
             raise RecoveryInvariantError(
                 f"Run {run_id} terminal decision for {item_id} does not match canonical state"
             )
+
+    logger.info("Validating {} canonical decision bindings for {}", len(decision_by_item), run_id)
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        tuple(pool.map(validate_canonical, decision_by_item))
+    logger.info("Validated canonical decision bindings for {}", run_id)
     if journal_schema_version == 1:
         missing_decisions = sorted((result_ids | failure_ids).difference(decision_by_item))
         if missing_decisions:
@@ -965,8 +973,29 @@ def require_prior_tasks_stopped(
     ecs: ECSClient,
     config: SubmitterConfig,
     task_arns: tuple[str, ...],
+    s3: S3Client | None = None,
+    run_id: str | None = None,
+    persist_observations: bool = False,
 ) -> None:
-    """Prove every previously recorded worker task is terminal in ECS."""
+    """Prove workers stopped using ECS or durable, exact-task terminal evidence."""
+    if s3 is not None and run_id is not None:
+        from aws_batch_scraper.task_evidence import describe_tasks_with_evidence
+
+        tasks = describe_tasks_with_evidence(
+            ecs,
+            s3,
+            config,
+            run_id,
+            task_arns,
+            allow_reviewed_retirement=True,
+            persist_observations=persist_observations,
+        )
+        live = [task["taskArn"] for task in tasks if task.get("lastStatus") != "STOPPED"]
+        if live:
+            raise RecoveryInvariantError(
+                f"Recovery blocked while prior worker tasks are live: {live}"
+            )
+        return
     if not task_arns:
         return
     for offset in range(0, len(task_arns), 100):
@@ -1092,7 +1121,7 @@ def build_recovery_plan(
     prior_task_discovery = tuple(
         dict.fromkeys((*prior_task_discovery, normal_monitor_started_by, *recovery_identities))
     )
-    require_prior_tasks_stopped(ecs, config, prior_task_arns)
+    require_prior_tasks_stopped(ecs, config, prior_task_arns, s3, run_id)
     _require_no_live_started_by_set(ecs, config, prior_task_discovery)
     queue = require_stable_queue_state(sqs, config)
 
@@ -1679,7 +1708,9 @@ def reconcile_recovery_attempt(
 
     known_task_arns = read_recovery_attempt_task_arns(s3, config, run_id, attempt_id)
     if known_task_arns:
-        tasks = _describe_recovery_tasks(ecs, config, known_task_arns)
+        tasks = _describe_recovery_tasks(
+            ecs, config, known_task_arns, s3, run_id, persist_observations=execute
+        )
         live_known = sorted(
             str(task["taskArn"]) for task in tasks if task.get("lastStatus") != "STOPPED"
         )
@@ -1827,10 +1858,11 @@ def execute_recovery_plan(
     )
     from aws_batch_scraper.queue import seed_queue
 
-    # Repeat every volatile preflight immediately before the first write.  The
-    # S3 inventory comparison includes conflict evidence and the input CAS.
+    # Repeat volatile preflight before queue/lease mutations. Execution also
+    # retains observed STOPPED tasks, so a later recovery can reuse that proof.
+    # The S3 inventory comparison includes conflict evidence and the input CAS.
     verify_plan_is_current(s3, config, plan)
-    require_prior_tasks_stopped(ecs, config, plan.prior_task_arns)
+    require_prior_tasks_stopped(ecs, config, plan.prior_task_arns, s3, plan.run_id, True)
     _require_no_live_started_by_set(ecs, config, plan.prior_task_discovery)
     if (current_queue := require_stable_queue_state(sqs, config)) != plan.queue:
         raise RecoveryInvariantError(
@@ -2039,7 +2071,24 @@ def _describe_recovery_tasks(
     ecs: ECSClient,
     config: SubmitterConfig,
     task_arns: tuple[str, ...],
+    s3: S3Client | None = None,
+    run_id: str | None = None,
+    cache: dict[str, TaskTypeDef] | None = None,
+    *,
+    persist_observations: bool = False,
 ) -> list[TaskTypeDef]:
+    if s3 is not None and run_id is not None:
+        from aws_batch_scraper.task_evidence import describe_tasks_with_evidence
+
+        return describe_tasks_with_evidence(
+            ecs,
+            s3,
+            config,
+            run_id,
+            task_arns,
+            cache,
+            persist_observations=persist_observations,
+        )
     response = ecs.describe_tasks(cluster=config.ecs_cluster_arn, tasks=list(task_arns))
     if response.get("failures"):
         raise RecoveryInvariantError(
@@ -2065,8 +2114,45 @@ def monitor_recovery_attempt(
     *,
     poll_interval: int = 30,
 ) -> None:
+    """Keep polling failures visible without releasing an unresolved run."""
+    from aws_batch_scraper.dispatch import WorkflowDispatchError
+    from aws_batch_scraper.health import record_monitor_state
+    from aws_batch_scraper.lease import read_run_lease
+    from aws_batch_scraper.orchestrate import (
+        ManifestPublicationDeliveryUnknownError,
+        _record_monitor_recovery,
+    )
+
+    lease = read_run_lease(s3, config)
+    try:
+        _monitor_recovery_attempt(
+            ecs, sqs, s3, config, run_id, attempt_id, poll_interval=poll_interval
+        )
+    except Exception as exc:
+        if not isinstance(exc, (ManifestPublicationDeliveryUnknownError, WorkflowDispatchError)):
+            _record_monitor_recovery(s3, config, run_id, exc)
+        try:
+            if lease.run_id != run_id:
+                raise ValueError("Monitor no longer owns the active run")
+            record_monitor_state(s3, config, lease, error=exc)
+        except Exception:
+            logger.error("Could not persist recovery monitor failure for {}", run_id)
+        raise
+
+
+def _monitor_recovery_attempt(
+    ecs: ECSClient,
+    sqs: SQSClient,
+    s3: S3Client,
+    config: SubmitterConfig,
+    run_id: str,
+    attempt_id: str,
+    *,
+    poll_interval: int = 30,
+) -> None:
     """Monitor one recovery task set and finalize only after exact coverage."""
     from aws_batch_scraper.dispatch import WorkflowDispatchError
+    from aws_batch_scraper.health import record_monitor_state
     from aws_batch_scraper.lease import (
         renew_run_lease,
         return_run_lease_from_recovery,
@@ -2082,15 +2168,19 @@ def monitor_recovery_attempt(
     task_arns = read_recovery_task_arns(s3, config, run_id, attempt_id)
     recovery_owner = f"recovery:{attempt_id}"
     monitor_started_at = datetime.now(UTC)
+    terminal_tasks: dict[str, TaskTypeDef] = {}
 
     while True:
-        renew_run_lease(
+        active_lease = renew_run_lease(
             s3,
             config,
             run_id,
             owner=recovery_owner,
         )
-        tasks = _describe_recovery_tasks(ecs, config, task_arns)
+        record_monitor_state(s3, config, active_lease)
+        tasks = _describe_recovery_tasks(
+            ecs, config, task_arns, s3, run_id, terminal_tasks, persist_observations=True
+        )
         live = [task for task in tasks if task.get("lastStatus") != "STOPPED"]
         logger.info(
             f"Recovery {attempt_id}: {len(live)}/{len(task_arns)} worker task(s) still live"

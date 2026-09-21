@@ -1148,7 +1148,7 @@ def _patch_reconciliation_sources(
     monkeypatch.setattr(
         recovery,
         "_describe_recovery_tasks",
-        lambda *args: [{"taskArn": "arn:task/known", "lastStatus": "STOPPED"}],
+        lambda *args, **kwargs: [{"taskArn": "arn:task/known", "lastStatus": "STOPPED"}],
     )
     monkeypatch.setattr(
         recovery,

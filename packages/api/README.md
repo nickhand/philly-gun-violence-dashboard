@@ -218,6 +218,15 @@ The smoke workflow intentionally makes no indexing submissions and holds no
 search-provider credentials. Its schedule remains outside GitHub so the same
 inactivity rule cannot silently disable monitoring.
 
+The scheduler also dispatches `courts-watchdog.yml` hourly at minute 45 UTC.
+It independently reads the active court run and checks the last full court
+publication, with GitHub failure annotations and a JSON run summary. The daily
+production smoke gates its existing external success heartbeat on that same
+eight-day publication freshness check. The court watchdog does not send the
+daily heartbeat or perform recovery mutations. Activating the hourly cadence
+requires redeploying this scheduler; see the
+[courts recovery and rollout runbook](../aws-batch-scraper/docs/recovery.md).
+
 The same scheduler dispatches `security-quality.yml` every Tuesday. Dependency
 audits use a changing advisory database, so they run weekly even when lockfiles
 are unchanged; keeping this cadence outside GitHub prevents repository

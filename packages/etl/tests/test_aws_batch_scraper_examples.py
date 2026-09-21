@@ -1,5 +1,6 @@
 """Smoke tests for aws-batch-scraper examples."""
 
+import re
 import sys
 from pathlib import Path
 
@@ -17,18 +18,19 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
     source = dockerfile.read_text()
 
+    # Dockerfile owns the reviewed digest. Dependabot may update that digest;
+    # the release gates validate the exact image's OS and vulnerability scan.
     expected_base = (
-        "FROM public.ecr.aws/ubuntu/ubuntu:26.04@"
-        "sha256:889d056d5c6c0bfb55789ff3710681d68e50713cb562d2196dc07110599c7a6f"
+        r"^FROM public\.ecr\.aws/ubuntu/ubuntu:26\.04@sha256:[0-9a-f]{64} AS ubuntu-base$"
     )
     expected_chrome = f"ADD --checksum=sha256:{PINNED_CHROME_SHA256}"
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
-    assert expected_base in source
-    assert "ARG UBUNTU_SNAPSHOT=20260911T140000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20260911T140000Z"' in source
+    assert re.search(expected_base, source, re.MULTILINE)
+    assert "ARG UBUNTU_SNAPSHOT=20260921T180000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20260921T180000Z"' in source
     assert "20260819T170000Z" not in source
-    assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 3
+    assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 5
     assert 'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update' in source
     assert "--yes --no-install-recommends full-upgrade" in source
     assert source.index("rm -rf /var/lib/apt/lists/*") < source.index(
@@ -37,6 +39,14 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     assert "snapshot.ubuntu.com_ubuntu_${UBUNTU_SNAPSHOT}_dists_${suite}_InRelease" in source
     assert "libcurl3t64-gnutls" in source
     assert ' = "8.18.0-1ubuntu2.5"' in source
+    assert ' = "3.13.1-2ubuntu0.1"' in source
+    assert ' = "0.12.0-0philly1"' in source
+    assert "FROM ubuntu-base AS bubblewrap-build" in source
+    assert "COPY --from=bubblewrap-build /bubblewrap.deb /tmp/bubblewrap.deb" in source
+    assert "meson test -C build test-utils --print-errorlogs" in source
+    assert (
+        "ADD --checksum=sha256:9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314"
+    ) in source
     assert 'test -z "$(dpkg --audit)"' in source
     assert source.count("|| exit 1;") >= 2
     assert "apt-get update" not in source

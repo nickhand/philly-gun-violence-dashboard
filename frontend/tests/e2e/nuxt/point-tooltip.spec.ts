@@ -29,6 +29,10 @@ test("matches the production shooting-victim tooltip", async ({ page }) => {
     "aria-label",
     /3 shooting-victim locations/,
   );
+  await expect(page.locator(".civic-dashboard-point-map__frame")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
   await canvas.scrollIntoViewIfNeeded();
 
   const canvasBox = await canvas.boundingBox();

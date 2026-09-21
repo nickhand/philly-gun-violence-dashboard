@@ -1016,8 +1016,12 @@ def test_finalize_manifest_cas_gates_dispatch_on_exact_terminal_coverage(
 def test_monitor_coverage_failure_retains_same_run_lease_for_recovery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from datetime import timedelta
+
     from aws_batch_scraper import orchestrate
+    from aws_batch_scraper.lease import RunLease
     from aws_batch_scraper.recovery import RecoveryInvariantError
+    from test_task_evidence import MemoryS3
 
     generation = datetime(2026, 8, 20, 20, 0, tzinfo=UTC)
     task = {
@@ -1028,13 +1032,20 @@ def test_monitor_coverage_failure_retains_same_run_lease_for_recovery(
     }
     ecs = MagicMock()
     ecs.describe_tasks.return_value = {"tasks": [task], "failures": []}
-    s3 = MagicMock()
+    s3 = MemoryS3()
+    lease = RunLease(
+        run_id="run-1",
+        owner="run-1",
+        created_at=generation,
+        expires_at=generation + timedelta(days=1),
+    )
+    monkeypatch.setattr(orchestrate, "read_run_lease", lambda *args: lease)
     released = MagicMock()
     monkeypatch.setattr(orchestrate, "get_task_arns", lambda *args: [task["taskArn"]])
     monkeypatch.setattr(
         orchestrate,
         "renew_run_lease",
-        lambda *args: MagicMock(created_at=generation),
+        lambda *args: lease,
     )
     monkeypatch.setattr(orchestrate, "_require_empty_main_queue", lambda *args: (0, 0, 0))
     monkeypatch.setattr(
@@ -1045,7 +1056,7 @@ def test_monitor_coverage_failure_retains_same_run_lease_for_recovery(
     monkeypatch.setattr(orchestrate, "release_run_lease", released)
 
     with pytest.raises(RecoveryInvariantError, match="candidate conflict"):
-        orchestrate._monitor_run(
+        orchestrate.monitor_run(
             ecs,
             MagicMock(),
             s3,
@@ -1055,10 +1066,9 @@ def test_monitor_coverage_failure_retains_same_run_lease_for_recovery(
         )
 
     released.assert_not_called()
-    evidence = s3.put_object.call_args.kwargs
-    assert "/monitor-recovery/v1/" in evidence["Key"]
-    assert evidence["IfNoneMatch"] == "*"
-    record = json.loads(evidence["Body"])
+    records = [body for key, body in s3.objects.items() if "/monitor-recovery/v1/" in key]
+    assert len(records) == 1
+    record = json.loads(records[0])
     assert record["lease_action"] == "retained"
     assert record["recovery_action"] == "same-run-resume"
 

@@ -11,13 +11,12 @@ from types import ModuleType
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
-ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset(
-    {"./.github/workflows/production-smoke.yml"}
-)
+ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset({"./.github/workflows/production-smoke.yml"})
 
 EXTERNAL_SCHEDULE_COUNTS = {
     "chrome-update.yml": 1,
     "courts-scrape.yml": 1,
+    "courts-watchdog.yml": 1,
     "daily-homicide-sync.yml": 1,
     "daily-shootings-sync.yml": 3,
     "production-smoke.yml": 1,
@@ -32,6 +31,7 @@ EXPECTED_CRONTAB_LINES = (
     "15 15 * * * python scripts/dispatch_workflow.py daily-homicide-sync.yml",
     "15 2 * * 5 python scripts/dispatch_workflow.py courts-scrape.yml",
     "0 19 * * * python scripts/dispatch_workflow.py production-smoke.yml",
+    "45 * * * * python scripts/dispatch_workflow.py courts-watchdog.yml",
     "15 10 * * 2 python scripts/dispatch_workflow.py security-quality.yml",
 )
 
@@ -188,8 +188,8 @@ class DeploymentContracts(unittest.TestCase):
         self.assertIn('head_sha="${{ steps.push.outputs.head_sha }}"', validation)
         self.assertIn("select(.headSha ==", validation)
         self.assertIn('gh workflow run "${workflow}"', validation)
-        self.assertIn('prepare_validation_run etl-quality.yml', validation)
-        self.assertIn('prepare_validation_run config-quality.yml', validation)
+        self.assertIn("prepare_validation_run etl-quality.yml", validation)
+        self.assertIn("prepare_validation_run config-quality.yml", validation)
         self.assertIn('"${reused}" == true', validation)
         self.assertEqual(validation.count("gh run watch"), 2)
         self.assertEqual(validation.count("--exit-status"), 2)
@@ -237,18 +237,22 @@ class DeploymentContracts(unittest.TestCase):
         self.assertIn("npm audit --package-lock-only --audit-level=high", source)
         self.assertIn("overwrite: true", source)
         self.assertIn("wrangler versions upload \\", source)
-        self.assertIn("wrangler versions deploy \"${VERSION}@100%\"", source)
+        self.assertIn('wrangler versions deploy "${VERSION}@100%"', source)
         self.assertIn("--strict", source)
         self.assertIn('"workers/tag"', source)
         self.assertIn("Reconcile or roll back an unverified activation", source)
-        self.assertIn("PRODUCTION_SMOKE_HEARTBEAT_URL: ${{ secrets.PRODUCTION_SMOKE_HEARTBEAT_URL }}", source)
+        self.assertIn(
+            "PRODUCTION_SMOKE_HEARTBEAT_URL: ${{ secrets.PRODUCTION_SMOKE_HEARTBEAT_URL }}", source
+        )
         self.assertIn("check_frontend_release.py", source)
         self.assertIn("uses: ./.github/workflows/production-smoke.yml", source)
         self.assertIn("workflow_call:", smoke)
         self.assertIn("expected build ID must not be blank", checker)
         self.assertIn("production page contains noindex", checker)
         self.assertIn('config.account_id, "8ee768918988df338ff5e82a233f9e32"', output_checker)
-        self.assertIn('environment.name, "philly-gun-violence-dashboard-production"', output_checker)
+        self.assertIn(
+            'environment.name, "philly-gun-violence-dashboard-production"', output_checker
+        )
 
     def test_workflows_pin_actions_and_declare_permissions(self) -> None:
         for workflow in _workflow_files():
@@ -305,6 +309,25 @@ class DeploymentContracts(unittest.TestCase):
             '-ignore \'unexpected key "queue" for "concurrency" section\'',
             source,
         )
+
+    def test_courts_health_is_independent_and_gates_success_heartbeat(self) -> None:
+        watchdog = (WORKFLOWS / "courts-watchdog.yml").read_text()
+        smoke = (WORKFLOWS / "production-smoke.yml").read_text()
+        self.assertIn("group: courts-watchdog", watchdog)
+        self.assertNotIn("schedule:", watchdog)
+        self.assertIn("courts health", watchdog)
+        self.assertNotIn("--execute", watchdog)
+        self.assertNotIn("secrets.GITHUB_PAT", watchdog)
+        self.assertIn("inline-session-policy:", watchdog)
+        self.assertNotIn("s3:PutObject", watchdog)
+        self.assertNotIn("ecs:RunTask", watchdog)
+        self.assertIn("if: ${{ !cancelled() }}", watchdog)
+        self.assertLess(
+            smoke.index("check_courts_freshness.py"),
+            smoke.index("- name: Report successful external heartbeat"),
+        )
+        heartbeat_step = smoke.split("- name: Report successful external heartbeat", 1)[1]
+        self.assertNotIn("if:", heartbeat_step)
 
     def test_scheduler_deploy_prevents_overlapping_cron_machines(self) -> None:
         scheduler_config = (REPOSITORY_ROOT / "fly.scheduler.toml").read_text()

@@ -821,3 +821,30 @@ def test_submission_recovery_evidence_records_phase_and_known_tasks() -> None:
         "lease_action": "retained",
         "task_arns": ["arn:task/1"],
     }
+
+
+@pytest.mark.parametrize("findings,exit_code", [([], 0), (["monitor failed"], 1)])
+def test_health_command_reports_read_only_findings(monkeypatch, findings, exit_code):
+    from aws_batch_scraper import health
+
+    session = _patch_submit_session(monkeypatch)
+    monkeypatch.setattr(health, "check_run_health", lambda *args: ("run-1", findings))
+    result = CliRunner().invoke(_submit_app(), ["health"])
+    assert result.exit_code == exit_code
+    assert json.loads(result.stdout)["findings"] == findings
+    session.client("ecs").run_task.assert_not_called()
+    session.client("s3").put_object.assert_not_called()
+
+
+def test_health_probe_error_is_visible_without_exception_secrets(monkeypatch):
+    from aws_batch_scraper import health
+
+    _patch_submit_session(monkeypatch)
+    monkeypatch.setattr(
+        health, "check_run_health", MagicMock(side_effect=ValueError("secret-value"))
+    )
+    result = CliRunner().invoke(_submit_app(), ["health"])
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["healthy"] is False
+    assert "ValueError" in result.stdout
+    assert "secret-value" not in result.output

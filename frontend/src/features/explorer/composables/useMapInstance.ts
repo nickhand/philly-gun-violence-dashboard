@@ -8,7 +8,9 @@
  */
 
 import { ref, computed, onMounted, onBeforeUnmount, type Ref } from "vue";
-import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import mapWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+import type { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import mapStyle from "@/data/style.json";
 import { enhanceBasemapLabels } from "../config/basemapLabels";
@@ -172,6 +174,7 @@ export function useMapInstance(options: MapOptions = {}) {
   function initializeMap(): void {
     if (!mapContainer.value) return;
 
+    maplibregl.setWorkerUrl(mapWorkerUrl);
     mapInstance.value = new maplibregl.Map({
       container: mapContainer.value,
       style: import.meta.env.VITE_LIGHTHOUSE

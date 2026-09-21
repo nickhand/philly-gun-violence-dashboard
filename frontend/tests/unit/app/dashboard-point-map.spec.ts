@@ -216,14 +216,17 @@ const mockedRoute = {
   },
 };
 
+vi.mock("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url", () => ({
+  default: "/map-worker.js",
+}));
+
 vi.mock("maplibre-gl", () => ({
-  default: {
-    AttributionControl: maplibre.AttributionControl,
-    Map: maplibre.Map,
-    NavigationControl: maplibre.NavigationControl,
-    Popup: maplibre.Popup,
-    ScaleControl: maplibre.ScaleControl,
-  },
+  setWorkerUrl: vi.fn(),
+  AttributionControl: maplibre.AttributionControl,
+  Map: maplibre.Map,
+  NavigationControl: maplibre.NavigationControl,
+  Popup: maplibre.Popup,
+  ScaleControl: maplibre.ScaleControl,
 }));
 
 function jsonResponse(value: unknown, status = 200): Response {

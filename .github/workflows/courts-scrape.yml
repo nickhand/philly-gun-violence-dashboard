@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   batch-courts-scraper:
-    name: Batch Courts Scraper
+    name: Submit courts scrape
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,7 +62,7 @@ jobs:
           version: "0.12.0"
       - name: Verify identity
         run: aws sts get-caller-identity
-      - name: Run courts ETL
+      - name: Submit courts ETL (completion tracked by watchdog)
         run: |
           cd packages/etl
           uv run gv-dashboard-etl courts smoke --skip-portal

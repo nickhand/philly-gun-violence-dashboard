@@ -1498,3 +1498,41 @@ def test_losing_delivery_gets_no_disposition_before_cross_kind_conflict(
 
     assert s3.objects["scraper/runs/run-new/failures/100.json"] == failure_body
     assert not any("/terminal-dispositions/" in key for key in s3.objects)
+
+
+def test_supervisor_failure_exits_worker_without_acknowledging_message(monkeypatch):
+    from aws_batch_scraper.supervisor import ScraperProcessTimeout, SupervisedScraper
+
+    s3, sqs = ConditionalFakeS3(), FakeSQS()
+    session = MagicMock()
+    session.client.side_effect = lambda service: s3 if service == "s3" else sqs
+    monkeypatch.setattr(worker_module, "make_boto3_session", lambda **kwargs: session)
+    monkeypatch.setattr(worker_module.random, "uniform", lambda *args: 0.0)
+    monkeypatch.setattr(worker_module.time, "sleep", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(worker_module.signal, "alarm", lambda *args: 0)
+    monkeypatch.setattr(
+        worker_module,
+        "_receive_message",
+        MagicMock(
+            return_value={
+                "Body": json.dumps({"item_id": "100", "run_id": "run-new", "force_rescrape": True}),
+                "ReceiptHandle": "receipt",
+                "MessageId": "message",
+                "Attributes": {"ApproximateReceiveCount": "1"},
+            }
+        ),
+    )
+
+    class FailedBrowser(SupervisedScraper):
+        def __call__(self, item):
+            raise ScraperProcessTimeout("external deadline")
+
+    scraper = FailedBrowser(MagicMock())
+    with pytest.raises(ScraperProcessTimeout):
+        worker_module.run_worker(
+            lambda: scraper, _config().model_copy(update={"run_id": "run-new"})
+        )
+    assert sqs.deleted_messages == []
+    assert sqs.sent_messages == []
+    assert not any("/terminal-candidates/" in key or "/results/" in key for key in s3.objects)

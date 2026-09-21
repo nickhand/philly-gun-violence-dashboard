@@ -5,11 +5,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from typing import Literal, TypeGuard, cast
 
+from loguru import logger
 from mypy_boto3_s3.client import S3Client
 
 from aws_batch_scraper.config import WorkerConfig
@@ -534,16 +536,23 @@ def read_terminal_decisions(
             key = obj.get("Key")
             if isinstance(key, str) and key.startswith(prefix):
                 keys.add(key)
-    decisions: list[TerminalDecision] = []
-    for key in sorted(keys):
+
+    def read_decision(key: str) -> TerminalDecision:
         if not key.endswith(".json"):
             raise CandidateJournalError(f"Unexpected non-JSON terminal decision object {key}")
         body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
         decision = _decode_decision(s3, config, body, key=key)
         if decision.run_id != run_id:
             raise CandidateJournalError(f"Terminal decision {key} belongs to another run")
-        decisions.append(decision)
-    return tuple(decisions)
+        return decision
+
+    logger.info("Validating {} terminal decisions for {}", len(keys), run_id)
+    # Ordered map preserves deterministic evidence/error ordering while bounding
+    # concurrent S3 reads. Every record still passes the complete strict decoder.
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        decisions = tuple(pool.map(read_decision, sorted(keys)))
+    logger.info("Validated {} terminal decisions for {}", len(decisions), run_id)
+    return decisions
 
 
 def _decision_conflict_key(
@@ -1498,16 +1507,21 @@ def read_terminal_candidates(
             key = obj.get("Key")
             if isinstance(key, str) and key.startswith(prefix):
                 keys.add(key)
-    candidates: list[TerminalCandidate] = []
-    for key in sorted(keys):
+
+    def read_candidate(key: str) -> TerminalCandidate:
         if not key.endswith(".json"):
             raise CandidateJournalError(f"Unexpected non-JSON terminal candidate object {key}")
         body = s3.get_object(Bucket=config.s3_bucket, Key=key)["Body"].read()
         candidate = _decode_candidate(body, key=key, expected_prefix=prefix)
         if candidate.run_id != run_id:
             raise CandidateJournalError(f"Terminal candidate {key} belongs to another run")
-        candidates.append(candidate)
-    return tuple(candidates)
+        return candidate
+
+    logger.info("Validating {} terminal candidates for {}", len(keys), run_id)
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        candidates = tuple(pool.map(read_candidate, sorted(keys)))
+    logger.info("Validated {} terminal candidates for {}", len(candidates), run_id)
+    return candidates
 
 
 __all__ = [

@@ -273,7 +273,7 @@ export function useMapLayers(
    */
   function setPaintProperty(
     layerId: string,
-    property: string,
+    property: Parameters<MapLibreMap["setPaintProperty"]>[1],
     value: unknown,
   ): void {
     if (!mapInstance.value || !hasLayer(layerId)) return;

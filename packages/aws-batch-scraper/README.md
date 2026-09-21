@@ -81,6 +81,9 @@ The generated CLI includes:
   verify the queue drained, finalize the run, and optionally dispatch downstream work
 - `monitor` without a run selector: legacy queue-depth diagnostic only; it does
   not finalize a run or release its lease
+- `health`: read-only run/lease/task/progress watchdog; JSON output and nonzero on failure
+- `reconcile-retired-tasks`: preview or explicitly record operator-reviewed historical
+  task retirement before selective same-run recovery
 - `aggregate`: read result JSON from S3 and print status counts
 - `run-stats`: print run timing and throughput
 - `failures`: list permanent failures for a run
@@ -225,13 +228,21 @@ queues terminal. Retrying an expired processing owner additionally requires a
 matching completed `failure` terminal record; a successful processing release
 cannot be retried.
 
-A run-scoped monitor requires a nonempty `tasks.json`, describes every saved
-task ARN, waits for every task to reach `STOPPED`, requires a successful exit
+A run-scoped monitor requires a nonempty `tasks.json`, describes each unfinished
+task ARN, and saves immutable terminal observations under `task-terminal/v1/`.
+Restarted monitors reuse those observations after ECS records expire. The
+monitor waits for every task to reach `STOPPED`, requires a successful exit
 code from each essential container, and then requires visible, in-flight, and
 delayed queue counts all to be zero. Those terminal counts are persisted in the
 completed manifest. Missing/corrupt task metadata, omitted ECS tasks, nonzero
 or missing exit codes, and AWS access/transport errors fail closed. Queue depth
 alone is not proof that worker tasks have exited.
+
+The courts plugin supervises its reusable browser in a child process, with
+parent-enforced scrape and cleanup deadlines. Run diagnostics and an independent
+watchdog detect silence and overdue completion. See the [recovery runbook](docs/recovery.md)
+for historical task retirement, selective recovery, alert thresholds, and the
+required runtime/IAM/scheduler rollout.
 
 The submitter writes the manifest before the first queue mutation. A partial or
 unknown manifest/seed, any seeded run with zero confirmed workers, or an

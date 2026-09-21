@@ -6,6 +6,8 @@ These tests do not require network access and can run in CI.
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from etl.courts.scraper.classifier import (
     BLOCKED_MARKERS,
     NO_RESULTS_TEXT_MARKERS,
@@ -440,3 +442,13 @@ def test_exception_with_429_status_is_soft_blocked() -> None:
 
     assert result.classification == Classification.SOFT_BLOCKED
     assert result.subreason == "HTTP 403/429 detected during exception handling"
+
+
+@pytest.mark.parametrize(
+    "operation", ["title", "content", "wait_for_selector", "query_selector_all"]
+)
+def test_worker_deadline_is_never_classified_as_retryable(monkeypatch, operation):
+    page = MockPage(load_fixture("results_with_rows.html"))
+    monkeypatch.setattr(page, operation, MagicMock(side_effect=TimeoutError("worker deadline")))
+    with pytest.raises(TimeoutError, match="worker deadline"):
+        classify_case_search(page, NetworkObserver(), results_wait_timeout_ms=100)

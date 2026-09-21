@@ -12,6 +12,10 @@ async function openDashboard(page: Page): Promise<Locator> {
     "aria-label",
     /shooting-victim locations/,
   );
+  await expect(page.locator(".civic-dashboard-point-map__frame")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
 
   const sidebar = page.getByRole("complementary", {
     name: "Map filters and controls",

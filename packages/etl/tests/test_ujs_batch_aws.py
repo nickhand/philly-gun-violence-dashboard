@@ -244,8 +244,8 @@ class FakeBody:
     def __init__(self, data: bytes) -> None:
         self.data = data
 
-    def read(self) -> bytes:
-        return self.data
+    def read(self, size: int | None = None) -> bytes:
+        return self.data if size is None else self.data[:size]
 
 
 class FakeS3:
@@ -259,6 +259,10 @@ class FakeS3:
         self.puts = []
 
     def get_object(self, *, Bucket, Key):
+        if Key not in self.objects:
+            from botocore.exceptions import ClientError
+
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
         return {"Body": FakeBody(self.objects[Key]), "ETag": '"fake-etag"'}
 
     def put_object(self, **kwargs):
@@ -655,6 +659,7 @@ def test_monitor_does_not_finalize_missing_task_manifest_from_queue_depth(
                 "GetObject",
             )
 
+    _patch_monitor_lease(monkeypatch)
     releases: list[dict[str, object]] = []
     dispatches: list[str] = []
     monkeypatch.setattr(

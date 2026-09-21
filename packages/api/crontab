@@ -12,6 +12,8 @@
 
 0 19 * * * python scripts/dispatch_workflow.py production-smoke.yml
 
+45 * * * * python scripts/dispatch_workflow.py courts-watchdog.yml
+
 15 10 * * 2 python scripts/dispatch_workflow.py security-quality.yml
 
 # Phase 1: frontend-quality.yml remains owned by its native weekly schedule.

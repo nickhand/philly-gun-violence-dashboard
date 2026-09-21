@@ -97,6 +97,9 @@ jobs:
             curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 60 \
               --location --max-redirs 3 --head "${DOWNLOADS_BASE_URL}/${path}" --output /dev/null
           done
+      - name: Check full court publication freshness
+        if: ${{ !cancelled() }}
+        run: python3 .github/ci/check_courts_freshness.py --api-base-url "${API_BASE_URL}"
       - name: Report successful external heartbeat
         env:
           HEARTBEAT_URL: ${{ secrets.PRODUCTION_SMOKE_HEARTBEAT_URL }}
