@@ -29,5 +29,5 @@ build-backend = "uv_build"
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.14.10",
-    "ty==0.0.69",
+    "ty==0.0.81",
 ]
