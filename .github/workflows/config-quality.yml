@@ -2,22 +2,8 @@ name: Repository configuration quality
 
 on:
   workflow_dispatch:
+  # Emit a final gate on every PR; job routing keeps unrelated changes cheap.
   pull_request:
-    paths:
-      - ".github/ci/**"
-      - ".github/workflows/**"
-      - "README.md"
-      - "packages/api/Dockerfile"
-      - "packages/api/README.md"
-      - "packages/api/crontab"
-      - "packages/api/just/api.just"
-      - "packages/api/scripts/dispatch_workflow.py"
-      - "packages/aws-batch-scraper/README.md"
-      - "packages/dashboard-utils/README.md"
-      - "packages/etl/Dockerfile"
-      - "packages/etl/README.md"
-      - "fly.toml"
-      - "fly.scheduler.toml"
   push:
     branches: [main]
     paths:

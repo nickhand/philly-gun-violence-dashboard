@@ -244,18 +244,30 @@ jobs:
                 return 0
               fi
             fi
+            local -a dispatch_args=()
+            if [[ "${workflow}" == dependabot-auto-merge.yml ]]; then
+              dispatch_args+=(--field "pull_request_number=${{ steps.pull_request.outputs.number }}")
+            fi
             gh workflow run "${workflow}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --ref "${UPDATE_BRANCH}" >/dev/null
+              --ref "${UPDATE_BRANCH}" "${dispatch_args[@]}" >/dev/null
             find_new_validation_run "${workflow}" "${prior_id}"
           }
 
           etl_run_id="$(prepare_validation_run etl-quality.yml)"
           config_run_id="$(prepare_validation_run config-quality.yml)"
+          api_run_id="$(prepare_validation_run api-quality.yml)"
+          frontend_run_id="$(prepare_validation_run frontend-quality.yml)"
+          security_run_id="$(prepare_validation_run security-quality.yml)"
+          policy_run_id="$(prepare_validation_run dependabot-auto-merge.yml)"
           printf 'ETL validation run: %s\n' "${etl_run_id}" >> "${GITHUB_STEP_SUMMARY}"
           printf 'Configuration validation run: %s\n' "${config_run_id}" >> "${GITHUB_STEP_SUMMARY}"
           gh run watch "${etl_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
           gh run watch "${config_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          gh run watch "${api_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          gh run watch "${frontend_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          gh run watch "${security_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          gh run watch "${policy_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
       - name: Merge a validated same-milestone update
         if: >-
           steps.update.outputs.changed == 'true' &&

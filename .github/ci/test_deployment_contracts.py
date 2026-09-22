@@ -191,8 +191,12 @@ class DeploymentContracts(unittest.TestCase):
         self.assertIn("prepare_validation_run etl-quality.yml", validation)
         self.assertIn("prepare_validation_run config-quality.yml", validation)
         self.assertIn('"${reused}" == true', validation)
-        self.assertEqual(validation.count("gh run watch"), 2)
-        self.assertEqual(validation.count("--exit-status"), 2)
+        for workflow in ("api", "frontend", "security"):
+            self.assertIn(f"prepare_validation_run {workflow}-quality.yml", validation)
+        self.assertIn("prepare_validation_run dependabot-auto-merge.yml", validation)
+        self.assertIn("pull_request_number=", validation)
+        self.assertEqual(validation.count("gh run watch"), 6)
+        self.assertEqual(validation.count("--exit-status"), 6)
 
         merge = source.split("- name: Merge a validated same-milestone update", maxsplit=1)[
             1

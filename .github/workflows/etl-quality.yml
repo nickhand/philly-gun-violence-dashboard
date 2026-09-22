@@ -2,21 +2,8 @@ name: ETL quality
 
 on:
   workflow_dispatch:
+  # Emit a final gate on every PR; job routing keeps unrelated changes cheap.
   pull_request:
-    paths:
-      - "packages/etl/**"
-      - "packages/dashboard-utils/**"
-      - "packages/aws-batch-scraper/**"
-      - ".dockerignore"
-      - "Justfile"
-      - "ruff.toml"
-      - "ty.toml"
-      - "uv.toml"
-      - ".github/workflows/chrome-update.yml"
-      - ".github/workflows/daily-homicide-sync.yml"
-      - ".github/workflows/etl-quality.yml"
-      - ".github/workflows/production-smoke.yml"
-      - ".github/ci/scope.py"
   push:
     branches: [main]
     paths:

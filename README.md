@@ -135,9 +135,10 @@ frontend/                    Nuxt frontend application and civic UI layer
 
 ## Dependency maintenance
 
-Dependabot batches routine updates weekly while keeping major upgrades separate.
+Dependabot batches routine minor/patch updates weekly and merges eligible changes
+after protected CI checks pass. Ordinary major upgrades are deferred.
 See [the maintenance policy](docs/dependency-maintenance.md) for grouping,
-security updates, review expectations, and prerequisites for automatic merging.
+security exceptions, automatic merge safeguards, and deployment boundaries.
 
 ## Known Limitations
 
