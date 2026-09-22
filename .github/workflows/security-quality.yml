@@ -69,13 +69,13 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
           version: "0.12.0"
       - name: Audit locked production dependencies
         run: |
           uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/api-requirements.txt"
-          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/api-requirements.txt" --disable-pip --progress-spinner off --strict
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/api-requirements.txt" --disable-pip --progress-spinner off --strict --timeout 60
 
   etl:
     name: ETL production dependency audit
@@ -90,13 +90,13 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
           version: "0.12.0"
       - name: Audit locked production dependencies
         run: |
           uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/etl-requirements.txt"
-          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/etl-requirements.txt" --disable-pip --progress-spinner off --strict
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/etl-requirements.txt" --disable-pip --progress-spinner off --strict --timeout 60
 
   dashboard:
     name: Dashboard utilities production dependency audit
@@ -111,13 +111,13 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
           version: "0.12.0"
       - name: Audit locked production dependencies
         run: |
           uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/dashboard-requirements.txt"
-          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/dashboard-requirements.txt" --disable-pip --progress-spinner off --strict
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/dashboard-requirements.txt" --disable-pip --progress-spinner off --strict --timeout 60
 
   scraper:
     name: AWS Batch scraper production dependency audit
@@ -132,13 +132,13 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
           version: "0.12.0"
       - name: Audit locked production dependencies
         run: |
           uv export --frozen --no-dev --no-emit-project --no-emit-local --output-file "${RUNNER_TEMP}/scraper-requirements.txt"
-          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/scraper-requirements.txt" --disable-pip --progress-spinner off --strict
+          uvx --from "pip-audit==2.10.1" pip-audit --requirement "${RUNNER_TEMP}/scraper-requirements.txt" --disable-pip --progress-spinner off --strict --timeout 60
 
   frontend:
     name: Frontend production dependency audit

@@ -24,8 +24,8 @@ change, a draft/fork, or unexpected files prevent automatic merging.
 Ordinary major-version proposals are deferred using `allow.update-types`, rather
 than accumulated as unattended review requests. That filter applies only to
 version updates. Dependabot vulnerability alerts and security-fix PRs are enabled;
-security fixes remain eligible immediately, including proposals requiring a major
-upgrade. Major/security exceptions still need a deliberate upgrade or repair;
+security-fix proposals remain enabled immediately, including those requiring a
+major upgrade. Major/security exceptions still need a deliberate upgrade or repair;
 failed checks are never overridden to clear the queue.
 
 The options follow GitHub's [Dependabot reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).

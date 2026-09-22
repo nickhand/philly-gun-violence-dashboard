@@ -1,6 +1,8 @@
 # Dependency backlog cleanup: 2026-09-22
 
 The routine Python batch (#42) and frontend batch (#39) initially failed CI.
+The replacement also includes the verified Actions batch (#48): setup-uv 8.3.2,
+configure-aws-credentials 6.3.0, and install-action 2.87.13, all pinned by SHA.
 They need these compatibility changes together with their dependency updates:
 
 - Declare Click as a scraper test dependency. Typer's updated dependency tree no
@@ -24,3 +26,6 @@ The automation bootstrap also encountered a PyPI audit timeout and a temporary
 HTTP 503 from Canonical's snapshot service. Once the snapshot recovered, its
 OpenSSL download matched the original pinned SHA-256. No checksum or security
 check was bypassed.
+
+Python audits now allow 60 seconds per upstream request after the observed
+15-second PyPI timeout. Strict vulnerability checks remain enabled.
