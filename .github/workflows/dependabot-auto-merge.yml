@@ -36,7 +36,8 @@ jobs:
       # install its dependencies, download its artifacts, or restore its caches.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          # Old PRs can retain a base.sha from before this policy existed.
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - name: Mark this exact head pending
         id: begin

@@ -176,10 +176,10 @@ class DependabotPolicyTests(unittest.TestCase):
         source = (Path(__file__).parents[1] / "workflows/dependabot-auto-merge.yml").read_text()
         self.assertIn("pull_request_target:", source)
         self.assertIn(
-            "ref: ${{ github.event.pull_request.base.sha || "
-            "github.event.repository.default_branch }}",
+            "ref: ${{ github.event.repository.default_branch }}",
             source,
         )
+        self.assertNotIn("github.event.pull_request.base.sha", source)
         self.assertIn("persist-credentials: false", source)
         self.assertIn("skip-verification: false", source)
         self.assertIn("skip-commit-verification: false", source)
