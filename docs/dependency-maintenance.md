@@ -10,7 +10,8 @@ protected branch's required checks before merging.
 
 Python and frontend minor/patch updates, minor/patch GitHub Actions updates, and
 classified minor/patch Docker updates are eligible. Shared Docker pins are
-grouped by image name. Version-update PR limits remain three for Python and two
+grouped by image name. Python updates preserve existing compatible requirements
+with `increase-if-necessary`, reducing drift between linked package lockfiles. Version-update PR limits remain three for Python and two
 for the other ecosystems; these are not a repository-wide total.
 
 Every dependency in a group must qualify. The pinned official metadata action
@@ -78,3 +79,18 @@ required. Do not assume an auto-merged dependency is already deployed.
 Existing PRs are closed only after their update is superseded by a validated
 replacement, or explicitly recorded as a deferred, nonsecurity major migration.
 Security alerts are not dismissed as part of backlog cleanup.
+
+## Deferred migrations recorded on 2026-09-22
+
+These ordinary version proposals are deferred because they require coordinated
+compatibility work; they are not outstanding review assignments:
+
+| Migration | Existing PRs | Reason |
+| --- | --- | --- |
+| pandas and pandas-stubs 2.x to 3.x | #9, #12, #43, #44 | Keep the runtime, shared package, and typing contracts aligned. |
+| Vite 7 to 8 | #40 | Requires a compatible frontend toolchain migration. |
+| Node type definitions 20 to 26 | #41 | Requires coordinated runtime and type compatibility. |
+| setup-uv 8 to 10 | #28 | A separate action runtime migration; uv itself stays pinned to 0.12.0. |
+
+GitHub reported no open Dependabot vulnerability alerts when this inventory was
+recorded. Closing these version proposals does not dismiss any security alert.

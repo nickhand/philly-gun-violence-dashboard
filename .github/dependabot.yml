@@ -16,6 +16,8 @@ updates:
       time: "09:00"
       timezone: "America/New_York"
     open-pull-requests-limit: 3
+    # Avoid rewriting shared-package requirements already satisfied by an update.
+    versioning-strategy: increase-if-necessary
     # Version updates only: security fixes may still propose a major release.
     allow:
       - dependency-name: "*"
