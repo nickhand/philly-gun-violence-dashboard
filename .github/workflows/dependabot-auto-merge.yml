@@ -1,0 +1,56 @@
+name: Dependabot merge policy
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Owner-managed PR needing its policy status (used by Chrome updater)
+        required: true
+        type: number
+
+concurrency:
+  group: dependency-policy-${{ github.event.pull_request.number || inputs.pull_request_number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: Enforce dependency merge policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      # Only trusted base code runs with write permissions. Never use the PR head,
+      # install its dependencies, download its artifacts, or restore its caches.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Mark this exact head pending
+        id: begin
+        run: python3 .github/ci/dependabot_policy.py begin
+      - name: Verify Dependabot commits and metadata
+        if: steps.begin.outputs.dependabot == 'true'
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ github.token }}
+          skip-verification: false
+          skip-commit-verification: false
+      - name: Enforce policy and request native auto-merge
+        if: ${{ !cancelled() && steps.begin.outcome == 'success' }}
+        env:
+          DEPENDENCIES_JSON: ${{ steps.metadata.outputs.updated-dependencies-json }}
+        run: python3 .github/ci/dependabot_policy.py finish

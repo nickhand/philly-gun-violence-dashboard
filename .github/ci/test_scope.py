@@ -49,12 +49,12 @@ def _workflow_paths(name: str, event: str) -> tuple[str, ...]:
 
 
 class TriggerContracts(unittest.TestCase):
-    def test_pull_request_and_push_paths_match_the_declared_policy(self) -> None:
+    def test_all_prs_emit_gates_and_push_paths_keep_the_declared_policy(self) -> None:
         for workflow, expected in SCOPE.TRIGGERS.items():
             with self.subTest(workflow=workflow):
-                self.assertEqual(_workflow_paths(workflow, "pull_request"), expected)
+                self.assertEqual(_workflow_paths(workflow, "pull_request"), ())
                 self.assertEqual(_workflow_paths(workflow, "push"), expected)
-        self.assertEqual(_workflow_paths("config", "pull_request"), SCOPE.CONFIG_TRIGGERS)
+        self.assertEqual(_workflow_paths("config", "pull_request"), ())
         self.assertEqual(_workflow_paths("config", "push"), SCOPE.CONFIG_TRIGGERS)
 
     def test_every_trigger_path_selects_at_least_one_job(self) -> None:
@@ -253,9 +253,7 @@ class TriggerContracts(unittest.TestCase):
                 self.assertIn(expected, source)
                 self.assertIn(expected_group, source)
 
-        frontend = (
-            REPOSITORY_ROOT / ".github" / "workflows" / "frontend-quality.yml"
-        ).read_text()
+        frontend = (REPOSITORY_ROOT / ".github" / "workflows" / "frontend-quality.yml").read_text()
         self.assertIn("'main-release'", frontend)
         self.assertIn("queue: max", frontend)
         self.assertIn("cancel-in-progress: false", frontend)

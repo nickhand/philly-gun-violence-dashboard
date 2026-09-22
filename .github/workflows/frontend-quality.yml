@@ -1,11 +1,8 @@
 name: Frontend quality
 
 on:
+  # Emit a final gate on every PR; job routing keeps unrelated changes cheap.
   pull_request:
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-quality.yml"
-      - ".github/ci/scope.py"
   push:
     branches: [main]
     paths:

@@ -1,68 +1,80 @@
-# Dependency maintenance
+# Unattended dependency maintenance
 
-This repository uses weekly Dependabot review batches for a single maintainer.
-The policy lives in [dependabot.yml](../.github/dependabot.yml).
+Routine dependency updates should not require a weekly maintainer review. The
+[Dependabot configuration](../.github/dependabot.yml) creates Monday minor/patch
+batches after a seven-day release cooldown. The [merge policy](../.github/workflows/dependabot-auto-merge.yml)
+requests native auto-merge for verified, eligible updates; GitHub waits for the
+protected branch's required checks before merging.
 
-## Update policy
+## Eligible updates
 
-- Keep the existing Monday schedule. Review compatible Python, frontend, and
-  GitHub Actions minor/patch updates in groups instead of one PR per update.
-- Keep major upgrades out of those routine groups. Python major upgrades are
-  grouped by dependency name across packages, so a shared dependency's migration
-  can be reviewed together. Incompatible constraints can still produce separate
-  PRs. Frontend and Actions major upgrades remain individual PRs.
-- Group Docker updates by image name across the API and ETL Dockerfiles. Each
-  base image retains a separate review, including major tag changes.
-- Give ordinary new releases seven days before considering them. Lower the
-  configured open version-PR limits to three for Python and two for each other
-  ecosystem. These are Dependabot update limits, not a guaranteed repository-wide
-  count or a promise that the existing backlog will disappear.
-- Keep security updates eligible immediately: the version-update cooldown and
-  PR limits do not apply to them. Do not add blanket ignore rules to hide major
-  upgrades or vulnerabilities.
+Python and frontend minor/patch updates, minor/patch GitHub Actions updates, and
+classified minor/patch Docker updates are eligible. Shared Docker pins are
+grouped by image name. Version-update PR limits remain three for Python and two
+for the other ecosystems; these are not a repository-wide total.
 
-These behaviors use GitHub's documented [grouping and cooldown options](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)
-and [cross-directory dependency grouping](https://github.blog/changelog/2026-02-24-dependabot-can-group-updates-by-dependency-name-across-multiple-directories/).
+Every dependency in a group must qualify. The pinned official metadata action
+verifies the Dependabot author and commit signatures. The repository policy
+then requires the expected repository and head commit, a complete file inventory,
+and modified files limited to the ecosystem's manifests, lockfiles, Dockerfiles,
+or workflow files. Missing metadata, a major or unclassified change, a maintainer
+change, a draft/fork, or unexpected files prevent automatic merging.
 
-## Review and merging
+Ordinary major-version proposals are deferred using `allow.update-types`, rather
+than accumulated as unattended review requests. That filter applies only to
+version updates. Dependabot vulnerability alerts and security-fix PRs are enabled;
+security fixes remain eligible immediately, including proposals requiring a major
+upgrade. Major/security exceptions still need a deliberate upgrade or repair;
+failed checks are never overridden to clear the queue.
 
-Dependabot opens PRs; this configuration does not merge them. At the September
-22, 2026 audit, repository auto-merge was disabled, no open Dependabot PR had an
-auto-merge request, and `main` had no branch protection or ruleset. This cleanup
-does not change repository merge permissions.
+The options follow GitHub's [Dependabot reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).
+Deferring an ordinary major upgrade does not disable the weekly dependency audits
+or the daily Chrome updater.
 
-The same audit found Dependabot vulnerability alerts and automated security-fix
-PRs disabled. Both repository settings were enabled and read back successfully
-as part of this cleanup. Security-fix PR creation is separate from automatic
-merging; those fixes still follow the review policy below.
+## Enforced merge checks
 
-Review routine batches weekly, prioritize security fixes, and schedule major
-migrations deliberately. Require the relevant tests, type checks, browser/image
-checks, and security audits to pass against the current base before merging.
-Keep the existing lockfile/version constraints, immutable image and action pins,
-and explicit production deployment gates. A minor/patch version is a review
-category, not proof that a change is compatible.
+`main` requires an up-to-date PR and these checks, including for administrators:
 
-For the existing backlog, compare each PR with current `main` and any grouped
-replacement before closing it as superseded. A configuration change is not proof
-that an old PR's update has landed. Keep linked runtime/type packages, such as
-pandas and pandas-stubs, aligned when planning a major migration.
+- `API quality gate`
+- `ETL quality gate`
+- `Frontend quality gate`
+- `Dependency security gate`
+- `CI routing and deployment contracts`
+- `Dependency merge policy`
 
-The separate [Chrome updater](../.github/workflows/chrome-update.yml) already
-merges same-milestone updates after its explicit validation and commit checks.
-Chrome milestone upgrades remain manual. That workflow is independent of
-Dependabot and is unchanged by this policy.
+The five quality workflows start on every PR. Their existing path router keeps
+unrelated product jobs skipped, while each final gate verifies that all selected
+jobs actually passed. Thus a documentation-only PR can satisfy the required
+checks without running browser tests, and a dependency change cannot bypass its
+tests, image smoke, browser coverage, or audits. Push routing and production
+deployment conditions remain unchanged. No second-person approval is required.
 
-## Before adding Dependabot auto-merge
+The policy status is tied to the exact PR head. Before releasing that status,
+the policy removes any previous queued auto-merge request from a Dependabot PR;
+it requests auto-merge again only for an eligible head. This prevents an earlier
+eligible commit's request surviving an ineligible replacement. An ineligible PR
+can still be deliberately merged after its tests pass: a successful policy
+status means the auto-merge decision was enforced, not that auto-merge was granted.
 
-First protect `main` with required CI checks that cover every PR. The current
-workflows have path filters: do not blindly require a workflow that will never
-start for some changes. Provide an always-running aggregate check that verifies
-the relevant jobs. A solo maintainer need not require an approval from a second
-person they do not have.
+The privileged policy workflow runs only trusted base-branch code. It never
+checks out, installs, caches, or executes PR code or artifacts. Read-only PR
+workflows perform the actual tests. The policy neither grants itself a protection
+bypass nor approves PRs on the maintainer's behalf.
 
-Then consider opt-in auto-merge for a narrow set of well-tested minor/patch
-updates, with major upgrades and deployment credentials/workflows still reviewed.
-Use GitHub's [native auto-merge](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/automatically-merging-a-pull-request)
-to wait for enforced checks. Avoid a privileged workflow that checks out and runs
-dependency PR code just to approve or merge it.
+## Chrome updates and production
+
+The [Chrome updater](../.github/workflows/chrome-update.yml) retains its signed
+release checks, same-milestone policy, and exact head/base guards. It explicitly
+dispatches and waits for all required quality workflows and the policy status,
+so it also works when its GitHub token does not trigger PR workflows. Chrome
+milestone upgrades remain exceptions.
+
+Automatic merging updates source control. It does not bypass immutable image
+promotion, Fargate smoke, or deployment gates. Native auto-merge uses the built-in
+GitHub token; push workflows are not guaranteed to run for token-originated merges.
+The pre-merge checks and independent production monitoring therefore remain
+required. Do not assume an auto-merged dependency is already deployed.
+
+Existing PRs are closed only after their update is superseded by a validated
+replacement, or explicitly recorded as a deferred, nonsecurity major migration.
+Security alerts are not dismissed as part of backlog cleanup.

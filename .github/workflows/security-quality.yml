@@ -1,21 +1,8 @@
 name: Dependency security quality
 
 on:
+  # Emit a final gate on every PR; job routing keeps unrelated changes cheap.
   pull_request:
-    paths:
-      - "packages/api/pyproject.toml"
-      - "packages/api/uv.lock"
-      - "packages/etl/pyproject.toml"
-      - "packages/etl/uv.lock"
-      - "packages/dashboard-utils/pyproject.toml"
-      - "packages/dashboard-utils/uv.lock"
-      - "packages/aws-batch-scraper/pyproject.toml"
-      - "packages/aws-batch-scraper/uv.lock"
-      - "frontend/package-lock.json"
-      - "frontend/package.json"
-      - "uv.toml"
-      - ".github/workflows/security-quality.yml"
-      - ".github/ci/scope.py"
   push:
     branches: [main]
     paths:
