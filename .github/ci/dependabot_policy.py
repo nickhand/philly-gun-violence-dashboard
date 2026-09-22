@@ -14,7 +14,7 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 CONTEXT = "Dependency merge policy"
 REQUIRED_CHECKS = (
@@ -128,10 +128,21 @@ def api(path: str, payload: Mapping[str, Any] | None = None) -> Any:
 
 
 def status(repository: str, head: str, state: str, description: str) -> None:
+    payload = {"state": state, "context": CONTEXT, "description": description[:140]}
+    if run_id := os.environ.get("GITHUB_RUN_ID"):
+        server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+        payload["target_url"] = f"{server}/{repository}/actions/runs/{run_id}"
     api(
         f"repos/{repository}/statuses/{head}",
-        {"state": state, "context": CONTEXT, "description": description[:140]},
+        payload,
     )
+
+
+def fail(repository: str, head: str, number: int, reason: str) -> NoReturn:
+    status(repository, head, "failure", reason)
+    with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
+        stream.write(f"PR #{number}: **Blocked** — {reason}.\n")
+    raise RuntimeError(reason)
 
 
 def main() -> None:
@@ -163,6 +174,16 @@ def main() -> None:
         subprocess.run(
             ["gh", "pr", "merge", str(number), "--repo", repository, "--disable-auto"], check=True
         )
+    try:
+        dependencies = json.loads(os.environ.get("DEPENDENCIES_JSON") or "[]")
+    except json.JSONDecodeError:
+        fail(repository, head, number, "Invalid Dependabot metadata; verification must succeed")
+    if is_dependabot(pr) and (
+        os.environ.get("METADATA_OUTCOME") != "success"
+        or not isinstance(dependencies, list)
+        or not dependencies
+    ):
+        fail(repository, head, number, "Dependabot metadata verification failed; regenerate the PR")
     files: list[Mapping[str, Any]] = []
     if is_dependabot(pr):
         for page in range(1, 32):
@@ -172,27 +193,36 @@ def main() -> None:
             files.extend(batch)
             if len(batch) < 100:
                 break
-    dependencies = json.loads(os.environ.get("DEPENDENCIES_JSON") or "[]")
     decision = evaluate(pr, files, dependencies, repository, head)
+    if decision.eligible and pr.get("mergeable") is False:
+        fail(repository, head, number, "Merge conflicts; Dependabot must regenerate this branch")
     # The required status means policy was enforced. Ineligible updates remain
     # manually mergeable after tests, with any old auto-merge request removed.
     status(repository, head, "success", decision.reason)
     if decision.eligible:
-        subprocess.run(
-            [
-                "gh",
-                "pr",
-                "merge",
-                str(number),
-                "--repo",
+        try:
+            subprocess.run(
+                [
+                    "gh",
+                    "pr",
+                    "merge",
+                    str(number),
+                    "--repo",
+                    repository,
+                    "--auto",
+                    "--squash",
+                    "--match-head-commit",
+                    head,
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            fail(
                 repository,
-                "--auto",
-                "--squash",
-                "--match-head-commit",
                 head,
-            ],
-            check=True,
-        )
+                number,
+                "Could not enable protected auto-merge; inspect the workflow",
+            )
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(f"PR #{number}: {decision.reason}.\n")
 
