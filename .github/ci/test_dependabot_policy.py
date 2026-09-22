@@ -5,8 +5,10 @@ from __future__ import annotations
 import copy
 import json
 import os
+import subprocess
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -121,8 +123,14 @@ class DependabotPolicyTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.decide(pr=pull_request() | change)
 
-    def run_finish(self, current, metadata):
+    def run_finish(self, current, metadata, *, outcome="success", error=None, merge_error=False):
         effects = []
+
+        def command_effect(command, **kwargs):
+            effects.append(("command", command))
+            if merge_error and "--auto" in command:
+                raise subprocess.CalledProcessError(1, command)
+
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "dependency-policy-pr.json").write_text(json.dumps(pull_request()))
@@ -132,6 +140,7 @@ class DependabotPolicyTests(unittest.TestCase):
                 "RUNNER_TEMP": temp,
                 "GITHUB_STEP_SUMMARY": str(root / "summary"),
                 "DEPENDENCIES_JSON": json.dumps(metadata),
+                "METADATA_OUTCOME": outcome,
             }
             with (
                 patch.dict(os.environ, environment),
@@ -143,8 +152,9 @@ class DependabotPolicyTests(unittest.TestCase):
                 patch.object(
                     policy.subprocess,
                     "run",
-                    side_effect=lambda command, **kwargs: effects.append(("command", command)),
+                    side_effect=command_effect,
                 ),
+                self.assertRaisesRegex(RuntimeError, error) if error else nullcontext(),
             ):
                 policy.main()
         return effects
@@ -165,6 +175,36 @@ class DependabotPolicyTests(unittest.TestCase):
         self.assertIn("--auto", command)
         self.assertEqual(command[-2:], ["--match-head-commit", HEAD])
         self.assertNotIn("--admin", command)
+
+    def test_metadata_failure_revokes_queued_merge_and_fails_required_status(self) -> None:
+        current = pull_request() | {"auto_merge": {"merge_method": "squash"}}
+        for outcome, metadata in (("failure", [dependency()]), ("success", []), ("skipped", [])):
+            with self.subTest(outcome=outcome, metadata=metadata):
+                effects = self.run_finish(
+                    current, metadata, outcome=outcome, error="metadata verification failed"
+                )
+                self.assertEqual([kind for kind, _ in effects], ["command", "status"])
+                self.assertIn("--disable-auto", effects[0][1])
+                self.assertEqual(effects[1][1][2], "failure")
+
+    def test_owner_pr_does_not_require_dependabot_metadata(self) -> None:
+        current = pull_request() | {"user": {"login": "maintainer", "type": "User"}}
+        effects = self.run_finish(current, [], outcome="skipped")
+        self.assertEqual([kind for kind, _ in effects], ["status"])
+        self.assertEqual(effects[0][1][2], "success")
+
+    def test_conflicts_fail_required_status_without_requesting_merge(self) -> None:
+        current = pull_request() | {"mergeable": False}
+        effects = self.run_finish(current, [dependency()], error="Merge conflicts")
+        self.assertEqual([kind for kind, _ in effects], ["status"])
+        self.assertEqual(effects[0][1][2], "failure")
+
+    def test_merge_request_failure_cannot_leave_a_green_required_status(self) -> None:
+        effects = self.run_finish(
+            pull_request(), [dependency()], error="Could not enable", merge_error=True
+        )
+        self.assertEqual([kind for kind, _ in effects], ["status", "command", "status"])
+        self.assertEqual(effects[-1][1][2], "failure")
 
     def test_head_change_prevents_all_merge_and_status_mutations(self) -> None:
         current = copy.deepcopy(pull_request())

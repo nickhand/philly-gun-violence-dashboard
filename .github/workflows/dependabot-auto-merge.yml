@@ -53,5 +53,6 @@ jobs:
       - name: Enforce policy and request native auto-merge
         if: ${{ !cancelled() && steps.begin.outcome == 'success' }}
         env:
+          METADATA_OUTCOME: ${{ steps.metadata.outcome }}
           DEPENDENCIES_JSON: ${{ steps.metadata.outputs.updated-dependencies-json }}
         run: python3 .github/ci/dependabot_policy.py finish

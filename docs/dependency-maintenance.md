@@ -10,8 +10,12 @@ protected branch's required checks before merging.
 
 Python and frontend minor/patch updates, minor/patch GitHub Actions updates, and
 classified minor/patch Docker updates are eligible. Shared Docker pins are
-grouped by image name. Python updates preserve existing compatible requirements
-with `increase-if-necessary`, reducing drift between linked package lockfiles. Version-update PR limits remain three for Python and two
+grouped by image name. Routine Python and frontend proposals target only direct
+dependencies declared in manifests (`allow.dependency-type: direct`), including
+development tools. Their lockfile updates can still update transitive dependencies;
+we do not request standalone version bumps for every transitive package. Python
+updates preserve existing compatible requirements with `increase-if-necessary`,
+reducing drift between linked package lockfiles. Version-update PR limits remain three for Python and two
 for the other ecosystems; these are not a repository-wide total.
 
 Every dependency in a group must qualify. The pinned official metadata action
@@ -56,6 +60,10 @@ it requests auto-merge again only for an eligible head. This prevents an earlier
 eligible commit's request surviving an ineligible replacement. An ineligible PR
 can still be deliberately merged after its tests pass: a successful policy
 status means the auto-merge decision was enforced, not that auto-merge was granted.
+Verification failures are different: missing/truncated metadata, a failed metadata
+action, merge conflicts on an eligible PR, or failure to request auto-merge leave a
+**failed** required policy status and workflow. The status links to the workflow
+run with the recovery reason; it must never report success for these failures.
 
 The privileged policy workflow runs only trusted base-branch code. It never
 checks out, installs, caches, or executes PR code or artifacts. Read-only PR
@@ -79,6 +87,28 @@ required. Do not assume an auto-merged dependency is already deployed.
 Existing PRs are closed only after their update is superseded by a validated
 replacement, or explicitly recorded as a deferred, nonsecurity major migration.
 Security alerts are not dismissed as part of backlog cleanup.
+
+## Recovery from oversized batches
+
+On September 22, PRs #49 and #50 were produced from commit `7924371`, before
+the validated cleanup in #46. The wildcard `allow.dependency-name: "*"`
+unintentionally admitted indirect dependencies, expanding those groups to 189
+frontend and 50 Python updates. Both commit messages were truncated at 65,535
+characters, losing the complete metadata required by `dependabot/fetch-metadata`.
+Both branches also conflicted with the cleanup already on `main`.
+
+The recovery is to restore the direct-dependency boundary, then let Dependabot
+regenerate against current `main`. Retire the obsolete broad proposals only after
+checking their direct target versions against `main`; any genuinely outstanding
+direct update must remain eligible for a fresh proposal. Do not bypass signature
+verification, infer approval from the PR title, or merge the conflicted lockfiles.
+Dependabot configuration edits can start update jobs immediately, so the Monday
+schedule does not mean no PR can appear during a configuration rollout.
+
+The comparison found 17 of 19 frontend direct targets and 26 of 29 Python direct
+targets already on `main`. Remaining targets were Node typings 20.19.43, Vuetify
+3.13.4, boto3-stubs 1.43.94 in the scraper/shared packages, and Python Playwright
+1.63.0 in ETL. These remain ordinary maintenance candidates, not ignored versions.
 
 ## Deferred migrations recorded on 2026-09-22
 
