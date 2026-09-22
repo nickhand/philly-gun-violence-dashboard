@@ -133,6 +133,12 @@ packages/aws-batch-scraper/ Reusable ECS/SQS scraper framework
 frontend/                    Nuxt frontend application and civic UI layer
 ```
 
+## Dependency maintenance
+
+Dependabot batches routine updates weekly while keeping major upgrades separate.
+See [the maintenance policy](docs/dependency-maintenance.md) for grouping,
+security updates, review expectations, and prerequisites for automatic merging.
+
 ## Known Limitations
 
 - Source data is preliminary and can change after publication.
