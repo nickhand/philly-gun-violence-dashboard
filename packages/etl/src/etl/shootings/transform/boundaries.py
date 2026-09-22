@@ -112,7 +112,8 @@ def join_with_boundary_datasets(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # 2. Backfill missing location data from criminal incidents dataset
     # -------------------------------------------------------------------------
     df = _backfill_location_data(df)
-    if df.crs is None:
+    target_crs = df.crs
+    if target_crs is None:
         raise ValueError("Location backfill removed the input coordinate system")
 
     # -------------------------------------------------------------------------
@@ -127,7 +128,7 @@ def join_with_boundary_datasets(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         # Track original columns
         original_columns = set(df.columns)
 
-        geo = geo.to_crs(df.crs)
+        geo = geo.to_crs(target_crs)
 
         # Merge
         df = df.pipe(_run_spatial_join, geo)
