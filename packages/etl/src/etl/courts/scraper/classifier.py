@@ -10,7 +10,7 @@ Classifies each scrape attempt into one of six buckets:
 """
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from loguru import logger
@@ -76,7 +76,7 @@ SOFT_BLOCKED_STATUS_CODES = {403, 429}
 SERVER_ERROR_STATUS_CODES = {500, 502, 503, 504}
 
 
-class Classification(str, Enum):
+class Classification(StrEnum):
     """Classification buckets for scrape attempts."""
 
     HAS_RESULTS = "HAS_RESULTS"
