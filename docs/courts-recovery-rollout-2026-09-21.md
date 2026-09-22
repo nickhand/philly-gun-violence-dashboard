@@ -1,8 +1,10 @@
-# Court recovery and monitoring rollout — September 21, 2026
+# Court recovery and monitoring rollout — September 21–22, 2026
 
 The [incident investigation](actions-investigation-2026-09-21.md) found a swallowed browser timeout, an indefinitely running worker, and a monitor that crashed when stopped ECS tasks expired. A successful submission and fresh shootings data had concealed the missing court publication.
 
 [PR #34](https://github.com/nickhand/philly-gun-violence-dashboard/pull/34) merged as `68b8b436a8c6234a62490ff1e59bdde5b10effc6`, including the reviewed Chrome and Ubuntu updates from PRs #31 and #27. Production recovery and rollout were explicitly authorized. All times here are UTC.
+
+Recovery and the independent monitoring were deployed September 21. The remaining scraper runtime activation completed September 22 after the full Fargate promotion gate passed. The production worker and monitor now use revisions `ujs-scraper:12` and `ujs-scraper-monitor:6` with the verified image digest below.
 
 ## Recovery evidence
 
@@ -14,7 +16,7 @@ Finalization completed at 23:00:06 and dispatched exactly one [court-processing 
 
 ## Prevention and visibility
 
-- The new scraper image supervises browser work in a child process with bounded scrape, startup, reset, and shutdown operations. Hard timeouts escape broad scraper exception handlers. A failed worker leaves its message available for normal redelivery. Runtime activation is gated below.
+- The activated scraper image supervises browser work in a child process with bounded scrape, startup, reset, and shutdown operations. Hard timeouts escape broad scraper exception handlers. A failed worker leaves its message available for normal redelivery.
 - The new monitor code retains validated terminal task evidence, worker progress, and monitor heartbeat/failure records. The deployed hourly independent watchdog checks unresolved leases, overdue runs, stopped/absent tasks, and stale progress.
 - The daily production smoke requires a valid, coverage-complete full court publication no more than eight days old before reporting its external success heartbeat. An explicitly unknown observation remains compatible with complete coverage.
 - The Fly scheduler runs the watchdog at minute 45 each hour. Deployment retained exactly one scheduler Machine and no scheduler in the public API app.
@@ -41,14 +43,20 @@ The verified scraper source tag is `0b910dd7d55db96cc10ce3e04946d9d5211f8bf7`; t
 | Fly API | `deployment-01M331TBK25YV25V0VVWEE9EAY` |
 | Fly scheduler | `deployment-01M332JQMFPREQE41TKDF1TKKA` |
 | Cloudflare production | `03ee168c-b7ac-49c6-8578-3c0f2fcb1edb` |
+| ECS worker | `ujs-scraper:12` |
+| ECS monitor | `ujs-scraper-monitor:6` |
 
-## Remaining scraper activation gate
+## Completed scraper activation gate
 
-The new worker definition `ujs-scraper:12` and monitor definition `ujs-scraper-monitor:6` both passed semantic preflight and reference the verified image above. **They have not been activated in GitHub's production variables.** ECS `RunTask` repeatedly returned `ServerException: Internal Error` before creating the isolated Fargate smoke task. The existing production definitions remain `ujs-scraper:11` and `ujs-scraper-monitor:5`; the browser supervision and durable monitor changes therefore still await runtime promotion.
+On September 21, ECS `RunTask` repeatedly returned `ServerException: Internal Error` before creating a task. Later bounded tests returned an explicit capacity-unavailable failure for each of the three existing production availability zones; a no-op test on the previous production definition also failed. The cluster and definitions were ACTIVE, subnets had available addresses, and the On-Demand quota was 64 vCPUs with no running tasks. The exact cause of AWS's earlier generic errors remains unconfirmed. The production variables stayed on worker revision 11 and monitor revision 5 during this interruption.
 
-The launch failure reproduced with both available deployment identities, the canonical production cluster ARN, and an existing production subnet that previously ran a worker. The cluster and definition are ACTIVE, the ECS service-linked role exists, all configured subnets have available IP addresses, and the On-Demand quota is 64 vCPUs with no running tasks. Task-definition settings differ from the previous revision only in the intended image and registration metadata. A token-conflict reconciliation returned no resource IDs; repeated task discovery found no launched smoke tasks. These observations do not establish the internal AWS cause.
+On September 22, Fargate accepted the same reviewed image and runtime configuration. The first probe, `afa489d0eb474ae8a597d4f5c02e2654`, exited zero and emitted the success marker, but its ENI evidence was incomplete: the limited profile lacked EC2 read permission and the deployment login had expired. That probe was preserved without approving promotion. After the login was refreshed, a fresh isolated probe captured the complete evidence; runtime settings and promotion requirements were unchanged.
 
-Do not bypass the [Fargate promotion gate](../packages/etl/README.md) or loosen the runtime security settings. Retry the isolated probe when ECS accepts launches, retain its actual ENI/task/log evidence, require exit zero and exactly one `COURTS_FARGATE_SMOKE_OK_V1` marker, then update both definition variables and `ECS_EXPECTED_IMAGE_URI` together and repeat semantic preflight. The recovered data and deployed watchdog remain healthy while activation is pending.
+The successful promotion probe was `arn:aws:ecs:us-east-1:985454606291:task/ujs-scraper/dba14864a900449785847e2f0c0b8b26`, running from 15:40:46 to 15:41:14. It used the exact worker revision and digest, Linux Fargate platform `1.4.0`, and disabled execute-command. EC2 resolved its ENI `eni-06224ed3103575546` in production subnet `subnet-0a3defe7f496101d9` with exactly security group `sg-08ba9aae13af9631b`. The live browser/runtime checks passed; the sole essential container exited zero and CloudWatch contained exactly one `COURTS_FARGATE_SMOKE_OK_V1` marker. No probe tasks remained. This satisfies the unchanged [Fargate promotion gate](../packages/etl/README.md).
+
+Before activation, fresh checks confirmed no active cluster tasks or court submission/processing workflows and zero visible, in-flight, or delayed main-queue messages. Both new definitions passed semantic preflight; the published ECR scan still reported no blocking findings. GitHub's worker, monitor, and expected-image variables were then updated to the exact revisions and matching digest, read back, and validated by semantic preflight again. Browser supervision and durable monitor evidence are now configured for subsequent scraper runs. This activation did not submit another scrape or change the recovered court data.
+
+The post-activation [court watchdog](https://github.com/nickhand/philly-gun-violence-dashboard/actions/runs/35749175348) and [production smoke](https://github.com/nickhand/philly-gun-violence-dashboard/actions/runs/35749178756) both passed. The hourly watchdog had also stayed green overnight. The recovered September 18 run remained the current valid, coverage-complete full publication; a full production scrape with the new revisions will occur on the normal schedule.
 
 The local `.artifacts/courts-rollout-2026-09-21/` directory retains credential-free before/proposed configurations, AWS request IDs, the verified release reference, and guarded probe/activation scripts with a README. Those operational artifacts are intentionally outside Git; do not publish raw task logs or credentials.
 
