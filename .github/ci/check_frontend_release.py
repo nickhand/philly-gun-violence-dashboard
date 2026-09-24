@@ -17,11 +17,10 @@ MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
 PAGE_PATHS = ("/", "/stats", "/data", "/methodology", "/about")
 REQUIRED_HEADERS = {
-    "content-security-policy": re.compile(r"frame-ancestors\s+'none'", re.I),
     "strict-transport-security": re.compile(r"(?:^|\s)max-age=31536000(?:[;\s]|$)", re.I),
     "x-content-type-options": re.compile(r"^nosniff$", re.I),
-    "x-frame-options": re.compile(r"^DENY$", re.I),
 }
+EXPECTED_FRAME_ANCESTORS = {"'self'", "https://savephillylives.org"}
 ASSET_PATTERN = re.compile(
     r"(?:src|href)=[\"']([^\"']*/_nuxt/[^\"']+\.(?:css|js))(?:\?[^\"']*)?[\"']",
     re.I,
@@ -78,6 +77,20 @@ def _require_page(response: Fetched, *, app_base_url: str, path: str) -> str:
         value = response.headers.get(name, "")
         if pattern.search(value) is None:
             raise RuntimeError(f"production response has invalid {name}: {path}")
+
+    frame_ancestors = [
+        directive.split()[1:]
+        for directive in response.headers.get("content-security-policy", "").split(";")
+        if directive.split() and directive.split()[0].lower() == "frame-ancestors"
+    ]
+    if (
+        len(frame_ancestors) != 1
+        or len(frame_ancestors[0]) != len(EXPECTED_FRAME_ANCESTORS)
+        or set(frame_ancestors[0]) != EXPECTED_FRAME_ANCESTORS
+    ):
+        raise RuntimeError(f"production response has invalid frame-ancestors: {path}")
+    if "x-frame-options" in response.headers:
+        raise RuntimeError(f"production response unexpectedly sets x-frame-options: {path}")
     return html
 
 
@@ -99,8 +112,7 @@ def check_frontend_release(
         raise ValueError("retry settings are invalid")
 
     latest_url = (
-        f"{base}/_nuxt/builds/latest.json?deployment-audit="
-        f"{quote(expected_build_id, safe='')}"
+        f"{base}/_nuxt/builds/latest.json?deployment-audit={quote(expected_build_id, safe='')}"
     )
     last_error = "build ID did not match"
     for attempt in range(attempts):
