@@ -78,6 +78,34 @@ class FrontendReleaseCheckerTests(unittest.TestCase):
                 retry_delay=0,
             )
 
+    def test_retries_pages_while_the_new_worker_propagates(self) -> None:
+        root_fetches = 0
+
+        def initially_stale_page(url: str):
+            nonlocal root_fetches
+            if url == f"{BASE}/":
+                root_fetches += 1
+                if root_fetches == 1:
+                    return _response(
+                        url,
+                        headers={
+                            **HEADERS,
+                            "content-security-policy": "frame-ancestors 'none'",
+                            "x-frame-options": "DENY",
+                        },
+                    )
+            return _fetch(url)
+
+        with patch.object(CHECKER, "_fetch", side_effect=initially_stale_page):
+            CHECKER.check_frontend_release(
+                app_base_url=BASE,
+                expected_build_id=BUILD_ID,
+                attempts=2,
+                retry_delay=0,
+            )
+
+        self.assertEqual(root_fetches, 2)
+
     def test_rejects_noindex_or_missing_security_headers(self) -> None:
         noindex = HTML.replace(b"</head>", b'<meta name="robots" content="noindex"></head>')
 
