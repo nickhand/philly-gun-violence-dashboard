@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
+DEFAULT_ATTEMPTS = 30
 PAGE_PATHS = ("/", "/stats", "/data", "/methodology", "/about")
 REQUIRED_HEADERS = {
     "strict-transport-security": re.compile(r"(?:^|\s)max-age=31536000(?:[;\s]|$)", re.I),
@@ -98,7 +99,7 @@ def check_frontend_release(
     *,
     app_base_url: str,
     expected_build_id: str,
-    attempts: int = 12,
+    attempts: int = DEFAULT_ATTEMPTS,
     retry_delay: float = 3,
 ) -> str:
     """Require the exact build ID, canonical pages, headers, and one hashed asset."""
@@ -131,12 +132,26 @@ def check_frontend_release(
             f"{last_error}"
         )
 
-    homepage_html = ""
-    for path in PAGE_PATHS:
-        page = _fetch(f"{base}{path}")
-        html = _require_page(page, app_base_url=base, path=path)
-        if path == "/":
-            homepage_html = html
+    # Static assets can switch to a new Worker version before every edge serves
+    # its HTML routes from that version. Check the pages again during rollout.
+    last_error = "production pages did not match the release contract"
+    for attempt in range(attempts):
+        try:
+            pages = {
+                path: _require_page(_fetch(f"{base}{path}"), app_base_url=base, path=path)
+                for path in PAGE_PATHS
+            }
+            break
+        except (HTTPError, URLError, TimeoutError, UnicodeError, RuntimeError) as exc:
+            last_error = str(exc)
+        if attempt + 1 < attempts:
+            time.sleep(retry_delay)
+    else:
+        raise RuntimeError(
+            f"production pages did not match after {attempts} attempts: {last_error}"
+        )
+
+    homepage_html = pages["/"]
 
     asset_match = ASSET_PATTERN.search(homepage_html)
     if asset_match is None:
@@ -162,7 +177,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app-base-url", required=True)
     parser.add_argument("--expected-build-id", required=True)
-    parser.add_argument("--attempts", type=int, default=12)
+    parser.add_argument("--attempts", type=int, default=DEFAULT_ATTEMPTS)
     parser.add_argument("--retry-delay", type=float, default=3)
     return parser
 
