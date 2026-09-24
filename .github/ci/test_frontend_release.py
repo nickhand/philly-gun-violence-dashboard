@@ -25,10 +25,9 @@ CHECKER = _load_checker()
 BASE = "https://www.nickhand.dev/philly-gun-violence-map"
 BUILD_ID = "build-123"
 HEADERS = {
-    "content-security-policy": "frame-ancestors 'none'",
+    "content-security-policy": "frame-ancestors 'self' https://savephillylives.org",
     "strict-transport-security": "max-age=31536000",
     "x-content-type-options": "nosniff",
-    "x-frame-options": "DENY",
 }
 HTML = b"""<!doctype html><html><head><title>Dashboard</title>
 <link rel="stylesheet" href="/philly-gun-violence-map/_nuxt/app.abc.css">
@@ -68,14 +67,16 @@ class FrontendReleaseCheckerTests(unittest.TestCase):
                 return _response(url, body=b'{"id":"older"}', headers={})
             return _fetch(url)
 
-        with patch.object(CHECKER, "_fetch", side_effect=stale):
-            with self.assertRaisesRegex(RuntimeError, "live build ID is 'older'"):
-                CHECKER.check_frontend_release(
-                    app_base_url=BASE,
-                    expected_build_id=BUILD_ID,
-                    attempts=1,
-                    retry_delay=0,
-                )
+        with (
+            patch.object(CHECKER, "_fetch", side_effect=stale),
+            self.assertRaisesRegex(RuntimeError, "live build ID is 'older'"),
+        ):
+            CHECKER.check_frontend_release(
+                app_base_url=BASE,
+                expected_build_id=BUILD_ID,
+                attempts=1,
+                retry_delay=0,
+            )
 
     def test_rejects_noindex_or_missing_security_headers(self) -> None:
         noindex = HTML.replace(b"</head>", b'<meta name="robots" content="noindex"></head>')
@@ -85,30 +86,106 @@ class FrontendReleaseCheckerTests(unittest.TestCase):
                 return _response(url, body=noindex)
             return _fetch(url)
 
-        with patch.object(CHECKER, "_fetch", side_effect=bad_page):
-            with self.assertRaisesRegex(RuntimeError, "noindex metadata: /stats"):
-                CHECKER.check_frontend_release(
-                    app_base_url=BASE,
-                    expected_build_id=BUILD_ID,
-                    attempts=1,
-                    retry_delay=0,
-                )
+        with (
+            patch.object(CHECKER, "_fetch", side_effect=bad_page),
+            self.assertRaisesRegex(RuntimeError, "noindex metadata: /stats"),
+        ):
+            CHECKER.check_frontend_release(
+                app_base_url=BASE,
+                expected_build_id=BUILD_ID,
+                attempts=1,
+                retry_delay=0,
+            )
 
         def missing_header(url: str):
             if url == f"{BASE}/about":
                 headers = dict(HEADERS)
-                headers.pop("x-frame-options")
+                headers.pop("x-content-type-options")
                 return _response(url, headers=headers)
             return _fetch(url)
 
-        with patch.object(CHECKER, "_fetch", side_effect=missing_header):
-            with self.assertRaisesRegex(RuntimeError, "invalid x-frame-options: /about"):
+        with (
+            patch.object(CHECKER, "_fetch", side_effect=missing_header),
+            self.assertRaisesRegex(RuntimeError, "invalid x-content-type-options: /about"),
+        ):
+            CHECKER.check_frontend_release(
+                app_base_url=BASE,
+                expected_build_id=BUILD_ID,
+                attempts=1,
+                retry_delay=0,
+            )
+
+    def test_rejects_embedding_policy_regressions(self) -> None:
+        def page_with_headers(headers: dict[str, str]):
+            def fetch(url: str):
+                if url == f"{BASE}/about":
+                    return _response(url, headers=headers)
+                return _fetch(url)
+
+            return fetch
+
+        bad_headers = (
+            ({"content-security-policy": ""}, "invalid frame-ancestors"),
+            ({"content-security-policy": "frame-ancestors 'none'"}, "invalid frame-ancestors"),
+            ({"content-security-policy": "frame-ancestors 'self'"}, "invalid frame-ancestors"),
+            ({"content-security-policy": "frame-ancestors *"}, "invalid frame-ancestors"),
+            (
+                {
+                    "content-security-policy": (
+                        "frame-ancestors 'self' https://savephillylives.org "
+                        "https://untrusted.example"
+                    )
+                },
+                "invalid frame-ancestors",
+            ),
+            (
+                {
+                    "content-security-policy": (
+                        "frame-ancestors 'self' https://savephillylives.org; frame-ancestors 'none'"
+                    )
+                },
+                "invalid frame-ancestors",
+            ),
+            ({"x-frame-options": "DENY"}, "unexpectedly sets x-frame-options"),
+            ({"x-frame-options": "SAMEORIGIN"}, "unexpectedly sets x-frame-options"),
+        )
+
+        for overrides, message in bad_headers:
+            with (
+                self.subTest(overrides=overrides),
+                patch.object(
+                    CHECKER,
+                    "_fetch",
+                    side_effect=page_with_headers({**HEADERS, **overrides}),
+                ),
+                self.assertRaisesRegex(RuntimeError, f"{message}: /about"),
+            ):
                 CHECKER.check_frontend_release(
                     app_base_url=BASE,
                     expected_build_id=BUILD_ID,
                     attempts=1,
                     retry_delay=0,
                 )
+
+    def test_accepts_frame_ancestors_with_other_csp_directives(self) -> None:
+        def policy_with_other_directive(url: str):
+            if url == f"{BASE}/about":
+                headers = {
+                    **HEADERS,
+                    "content-security-policy": (
+                        "default-src 'self'; frame-ancestors https://savephillylives.org 'self'"
+                    ),
+                }
+                return _response(url, headers=headers)
+            return _fetch(url)
+
+        with patch.object(CHECKER, "_fetch", side_effect=policy_with_other_directive):
+            CHECKER.check_frontend_release(
+                app_base_url=BASE,
+                expected_build_id=BUILD_ID,
+                attempts=1,
+                retry_delay=0,
+            )
 
     def test_rejects_an_asset_outside_the_application_path(self) -> None:
         escaped = HTML.replace(
@@ -121,14 +198,16 @@ class FrontendReleaseCheckerTests(unittest.TestCase):
                 return _response(url, body=escaped)
             return _fetch(url)
 
-        with patch.object(CHECKER, "_fetch", side_effect=escaped_page):
-            with self.assertRaisesRegex(RuntimeError, "escaped the canonical application path"):
-                CHECKER.check_frontend_release(
-                    app_base_url=BASE,
-                    expected_build_id=BUILD_ID,
-                    attempts=1,
-                    retry_delay=0,
-                )
+        with (
+            patch.object(CHECKER, "_fetch", side_effect=escaped_page),
+            self.assertRaisesRegex(RuntimeError, "escaped the canonical application path"),
+        ):
+            CHECKER.check_frontend_release(
+                app_base_url=BASE,
+                expected_build_id=BUILD_ID,
+                attempts=1,
+                retry_delay=0,
+            )
 
 
 if __name__ == "__main__":

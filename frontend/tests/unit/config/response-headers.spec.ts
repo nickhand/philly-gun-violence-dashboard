@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createSharedResponseHeaders,
+  EMBED_ALLOWED_ORIGIN,
   STRICT_TRANSPORT_SECURITY,
 } from "../../../config/responseHeaders";
 
@@ -16,6 +17,10 @@ describe("shared Nuxt response headers", () => {
       STRICT_TRANSPORT_SECURITY,
     );
     expect(headers["X-Robots-Tag"]).toBeUndefined();
+    expect(headers["Content-Security-Policy"]).toBe(
+      `frame-ancestors 'self' ${EMBED_ALLOWED_ORIGIN}`,
+    );
+    expect(headers["X-Frame-Options"]).toBeUndefined();
   });
 
   it("does not set HSTS on the non-indexable workers.dev staging deployment", () => {
@@ -26,6 +31,8 @@ describe("shared Nuxt response headers", () => {
 
     expect(headers["Strict-Transport-Security"]).toBeUndefined();
     expect(headers["X-Robots-Tag"]).toBe("noindex, nofollow");
+    expect(headers["Content-Security-Policy"]).toBe("frame-ancestors 'none'");
+    expect(headers["X-Frame-Options"]).toBe("DENY");
   });
 
   it("does not teach browsers an HSTS policy during local development", () => {
@@ -35,5 +42,7 @@ describe("shared Nuxt response headers", () => {
     });
 
     expect(headers["Strict-Transport-Security"]).toBeUndefined();
+    expect(headers["Content-Security-Policy"]).toBe("frame-ancestors 'none'");
+    expect(headers["X-Frame-Options"]).toBe("DENY");
   });
 });

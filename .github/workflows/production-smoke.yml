@@ -70,9 +70,12 @@ jobs:
               exit 1
             fi
             grep -Eiq '^strict-transport-security:[[:space:]]*max-age=31536000([;[:space:]]|$)' "${headers}"
-            grep -Eiq "^content-security-policy:.*frame-ancestors[[:space:]]+'none'" "${headers}"
+            grep -Eiq "^content-security-policy:[[:space:]]*frame-ancestors[[:space:]]+'self'[[:space:]]+https://savephillylives\\.org[[:space:]]*$" "${headers}"
             grep -Eiq '^x-content-type-options:[[:space:]]*nosniff[[:space:]]*$' "${headers}"
-            grep -Eiq '^x-frame-options:[[:space:]]*DENY[[:space:]]*$' "${headers}"
+            if grep -Eiq '^x-frame-options:' "${headers}"; then
+              echo "Production response unexpectedly sets X-Frame-Options: ${path}" >&2
+              exit 1
+            fi
           done
       - name: Check crawler discovery contracts
         run: |

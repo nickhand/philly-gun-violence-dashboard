@@ -340,6 +340,11 @@ full production smoke runs afterward as a health report and cannot trigger an
 automatic rollback. `npm run deploy:nuxt:production` remains an operator-only
 emergency command. Follow [the cutover runbook](../docs/cloudflare-cutover.md).
 
+Production permits the dashboard to be framed by its own origin and
+`https://savephillylives.org`; all other parent origins remain blocked. The
+production response omits `X-Frame-Options` because it cannot express this
+cross-origin allowlist. Staging and local development continue to reject framing.
+
 The Nuxt dashboard owns the production Explore route and its map, filter,
 chart, address-search, and download interactions. The former Netlify project is
 stopped and repository-unlinked; production rollback uses a retained Cloudflare

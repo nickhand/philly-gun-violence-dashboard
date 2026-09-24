@@ -117,6 +117,16 @@ assert.match(cloudflareHeaders, /philly-gun-violence-map\/_nuxt/);
 if (environmentName === "staging") {
   assert.match(
     cloudflareHeaders,
+    /Content-Security-Policy: frame-ancestors 'none'/,
+    "The staging assets must reject framing.",
+  );
+  assert.match(
+    cloudflareHeaders,
+    /X-Frame-Options: DENY/,
+    "The staging assets must retain the legacy frame protection.",
+  );
+  assert.match(
+    cloudflareHeaders,
     /X-Robots-Tag: noindex, nofollow/,
     "The staging assets were built without the crawler noindex policy.",
   );
@@ -126,6 +136,16 @@ if (environmentName === "staging") {
     "The workers.dev staging build must not publish an HSTS policy.",
   );
 } else {
+  assert.match(
+    cloudflareHeaders,
+    /Content-Security-Policy: frame-ancestors 'self' https:\/\/savephillylives\.org/,
+    "The production assets are missing the partner framing policy.",
+  );
+  assert.doesNotMatch(
+    cloudflareHeaders,
+    /X-Frame-Options:/i,
+    "The production assets still have an incompatible frame policy.",
+  );
   assert.doesNotMatch(
     cloudflareHeaders,
     /X-Robots-Tag: noindex, nofollow/,
