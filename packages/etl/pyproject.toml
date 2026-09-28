@@ -13,7 +13,7 @@ dependencies = [
     "loguru>=0.7.3",
     "networkx>=3.6.1",
     "pandas>=2.3.3,<3",
-    "playwright==1.62.0",
+    "playwright==1.63.0",
     "pydantic>=2.13.5",
     "aws-batch-scraper",
     "dashboard-utils",
@@ -39,7 +39,7 @@ dev = [
     "pandas-stubs>=2.3.3.251201",
     "pytest>=8.0.0",
     "ruff>=0.16.7",
-    "ty==0.0.81",
+    "ty==0.0.82",
     "types-geopandas>=1.1.4.20260807",
     "types-networkx>=3.6.1.20251212",
 ]
