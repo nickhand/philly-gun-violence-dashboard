@@ -103,8 +103,8 @@ jobs:
               remote_base="$(git merge-base \
                 "origin/${{ github.event.repository.default_branch }}" \
                 "refs/remotes/origin/${UPDATE_BRANCH}")"
-              remote_commit_count="$(git rev-list --count \
-                "${remote_base}..refs/remotes/origin/${UPDATE_BRANCH}")"
+              # A branch already merged into main has an empty range. It is
+              # safe to refresh because it contains no unmerged work to lose.
               bot_email='41898282+github-actions[bot]@users.noreply.github.com'
               unexpected_identities="$(git log \
                 --format='%ae|%ce' \
@@ -114,8 +114,7 @@ jobs:
                 "${remote_base}..refs/remotes/origin/${UPDATE_BRANCH}" | \
                 grep -Ev \
                   '^(Justfile|packages/etl/chrome-lock\.json|packages/etl/Dockerfile|packages/etl/README\.md|packages/aws-batch-scraper/docs/container\.md|packages/aws-batch-scraper/tests/test_release_image\.py)$' || true)"
-              if [[ "${remote_commit_count}" -lt 1 || \
-                    -n "${unexpected_identities}" || \
+              if [[ -n "${unexpected_identities}" || \
                     -n "${unexpected_remote_paths}" ]]; then
                 printf 'Refusing to overwrite a Chrome update branch containing human or out-of-scope changes.\n' >&2
                 exit 1
