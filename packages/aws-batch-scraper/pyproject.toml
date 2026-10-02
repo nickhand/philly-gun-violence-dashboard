@@ -20,6 +20,8 @@ aws-batch-scraper-release-image = "aws_batch_scraper.release_image:main"
 
 [tool.uv]
 exclude-newer = "1 week"
+# Keep independent locks above the reviewed shared security floor.
+constraint-dependencies = ["urllib3>=2.8.0"]
 
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]

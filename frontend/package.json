@@ -36,7 +36,8 @@
     "test:lighthouse:policy": "node --test tests/lighthouse-policy.test.mjs",
     "audit:dependencies": "npm audit --audit-level=high",
     "deploy:nuxt:staging": "npm run build:nuxt:cloudflare:staging && wrangler deploy --env staging",
-    "deploy:nuxt:production": "npm run build:nuxt:cloudflare:production && wrangler deploy --env production"
+    "deploy:nuxt:production": "npm run build:nuxt:cloudflare:production && wrangler deploy --env production",
+    "test:dependency-security": "node --test tests/dependency-security.test.mjs"
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
@@ -60,7 +61,8 @@
     "posthog-js": "^1.434.4",
     "vue": "3.5.43",
     "vue-router": "5.3.1",
-    "vuetify": "^3.13.4"
+    "vuetify": "^3.13.4",
+    "node-forge": "file:vendor/node-forge-1.4.1-philly.1.tgz"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -85,5 +87,12 @@
     "vitest": "^4.1.11",
     "vue-tsc": "^3.3.11",
     "wrangler": "4.144.0"
+  },
+  "overrides": {
+    "node-forge": "$node-forge",
+    "brace-expansion@^2.0.0": "2.1.7",
+    "brace-expansion@^5.0.0": "5.0.12",
+    "devalue": "5.9.3",
+    "dompurify": "3.4.16"
   }
 }

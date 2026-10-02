@@ -14,7 +14,7 @@
 
 45 * * * * python scripts/dispatch_workflow.py courts-watchdog.yml
 
-15 10 * * 2 python scripts/dispatch_workflow.py security-quality.yml
+17 7 * * * python scripts/dispatch_workflow.py security-quality.yml
 
 # Phase 1: frontend-quality.yml remains owned by its native weekly schedule.
 # Add it here only during the documented phase-2 handoff.

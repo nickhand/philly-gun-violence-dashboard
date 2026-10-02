@@ -33,10 +33,29 @@ major upgrade. Major/security exceptions still need a deliberate upgrade or repa
 failed checks are never overridden to clear the queue.
 
 The options follow GitHub's [Dependabot reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).
-Deferring an ordinary major upgrade does not disable the weekly dependency audits
+Deferring an ordinary major upgrade does not disable the daily dependency and scraper image audits
 or the daily Chrome updater.
 
 ## Enforced merge checks
+
+The Fly scheduler dispatches dependency security checks daily at 07:17 UTC,
+one hour before the Chrome updater. Every scheduled/manual audit also rebuilds,
+smoke-tests, and scans the full scraper image using the same reusable workflow
+as ETL PR validation. This catches Ubuntu snapshot drift and new advisories even
+when Chrome and lockfiles have not changed. Failed scans retain their SBOM and
+vulnerability reports for 30 days. Deploy the updated scheduler image to activate
+a crontab change; a source merge alone does not update the running scheduler.
+
+Security repairs must cover all four independent Python locks. The shared
+urllib3 constraint prevents a routine resolution from returning below 2.8.0,
+and repository contracts require the locked versions to agree. Keep the normal
+one-week release cooldown; for an urgent fix inside that window, review and
+document a package-specific exception instead of disabling the policy globally.
+
+The temporary [node-forge backport](../frontend/vendor/README.md) includes a
+reproducible archive and regression tests because no patched upstream release
+was available. Revisit it when upstream ships the fix. Vulnerability thresholds
+and release gates remain enforced.
 
 `main` requires an up-to-date PR and these checks, including for administrators:
 

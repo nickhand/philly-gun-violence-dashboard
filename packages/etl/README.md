@@ -221,9 +221,9 @@ The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
 same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
-date. The `20260921T180000Z` snapshot includes Canonical's security updates for
+date. The `20261001T180000Z` snapshot includes Canonical's security updates for
 OpenSSL, Perl, Python, libcurl, and libaom. The image build and SBOM gate assert
-`libcurl3t64-gnutls` version `8.18.0-1ubuntu2.5` and `libaom3` version
+`libcurl3t64-gnutls` version `8.18.0-1ubuntu2.7` and `libaom3` version
 `3.13.1-2ubuntu0.1`.
 
 GTK's image-loader dependencies require Bubblewrap. Ubuntu reverted its
@@ -281,8 +281,8 @@ policy change to investigate and review, not something the worker follows
 implicitly.
 
 The minimal Ubuntu base does not initially contain CA roots. Before its first
-apt transaction, the build bootstraps `openssl` 3.5.5-1ubuntu3.5 (SHA-256
-`0cea6b98673ff88218b7e5f18c1bd42f06bdfcae6c1ebc9964adf3bc41420c19`)
+apt transaction, the build bootstraps `openssl` 3.5.5-1ubuntu3.7 (SHA-256
+`6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621`)
 and `ca-certificates` 20260601~26.04.1 (SHA-256
 `6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90`)
 from exact Canonical snapshot URLs. Those artifacts and hashes come from the

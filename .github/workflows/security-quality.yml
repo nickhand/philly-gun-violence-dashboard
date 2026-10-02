@@ -16,6 +16,7 @@ on:
       - "packages/aws-batch-scraper/uv.lock"
       - "frontend/package-lock.json"
       - "frontend/package.json"
+      - "frontend/vendor/**"
       - "uv.toml"
       - ".github/workflows/security-quality.yml"
       - ".github/ci/scope.py"
@@ -154,11 +155,19 @@ jobs:
         with:
           node-version: 22.19.0
       - run: npm install --global npm@11.18.0
+      - run: npm ci --ignore-scripts
+      - run: npm run test:dependency-security
       - run: npm audit --package-lock-only --audit-level=high
+
+  image:
+    name: Daily scraper image security audit
+    needs: changes
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/scraper-image-quality.yml
 
   gate:
     name: Dependency security gate
-    needs: [changes, api, etl, dashboard, scraper, frontend]
+    needs: [changes, api, etl, dashboard, scraper, frontend, image]
     if: always()
     runs-on: ubuntu-24.04
     env:
@@ -167,6 +176,8 @@ jobs:
       ETL_SELECTED: ${{ needs.changes.outputs.etl }}
       DASHBOARD_SELECTED: ${{ needs.changes.outputs.dashboard }}
       SCRAPER_SELECTED: ${{ needs.changes.outputs.scraper }}
+      IMAGE_SELECTED: ${{ github.event_name == 'workflow_dispatch' }}
+      IMAGE_RESULT: ${{ needs.image.result }}
       FRONTEND_SELECTED: ${{ needs.changes.outputs.frontend }}
       API_RESULT: ${{ needs.api.result }}
       ETL_RESULT: ${{ needs.etl.result }}
@@ -189,3 +200,4 @@ jobs:
           require_routed_job "${DASHBOARD_SELECTED}" "${DASHBOARD_RESULT}" "dashboard"
           require_routed_job "${SCRAPER_SELECTED}" "${SCRAPER_RESULT}" "scraper"
           require_routed_job "${FRONTEND_SELECTED}" "${FRONTEND_RESULT}" "frontend"
+          require_routed_job "${IMAGE_SELECTED}" "${IMAGE_RESULT}" "image"

@@ -9,9 +9,13 @@ from collections import Counter
 from pathlib import Path
 from types import ModuleType
 
+import tomllib
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
-ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset({"./.github/workflows/production-smoke.yml"})
+ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset(
+    {"./.github/workflows/production-smoke.yml", "./.github/workflows/scraper-image-quality.yml"}
+)
 
 EXTERNAL_SCHEDULE_COUNTS = {
     "chrome-update.yml": 1,
@@ -32,7 +36,7 @@ EXPECTED_CRONTAB_LINES = (
     "15 2 * * 5 python scripts/dispatch_workflow.py courts-scrape.yml",
     "0 19 * * * python scripts/dispatch_workflow.py production-smoke.yml",
     "45 * * * * python scripts/dispatch_workflow.py courts-watchdog.yml",
-    "15 10 * * 2 python scripts/dispatch_workflow.py security-quality.yml",
+    "17 7 * * * python scripts/dispatch_workflow.py security-quality.yml",
 )
 
 
@@ -76,8 +80,41 @@ class DeploymentContracts(unittest.TestCase):
         self.assertNotIn("  schedule:", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
         self.assertIn(
-            "15 10 * * 2 python scripts/dispatch_workflow.py security-quality.yml",
+            "17 7 * * * python scripts/dispatch_workflow.py security-quality.yml",
             crontab,
+        )
+
+    def test_daily_security_audit_reuses_the_production_image_gate(self) -> None:
+        security = (WORKFLOWS / "security-quality.yml").read_text()
+        etl = (WORKFLOWS / "etl-quality.yml").read_text()
+        shared = (WORKFLOWS / "scraper-image-quality.yml").read_text()
+        reference = "uses: ./.github/workflows/scraper-image-quality.yml"
+        self.assertIn(reference, etl)
+        self.assertIn(reference, security)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", security)
+        self.assertIn("needs: [changes, api, etl, dashboard, scraper, frontend, image]", security)
+        self.assertIn('require_routed_job "${IMAGE_SELECTED}" "${IMAGE_RESULT}" "image"', security)
+        self.assertIn("workflow_call:", shared)
+        self.assertIn("scan-local-image", shared)
+        self.assertIn("chromium_sandbox=False", shared)
+        self.assertIn("if: always()", shared)
+        self.assertIn("retention-days: 30", shared)
+
+    def test_python_locks_share_the_reviewed_urllib3_security_floor(self) -> None:
+        versions = set()
+        for name in ("api", "etl", "dashboard-utils", "aws-batch-scraper"):
+            package = REPOSITORY_ROOT / "packages" / name
+            manifest = tomllib.loads((package / "pyproject.toml").read_text())
+            lock = tomllib.loads((package / "uv.lock").read_text())
+            with self.subTest(package=name):
+                self.assertIn("urllib3>=2.8.0", manifest["tool"]["uv"]["constraint-dependencies"])
+                urllib3 = [item for item in lock["package"] if item["name"] == "urllib3"]
+                self.assertEqual(len(urllib3), 1)
+                version = urllib3[0]["version"]
+                self.assertGreaterEqual(tuple(map(int, version.split("."))), (2, 8, 0))
+                versions.add(version)
+        self.assertEqual(
+            len(versions), 1, "coordinate security repairs across all independent locks"
         )
 
     def test_courts_schedule_defaults_to_full_run_deduplication(self) -> None:
