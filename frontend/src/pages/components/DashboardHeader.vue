@@ -13,7 +13,6 @@
         :aria-hidden="!isDataReady"
         :style="{
           opacity: isDataReady && displayHasHomicideData ? 1 : 0,
-          transition: 'opacity 0.2s ease-in',
         }"
         v-html="displayHasHomicideData ? displayHomicideMessage : ''"
       />
@@ -24,7 +23,6 @@
         :aria-hidden="!isDataReady"
         :style="{
           opacity: isDataReady ? 1 : 0,
-          transition: 'opacity 0.2s ease-in',
         }"
         v-html="displayShootingMessage"
       />

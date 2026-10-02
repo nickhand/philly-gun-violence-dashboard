@@ -7,6 +7,7 @@ import { vuetify } from "@/app/vuetify";
 import { initAnalytics } from "@/shared/analytics";
 
 // Styles
+import "@/app/styles/montserrat.css";
 import "@/app/styles/main.css";
 
 // Initialize analytics before app mount

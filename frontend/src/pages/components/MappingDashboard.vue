@@ -41,7 +41,6 @@
           :choropleth-layer-names="choroplethLayerNames"
           :default-toggled-layer-names="defaultToggledLayerNames"
           :histograms="histograms"
-          @map-ready="handleMapReady"
           @filter-change="handleFilterChange"
           @filter-reset="handleFilterReset"
           @reset-all="handleResetAll"
@@ -95,13 +94,9 @@ const {
   sortedYears: dataYears,
 } = storeToRefs(shootingsStore);
 
-// Track whether the map component is ready
-const mapReady = ref(false);
-
-// Centralized loading state
-const { showLoading, hasData: dataReady } = useLoadingState({
-  componentReady: mapReady,
-});
+// Statistics depend on the selected dataset, not the lazy map renderer.
+// The map keeps its own loader while it initializes.
+const { showLoading, hasData: dataReady } = useLoadingState();
 
 // Normalize selectedYear to exclude undefined
 const normalizedYear = computed(() => selectedYear.value ?? null);
@@ -289,10 +284,6 @@ function handleFilterReset(dimensionId: string): void {
 
 function handleResetAll(): void {
   resetAllFilters();
-}
-
-function handleMapReady(): void {
-  mapReady.value = true;
 }
 
 // ============================================================================
