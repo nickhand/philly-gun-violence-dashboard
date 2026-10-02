@@ -136,6 +136,12 @@ required rollback gate. See
 [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) for the manual WCAG 2.1 AA evaluation
 checklist.
 
+The legacy header displays validated statistics as soon as the selected data is
+ready, while the map initializes with its own loader. Montserrat uses local
+copies of the existing Google Fonts v31 subsets, with the Latin face preloaded;
+the original font license and source hashes are in `public/fonts/montserrat`.
+This removes the blocking third-party font stylesheet from initial rendering.
+
 ## Bundle budgets
 
 The production build emits a Vite manifest and `npm run check:bundle` enforces
