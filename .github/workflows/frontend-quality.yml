@@ -420,14 +420,29 @@ jobs:
             echo "Worker upload did not reconcile to tag ${tag}; command_rc=${upload_rc}." >&2
             exit 1
           fi
-          npx --no-install wrangler versions view "${version}" --env production --json \
-            > "${RUNNER_TEMP}/cloudflare-version.json"
-          jq -e \
-            --arg id "${version}" \
-            --arg tag "${tag}" \
-            --arg sha "${GITHUB_SHA}" \
-            '.id == $id and .annotations["workers/tag"] == $tag and (.annotations["workers/message"] | contains($sha))' \
-            "${RUNNER_TEMP}/cloudflare-version.json"
+          # A newly listed version can briefly return Cloudflare error 100146.
+          # Retry the read only; never repeat the upload or accept mismatched evidence.
+          verified=false
+          for attempt in {1..10}; do
+            if npx --no-install wrangler versions view "${version}" --env production --json \
+              > "${RUNNER_TEMP}/cloudflare-version.json"; then
+              jq -e \
+                --arg id "${version}" \
+                --arg tag "${tag}" \
+                --arg sha "${GITHUB_SHA}" \
+                '.id == $id and .annotations["workers/tag"] == $tag and (.annotations["workers/message"] | contains($sha))' \
+                "${RUNNER_TEMP}/cloudflare-version.json"
+              verified=true
+              break
+            fi
+            if [[ "${attempt}" -lt 10 ]]; then
+              sleep 3
+            fi
+          done
+          if [[ "${verified}" != true ]]; then
+            echo "Worker version ${version} could not be verified after 10 reads; refusing activation." >&2
+            exit 1
+          fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
       - name: Activate the exact uploaded Worker version
         id: activate
