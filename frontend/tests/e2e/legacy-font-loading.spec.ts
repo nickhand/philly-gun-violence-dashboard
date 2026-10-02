@@ -20,15 +20,22 @@ test("loads Montserrat from the application without third-party font requests", 
   await mockDashboardApi(page);
   await page.goto("./");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  const montserratLoaded = await page.evaluate(async () => {
-    await document.fonts.ready;
-    return document.fonts.check("400 32px Montserrat");
-  });
-
-  expect(montserratLoaded).toBe(true);
-  expect(fontRequests.some((url) =>
-    url.endsWith("/fonts/montserrat/montserrat-latin.woff2"),
-  )).toBe(true);
+  await expect
+    .poll(() => page.evaluate(async () => {
+      const faces = await document.fonts.load(
+        "400 32px Montserrat",
+        "Mapping Philadelphia",
+      );
+      return faces.length;
+    }))
+    .toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.fonts.check(
+    "400 32px Montserrat",
+    "Mapping Philadelphia",
+  ))).toBe(true);
+  expect(fontRequests.some((url) => url.endsWith(
+    "/fonts/montserrat/montserrat-latin.woff2",
+  ))).toBe(true);
   for (const fontUrl of fontRequests) {
     expect(new URL(fontUrl).origin).toBe(new URL(page.url()).origin);
   }
