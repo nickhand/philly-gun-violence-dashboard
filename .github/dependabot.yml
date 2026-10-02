@@ -27,6 +27,10 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      # Repair shared vulnerable packages across every independent Python lock.
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
       python-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
@@ -46,6 +50,9 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      frontend-security:
+        applies-to: security-updates
+        patterns: ["*"]
       frontend-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]

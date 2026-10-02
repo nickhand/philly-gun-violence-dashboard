@@ -51,6 +51,11 @@ urllib3 constraint prevents a routine resolution from returning below 2.8.0,
 and repository contracts require the locked versions to agree. Keep the normal
 one-week release cooldown; for an urgent fix inside that window, review and
 document a package-specific exception instead of disabling the policy globally.
+Dedicated `security-updates` groups let Dependabot propose vulnerable Python
+dependencies across the four directories together, and batch frontend security
+repairs separately from routine updates. The direct-only boundary for ordinary
+version updates remains in place. See GitHub's
+[security grouping rules](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependabot-security-updates).
 
 The temporary [node-forge backport](../frontend/vendor/README.md) includes a
 reproducible archive and regression tests because no patched upstream release
