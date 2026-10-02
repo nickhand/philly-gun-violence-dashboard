@@ -27,8 +27,8 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
     assert re.search(expected_base, source, re.MULTILINE)
-    assert "ARG UBUNTU_SNAPSHOT=20260921T180000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20260921T180000Z"' in source
+    assert "ARG UBUNTU_SNAPSHOT=20261001T180000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20261001T180000Z"' in source
     assert "20260819T170000Z" not in source
     assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 5
     assert 'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update' in source
@@ -38,7 +38,7 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     )
     assert "snapshot.ubuntu.com_ubuntu_${UBUNTU_SNAPSHOT}_dists_${suite}_InRelease" in source
     assert "libcurl3t64-gnutls" in source
-    assert ' = "8.18.0-1ubuntu2.5"' in source
+    assert ' = "8.18.0-1ubuntu2.7"' in source
     assert ' = "3.13.1-2ubuntu0.1"' in source
     assert ' = "0.12.0-0philly1"' in source
     assert "FROM ubuntu-base AS bubblewrap-build" in source
@@ -52,12 +52,12 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     assert "apt-get update" not in source
     assert "snapshot.debian.org" not in source
     assert (
-        "ADD --checksum=sha256:0cea6b98673ff88218b7e5f18c1bd42f06bdfcae6c1ebc9964adf3bc41420c19"
+        "ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621"
     ) in source
     assert (
         "ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90"
     ) in source
-    assert "openssl_3.5.5-1ubuntu3.5_amd64.deb" in source
+    assert "openssl_3.5.5-1ubuntu3.7_amd64.deb" in source
     assert "ca-certificates_20260601~26.04.1_all.deb" in source
     assert expected_chrome in source
     assert PINNED_CHROME_FILENAME in source
@@ -160,7 +160,7 @@ def test_daily_homicide_workflow_installs_the_same_exact_chrome() -> None:
 def test_etl_quality_checks_generated_chrome_consumers_without_live_lookup() -> None:
     """Container CI must build only from the validated repository lock."""
     repo_root = Path(__file__).resolve().parents[3]
-    source = (repo_root / ".github/workflows/etl-quality.yml").read_text()
+    source = (repo_root / ".github/workflows/scraper-image-quality.yml").read_text()
 
     render = "uv run python scripts/render_chrome_lock.py --check"
     assert render in source
@@ -178,7 +178,7 @@ def test_etl_quality_checks_generated_chrome_consumers_without_live_lookup() -> 
 def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     """Container CI must not relax seccomp to launch the courts browser."""
     repo_root = Path(__file__).resolve().parents[3]
-    source = (repo_root / ".github/workflows/etl-quality.yml").read_text()
+    source = (repo_root / ".github/workflows/scraper-image-quality.yml").read_text()
 
     assert "--security-opt seccomp=unconfined" not in source
     assert "chromium_sandbox=False" in source
@@ -193,7 +193,7 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     assert "--forbid-chrome-sandbox" in source
     assert "--forbid-setuid-setgid-files" in source
     assert "--required-chrome-sandbox-sha256" not in source
-    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.5" in source
+    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.7" in source
     assert "root:root:755" not in source
     assert "root:root:4755" not in source
     assert "image_entrypoint=" in source
@@ -211,7 +211,7 @@ def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
 
     script = "packages/etl/scripts/render_chrome_lock.py"
     assert f'aws_batch_scraper_browser_lock_script := "{script}"' in justfile
-    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.5" in justfile
+    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.7" in justfile
     assert "scraper-check-browser-lock:" in recipe
     assert 'python3 "{{aws_batch_scraper_browser_lock_script}}" --check' in recipe
     build_dependency = (

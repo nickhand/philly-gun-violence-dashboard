@@ -9,6 +9,8 @@ dependencies = ["fastapi>=0.127.0", "uvicorn>=0.40.0", "dashboard-utils"]
 
 [tool.uv]
 exclude-newer = "1 week"
+# Keep independent locks above the reviewed shared security floor.
+constraint-dependencies = ["urllib3>=2.8.0"]
 
 [tool.uv.sources]
 dashboard-utils = { path = "../dashboard-utils", editable = true }

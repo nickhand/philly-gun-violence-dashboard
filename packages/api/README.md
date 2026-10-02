@@ -227,8 +227,9 @@ daily heartbeat or perform recovery mutations. Activating the hourly cadence
 requires redeploying this scheduler; see the
 [courts recovery and rollout runbook](../aws-batch-scraper/docs/recovery.md).
 
-The same scheduler dispatches `security-quality.yml` every Tuesday. Dependency
-audits use a changing advisory database, so they run weekly even when lockfiles
+The same scheduler dispatches `security-quality.yml` daily at 07:17 UTC, before
+the Chrome updater. Dependency and full scraper image audits use a changing
+advisory database, so they run daily even when lockfiles
 are unchanged; keeping this cadence outside GitHub prevents repository
 inactivity from silently disabling the security check.
 

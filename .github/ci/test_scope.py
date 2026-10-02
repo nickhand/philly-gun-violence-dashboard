@@ -115,6 +115,15 @@ class TriggerContracts(unittest.TestCase):
             ("security", "packages/dashboard-utils/uv.lock"): {"dashboard"},
             ("security", "packages/aws-batch-scraper/uv.lock"): {"scraper"},
             ("security", "frontend/package-lock.json"): {"frontend"},
+            ("security", "frontend/vendor/node-forge-1.4.1-philly.1.tgz"): {"frontend"},
+            ("security", "frontend/tests/dependency-security.test.mjs"): {"frontend"},
+            ("etl", ".github/workflows/scraper-image-quality.yml"): {"image"},
+            ("frontend", "frontend/vendor/node-forge-1.4.1-philly.1.tgz"): {
+                "release",
+                "unit",
+                "browser",
+                "lighthouse",
+            },
         }
         for (workflow, path), expected in cases.items():
             with self.subTest(workflow=workflow, path=path):
