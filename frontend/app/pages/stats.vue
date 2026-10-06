@@ -453,7 +453,7 @@ useHead(() => ({
               class="usa-button"
               type="button"
               :disabled="status === 'pending'"
-              @click="refresh"
+              @click="refresh()"
             >
               {{ status === "pending" ? "Trying again…" : "Try again" }}
             </button>

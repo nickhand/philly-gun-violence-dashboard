@@ -84,8 +84,7 @@ jobs:
       - run: npm run test:dependency-security
       - run: npm run test:lighthouse:policy
       - run: npm run type-check
-      # `type-check:nuxt` returns once the existing Nuxt app type errors are
-      # fixed; the removed legacy tsconfig never covered app/ or server/.
+      - run: npm run type-check:nuxt
       - run: npm run test:coverage
       - run: npm run build:nuxt
       - run: npm run check:bundle
