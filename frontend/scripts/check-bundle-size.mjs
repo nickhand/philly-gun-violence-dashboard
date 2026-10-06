@@ -1,40 +1,45 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 
+// Run after `npm run build:nuxt`. Nuxt embeds Vite's client manifest in the
+// server build as vue-bundle-renderer's precomputed dependency graph, so the
+// budgets read chunk relationships from there and file sizes from the public
+// assets. Fail loudly if a Nuxt upgrade moves either.
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const distRoot = join(frontendRoot, "dist");
-const manifest = JSON.parse(
-  readFileSync(join(distRoot, ".vite", "manifest.json"), "utf8"),
+const publicAssets = join(frontendRoot, ".output", "public", "_nuxt");
+const precomputedPath = join(
+  frontendRoot,
+  ".output",
+  "server",
+  "chunks",
+  "virtual",
+  "precomputed.mjs",
 );
+if (!existsSync(precomputedPath) || !existsSync(publicAssets)) {
+  throw new Error("Missing Nuxt build output; run `npm run build:nuxt` first");
+}
+const { default: precomputed } = await import(pathToFileURL(precomputedPath).href);
 
-const ENTRY_KEY = "index.html";
-const MAP_KEY = "src/features/explorer/components/MapView/MapCanvas.vue";
-const ANALYTICS_KEY = "node_modules/posthog-js/dist/module.js";
+const LAYOUT_KEY = "layouts/default.vue";
+const EXPLORER_KEY = "components/DashboardExplorer.client.vue";
+const MAPLIBRE_KEY = "../node_modules/maplibre-gl/dist/maplibre-gl.mjs";
+const MAPLIBRE_CSS_KEY = "../node_modules/maplibre-gl/dist/maplibre-gl.css";
+const ANALYTICS_KEY = "../node_modules/posthog-js/dist/module.mjs";
 
-function collectChunkFiles(key, includeImports = false, files = new Set()) {
-  const chunk = manifest[key];
-  if (!chunk) {
-    throw new Error(`Missing Vite manifest entry: ${key}`);
+// Files a browser fetches for a module: the chunk itself plus what it preloads.
+function preloadFiles(key) {
+  const dependencies = precomputed.dependencies[key];
+  if (!dependencies) {
+    throw new Error(`Missing Nuxt client manifest entry: ${key}`);
   }
-
-  files.add(chunk.file);
-  for (const file of chunk.css ?? []) files.add(file);
-  for (const file of chunk.assets ?? []) files.add(file);
-
-  if (includeImports) {
-    for (const importedKey of chunk.imports ?? []) {
-      collectChunkFiles(importedKey, true, files);
-    }
-  }
-
-  return files;
+  return new Set(Object.values(dependencies.preload).map(({ file }) => file));
 }
 
 function gzipSize(files) {
   return [...files].reduce((total, file) => {
-    const contents = readFileSync(join(distRoot, file));
+    const contents = readFileSync(join(publicAssets, file));
     return total + gzipSync(contents, { level: 9 }).byteLength;
   }, 0);
 }
@@ -43,51 +48,70 @@ function formatSize(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;
 }
 
-const appShellFiles = collectChunkFiles(ENTRY_KEY, true);
-appShellFiles.add("index.html");
-const mapFiles = collectChunkFiles(MAP_KEY);
-const analyticsFiles = manifest[ANALYTICS_KEY]
-  ? collectChunkFiles(ANALYTICS_KEY)
-  : new Set();
-// MapLibre 6 loads a separately bundled worker. Vite does not list worker
-// outputs in the main manifest, so include it explicitly rather than hiding
-// its transfer cost from the combined budget.
+if (precomputed.entrypoints.length !== 1) {
+  throw new Error("Expected exactly one Nuxt client entrypoint");
+}
+const appShellFiles = new Set([
+  ...preloadFiles(precomputed.entrypoints[0]),
+  ...preloadFiles(LAYOUT_KEY),
+]);
+const mapFiles = new Set(
+  [
+    ...preloadFiles(EXPLORER_KEY),
+    ...preloadFiles(MAPLIBRE_KEY),
+    ...preloadFiles(MAPLIBRE_CSS_KEY),
+  ].filter((file) => !appShellFiles.has(file)),
+);
+// MapLibre 6 loads a separately bundled worker that the client manifest does
+// not list, so include it explicitly rather than hiding its transfer cost.
 const mapWorkerFiles = new Set(
-  readdirSync(join(distRoot, "assets"))
-    .filter((file) => /^maplibre-gl-worker-[\w-]+\.js$/.test(file))
-    .map((file) => `assets/${file}`),
+  readdirSync(publicAssets).filter((file) =>
+    /^maplibre-gl-worker-[\w-]+\.js$/.test(file),
+  ),
 );
 if (mapWorkerFiles.size !== 1) {
   throw new Error("Expected exactly one bundled MapLibre worker");
 }
+const analyticsFiles = preloadFiles(ANALYTICS_KEY);
+for (const file of analyticsFiles) {
+  if (appShellFiles.has(file)) {
+    throw new Error(`Analytics must stay deferred, but the app shell preloads ${file}`);
+  }
+}
 const coreExperienceFiles = new Set([...appShellFiles, ...mapFiles, ...mapWorkerFiles]);
 
+// Budgets sit about 5% above the gzip sizes measured when the Nuxt app replaced
+// the legacy bundle (October 2026), so growth is a deliberate decision.
 const budgets = [
   {
     label: "app shell",
     files: appShellFiles,
-    maxBytes: 315_000,
+    // Measured 101.3 KiB.
+    maxBytes: 110_000,
   },
   {
-    label: "interactive map",
+    label: "interactive map (explorer + MapLibre)",
     files: mapFiles,
-    // Security migration from MapLibre 2 to patched 6: measured at 308 KB gzip.
-    maxBytes: 320_000,
+    // Measured 330.6 KiB.
+    maxBytes: 355_000,
   },
   {
     label: "map worker",
     files: mapWorkerFiles,
+    // Measured 141.4 KiB.
     maxBytes: 155_000,
   },
   {
     label: "app shell + map + worker",
     files: coreExperienceFiles,
-    maxBytes: 790_000,
+    // Measured 573.3 KiB.
+    maxBytes: 615_000,
   },
   {
     label: "deferred analytics",
     files: analyticsFiles,
-    maxBytes: 65_000,
+    // Measured 92.6 KiB.
+    maxBytes: 100_000,
   },
 ];
 
@@ -103,7 +127,7 @@ for (const budget of budgets) {
   failed ||= !withinBudget;
 }
 
-const iconFontAssets = readdirSync(join(distRoot, "assets")).filter((file) =>
+const iconFontAssets = readdirSync(publicAssets).filter((file) =>
   /materialdesignicons.*\.(?:eot|ttf|woff2?)$/.test(file),
 );
 
