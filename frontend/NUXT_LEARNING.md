@@ -1,10 +1,10 @@
 # Learning Nuxt through this migration
 
-Status: the Nuxt application is the only frontend and runs in production on
-Cloudflare. The phase descriptions below are an implementation record;
-references to parallel or future work describe the state at that phase, not
-today's topology. The former Vue/Vite app and the Netlify deployment have both
-been retired, and the commands below use the current npm script names.
+Status: the Nuxt application is now the canonical Cloudflare production
+frontend. The phase descriptions below are an implementation record; references
+to parallel or future work describe the state at that phase, not today's
+topology. The legacy Vite app remains available locally as an implementation
+reference; the Netlify deployment is retired.
 
 The migration introduces Nuxt only where the current product needs it. The
 standing rule is: **if it can be simpler, simplify it.**
@@ -15,8 +15,8 @@ separate decision.
 
 ## Phase 1: shell and About page
 
-The first slice lived beside the then-production Vue/Vite app. Run it with
-`npm run dev`, then open
+The first slice lives beside the production Vue/Vite app. Run it with
+`npm run dev:nuxt`, then open
 `http://localhost:3000/philly-gun-violence-map/about`.
 
 ### What Nuxt is doing
@@ -34,8 +34,8 @@ The first slice lived beside the then-production Vue/Vite app. Run it with
 
 ### What this replaces
 
-In the former Vite app, routing, head management, and crawler snapshots were
-separate pieces. Nuxt supplies the route and initial HTML from the page file itself, so
+In the Vite app, routing, head management, and crawler snapshots are separate
+pieces. Nuxt supplies the route and initial HTML from the page file itself, so
 the visible page and crawler response no longer need parallel implementations.
 
 ### Server and browser boundary
@@ -53,8 +53,8 @@ the explorer is migrated.
 ### How to verify the slice
 
 ```bash
-npm run build
-npm run type-check
+npm run build:nuxt
+npm run type-check:nuxt
 ```
 
 The acceptance check is more than “the page hydrates”: requesting `/about`
@@ -102,8 +102,8 @@ cd packages/api
 just api-dev
 
 cd ../../frontend
-NUXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run build
-NUXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run preview
+NUXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run build:nuxt
+NUXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run preview:nuxt
 ```
 
 Request `/philly-gun-violence-map/stats` directly and confirm that the response
@@ -151,8 +151,8 @@ applied twice by the sitemap module.
 ### How to verify the slice
 
 ```bash
-npm run build
-npm run test:seo
+npm run build:nuxt
+npm run test:nuxt:seo
 ```
 
 The SEO test starts the built Nitro server and a deterministic API stub, then
@@ -228,13 +228,13 @@ stays inside the client component. Charts, downloads, the address marker, and
 overlays all consume the same selected-view rows owned by one parent, so adding
 Pinia would currently duplicate a boundary rather than simplify one.
 
-The former Vite app divided this differently: `useArquero` and
-`useHistograms` owned filter and histogram state locally, while Pinia stored
+That matches the legacy division of responsibility: `useArquero` and
+`useHistograms` own filter and histogram state locally, while Pinia stores
 longer-lived shootings, homicides, and boundary data. The Nuxt port instead
 lifts the selected view's rows into `DashboardExplorer.client.vue` and shares
-the filtered result through props and small pure utilities. A shared store
-remains an option only if a later capability creates genuinely independent
-consumers or cross-route state.
+the filtered result through props and small pure utilities. Pinia remains an
+option only if a later capability creates genuinely independent consumers or
+cross-route state.
 
 ### A small browser-only map boundary
 
@@ -268,17 +268,17 @@ The browser-only explorer now owns the selected-view request instead of the map
 component. It retains those rows only in browser memory and passes a summarized,
 filtered record set to the map. The Nuxt explorer now reproduces Fatal shootings
 only, Court search returned a result, Gender, Race/Ethnicity, Day of Week, Time of Day,
-Date, and Age. Category filters keep the original individual checkbox, “only,” and
+Date, and Age. Category filters keep the legacy individual checkbox, “only,” and
 reset behavior. Age retains “Exclude unknown values.” Each range histogram
 respects every other active filter while ignoring its own current range. Filter
 changes update counts and the existing MapLibre source without refetching the
 year or reconstructing the map.
 
-These browser filter values deliberately stay local, matching the former app;
+These browser filter values deliberately stay local, matching the legacy app;
 they are not new query parameters. The server-rendered total and no-JavaScript
 fallback remain the unfiltered selected view.
 
-The same filtered rows drive the five original view-only breakdowns: Outcome,
+The same filtered rows drive the five legacy view-only breakdowns: Outcome,
 Court Search Result, Gender, Race/Ethnicity, and Age Group. Accessible HTML/CSS
 bars replace the old chart lifecycle without adding a chart dependency or a new
 interaction. The download modal exports filtered or full selected-view records
@@ -293,11 +293,11 @@ filters, charts, and downloads intact.
 ### How to verify the slice
 
 ```bash
-npm run type-check
-npm run build
+npm run type-check:nuxt
+npm run build:nuxt
 npm test
-npm run test:seo
-npm run test:e2e
+npm run test:nuxt:seo
+npm run test:e2e:nuxt
 ```
 
 Request the dashboard directly with no query, a valid year, `All Years`, each
@@ -319,7 +319,7 @@ safe text-only detail builder.
 ## Phase 6 preparation: one application, another Nitro target
 
 Nuxt separates the application from the server runtime that delivers it. The
-ordinary `npm run build` command produces the Node/Nitro output used by the
+ordinary `npm run build:nuxt` command produces the Node/Nitro output used by the
 raw SSR acceptance suite. Setting `NITRO_PRESET=cloudflare_module` builds those
 same routes, components, server handlers, and assets for a Cloudflare Worker.
 No second frontend or platform-specific page implementation is needed.
@@ -327,7 +327,7 @@ No second frontend or platform-specific page implementation is needed.
 The repository wraps that preset in one bounded command:
 
 ```bash
-npm run build:cloudflare
+npm run build:nuxt:cloudflare
 ```
 
 That command also forces `NUXT_PUBLIC_INDEXABLE=false`. The application emits

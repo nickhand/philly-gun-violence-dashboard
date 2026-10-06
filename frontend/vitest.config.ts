@@ -1,11 +1,13 @@
 import { fileURLToPath, URL } from "node:url";
 import vue from "@vitejs/plugin-vue";
+import vuetify from "vite-plugin-vuetify";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), vuetify({ autoImport: true })],
   resolve: {
     alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
       "~": fileURLToPath(new URL("./app", import.meta.url)),
     },
   },
@@ -13,6 +15,11 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./tests/setup.ts"],
     include: ["tests/unit/**/*.spec.ts"],
+    server: {
+      deps: {
+        inline: [/vuetify/],
+      },
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
@@ -43,6 +50,13 @@ export default defineConfig({
         "app/utils/shootingDownloads.ts",
         "app/utils/shootingFilters.ts",
         "app/utils/shootingRecords.ts",
+        "src/shared/utils/**/*.ts",
+        "src/pages/composables/useArquero.ts",
+        "src/pages/composables/useDownload.ts",
+        "src/features/explorer/components/MapSidebar/filters/FilterPanel.vue",
+        "src/features/explorer/components/MapSidebar/filters/SwitchFilter.vue",
+        "src/features/explorer/components/MapView/AddressSearch.vue",
+        "src/features/charts/components/HistogramChart.vue",
       ],
       thresholds: {
         statements: 70,

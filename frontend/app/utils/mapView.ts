@@ -21,11 +21,7 @@ export function parseMapViewParam(value: unknown): MapView | null {
     return null;
   }
 
-  const [zoom, latitude, longitude] = parts.map(Number) as [
-    number,
-    number,
-    number,
-  ];
+  const [zoom, latitude, longitude] = parts.map(Number);
   if (
     !Number.isFinite(zoom) ||
     !Number.isFinite(latitude) ||

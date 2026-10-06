@@ -18,7 +18,7 @@ export type ToggleableMapLayerId = (typeof TOGGLEABLE_MAP_LAYERS)[number];
 export type BoundaryMapLayerId = (typeof BOUNDARY_MAP_LAYERS)[number];
 export type MapLayerId = ToggleableMapLayerId | BoundaryMapLayerId;
 
-export const DEFAULT_MAP_LAYERS: ToggleableMapLayerId[] = ["point-locations"];
+export const DEFAULT_MAP_LAYERS: MapLayerId[] = ["point-locations"];
 
 const LAYER_ORDER: MapLayerId[] = [
   ...TOGGLEABLE_MAP_LAYERS,

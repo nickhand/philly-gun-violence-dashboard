@@ -1,0 +1,32 @@
+{
+  "stylesheet": "https://fonts.googleapis.com/css2?family=Montserrat&display=swap",
+  "google_fonts_version": "v31",
+  "license_source": "https://raw.githubusercontent.com/google/fonts/76fca9fd0bb4ea46583f92e978660f3984ab9442/ofl/montserrat/OFL.txt",
+  "fonts": [
+    {
+      "file": "montserrat-cyrillic-ext.woff2",
+      "source": "https://fonts.gstatic.com/s/montserrat/v31/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCtr6Hw0aXp-p7K4KLjztg.woff2",
+      "sha256": "196e91e0de7c9f57ed6340f12228ea2357873384bf5f0410be8773bfb12be80b"
+    },
+    {
+      "file": "montserrat-cyrillic.woff2",
+      "source": "https://fonts.gstatic.com/s/montserrat/v31/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCtr6Hw9aXp-p7K4KLjztg.woff2",
+      "sha256": "0a34b2e3729d013e73de5a5012e87f6c8521b17dd5770192f1f5b61a0d0d56ce"
+    },
+    {
+      "file": "montserrat-vietnamese.woff2",
+      "source": "https://fonts.gstatic.com/s/montserrat/v31/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCtr6Hw2aXp-p7K4KLjztg.woff2",
+      "sha256": "4fe7fb7a4db4474000ac38438730d227c66113ba91adc122e97189fbd258a280"
+    },
+    {
+      "file": "montserrat-latin-ext.woff2",
+      "source": "https://fonts.gstatic.com/s/montserrat/v31/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCtr6Hw3aXp-p7K4KLjztg.woff2",
+      "sha256": "c920f1389308364a89cd61c6860acc63534c0e795fa6f29ca2a77755565e9ce3"
+    },
+    {
+      "file": "montserrat-latin.woff2",
+      "source": "https://fonts.gstatic.com/s/montserrat/v31/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCtr6Hw5aXp-p7K4KLg.woff2",
+      "sha256": "0f079e1dcf6151c20cb9d3f252432437af214f65997f293d927176528f6e37a7"
+    }
+  ]
+}

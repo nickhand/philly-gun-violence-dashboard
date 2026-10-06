@@ -3,20 +3,22 @@
 Interactive dashboard visualizing gun violence data in Philadelphia with maps,
 charts, and filtering capabilities.
 
-The production frontend is the Nuxt 4 application in `app/`, mounted at
-`/philly-gun-violence-map/` on Cloudflare Workers. The former Vue/Vite
-application has been retired and removed; production rollback uses a retained
-Cloudflare Worker version.
+The canonical production frontend is the Nuxt 4 application in `app/`, mounted
+at `/philly-gun-violence-map/` on Cloudflare Workers. The former Vue/Vite
+application in `src/` remains runnable locally as legacy reference code, but it
+is no longer a deployed rollback origin.
 
 ## Tech Stack
 
 - **Framework:** Nuxt 4 + Vue 3 Composition API
 - **Language:** TypeScript
-- **UI:** Local `civic-ui` Nuxt layer backed by USWDS
+- **UI:** Local `civic-ui` Nuxt layer backed by USWDS; Vuetify remains only in
+  the legacy rollback app
 - **Mapping:** MapLibre GL
-- **Charts:** Native Vue/SVG components
-- **Data Filtering:** Pure TypeScript utilities (`app/utils/shootingFilters.ts`)
-- **State Management:** URL state and local Nuxt composables
+- **Charts:** D3.js
+- **Data Filtering:** Arquero
+- **State Management:** URL state and local Nuxt composables; Pinia remains in
+  the legacy explorer only
 - **Build Tool:** Nuxt/Nitro and Vite
 
 ## Prerequisites
@@ -30,12 +32,15 @@ Cloudflare Worker version.
 # Reproduce the locked dependency graph
 npm ci
 
-# Start the Nuxt development server
-npm run dev
+# Start the canonical Nuxt application
+npm run dev:nuxt
 
-# Type-check the app and tests, build, and enforce bundle budgets
-npm run type-check
-npm run build
+# Type-check and build Nuxt
+npm run type-check:nuxt
+npm run build:nuxt
+
+# Validate the retained legacy rollback bundle
+npm run build:legacy
 npm run check:bundle
 ```
 
@@ -46,10 +51,10 @@ The Nuxt development server runs at
 
 ```bash
 # Build and validate a non-indexable Cloudflare staging artifact
-npm run build:cloudflare:staging
+npm run build:nuxt:cloudflare:staging
 
 # Build and validate the indexable production artifact without deploying it
-npm run build:cloudflare:production
+npm run build:nuxt:cloudflare:production
 ```
 
 Open `http://localhost:3000/philly-gun-violence-map/` for the dashboard shell.
@@ -71,16 +76,17 @@ boundary aggregation layers plus the static city outline. Moving the map adds a
 validated, rounded view such as
 `map=12.76/39.97240/-75.14142` to the shareable URL without adding a history
 entry for every movement. Back/forward view changes reuse the existing map and
-record data. After the selected view loads, the Fatal shootings
+record data. After the selected view loads, the legacy Fatal shootings
 only, Court search returned a result, Gender, Race/Ethnicity, Day of Week, Time of Day,
 Date, and Age filters run entirely in the browser. The range filters retain
-their cross-filtered histograms, and Age keeps the “Exclude unknown
+their cross-filtered histograms, and Age keeps the legacy “Exclude unknown
 values” choice. The same filtered rows update the five category breakdowns and
 filtered/full CSV or GeoJSON downloads, including optional boundary
 aggregation. The bounded Philadelphia address search and temporary map marker
 are also client-only. Hovering a point shows a compact incident tooltip;
 clicking pins it. Tooltip values are normalized and inserted as text, including
-the honest nearest-street limitation, rather than rendered as raw HTML.
+the honest nearest-street limitation, rather than passed through the legacy
+raw-HTML formatter.
 
 Before detailed rows hydrate, the existing five category charts render the
 matching unfiltered counts from `/stats.json`. This keeps their content present
@@ -90,7 +96,7 @@ is available. Court-run coverage text is shown only when `/meta` proves the
 full-run publication contract and distinguishes terminal coverage from searches
 that remained inconclusive.
 
-The completed migration preserved the former app's capabilities; future product
+The completed migration preserved the legacy capabilities; future product
 features still require their own decision and regression coverage.
 
 ## Testing
@@ -103,74 +109,91 @@ npm test
 npm run test:coverage
 
 # Build Nuxt, then inspect its raw SSR, sitemap, robots, and 404 responses
-npm run build
-npm run test:seo
+npm run build:nuxt
+npm run test:nuxt:seo
 
-# Hydrated explorer across the desktop and mobile browser projects
+# Hydrated Nuxt explorer in desktop and mobile Chromium
+npm run test:e2e:nuxt
+
+# Legacy Vite browser suite retained during cutover
 npm run test:e2e
-
-# Hydrated explorer in desktop Chromium only
-npm run test:e2e:chromium
 
 # WCAG 2.1 A/AA automated checks
 npm run test:e2e:a11y
 
-# Build, then run the production Lighthouse audit with performance thresholds
+# Production Lighthouse audit with performance thresholds
 npm run test:lighthouse
 
 # Dependency advisories that meet the CI severity threshold
 npm run audit:dependencies
 ```
 
-The browser gate uses a deterministic cross-origin API fixture and creates
+The Nuxt browser gate uses a deterministic cross-origin API fixture and creates
 a real MapLibre map; only third-party basemap and geocoder traffic is stubbed.
 It covers desktop browsers, Pixel-sized Chromium, and an iPhone WebKit profile
-without depending on production data. See
+without depending on production data. The legacy Vite browser suite remains a
+required rollback gate. See
 [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) for the manual WCAG 2.1 AA evaluation
 checklist.
 
+The legacy header displays validated statistics as soon as the selected data is
+ready, while the map initializes with its own loader. Montserrat uses local
+copies of the existing Google Fonts v31 subsets, with the Latin face preloaded;
+the original font license and source hashes are in `public/fonts/montserrat`.
+This removes the blocking third-party font stylesheet from initial rendering.
+
 ## Bundle budgets
 
-`npm run check:bundle` enforces gzip budgets on the Nuxt client build. Run
-`npm run build` first: the local `modules/client-bundle-manifest.ts` module
-writes the client build manifest to `.nuxt/client-bundle-manifest.json`, and the
-check follows each chunk's static imports and CSS from that manifest. It
-budgets the app shell (Nuxt runtime, router, and shared civic UI), the dashboard
-route, the client-only explorer with MapLibre and its stylesheet, the separately
-bundled MapLibre worker (which the manifest does not list, so it is added
-explicitly), the combined dashboard/explorer/worker experience, and the
-deferred PostHog chunk. The budgets and their measured sizes live in
-`scripts/check-bundle-size.mjs`.
+The production build emits a Vite manifest and `npm run check:bundle` enforces
+gzip budgets for the initial app shell, the asynchronously loaded map, their
+separate MapLibre worker, their combined core experience, and deferred analytics.
+The check also prevents the full Material Design icon font from being bundled
+again. Lighthouse runs three
+desktop audits against deterministic local data and a local map style. The
+direct Lighthouse runner stores HTML and JSON for every run plus a machine-
+readable summary, then enforces median scores and Core Web Vitals-oriented
+thresholds.
 
-`npm run test:lighthouse` builds the app, then serves the production Nitro
-server (`.output/server/index.mjs`) on `127.0.0.1:4174` against the shared
-browser API fixture (`tests/e2e/support/nuxtApiFixture.mjs`) on port 4175, with
-PostHog disabled. It runs three desktop audits against that deterministic local
-data and the bundled map style. The direct Lighthouse runner stores HTML and
-JSON for every run plus a machine-readable summary, then enforces the median
-scores and Core Web Vitals-oriented thresholds in
-`scripts/lighthouse-policy.mjs`.
-
-The September 2026 security update migrated MapLibre 2 to patched MapLibre 6.
-Version 6 uses named ES-module exports and a separate worker; the app
-explicitly bundles that worker with Vite so deployment paths and the development
-optimizer cannot strand it. The checks that keep all map assets out of every
-route's initial load remain.
+The September 2026 security update migrates MapLibre 2 to patched MapLibre 6.
+Version 6 uses named ES-module exports and a separate worker; both apps explicitly
+bundle that worker with Vite so deployment paths and the development optimizer
+cannot strand it. The measured compressed map module is about 308 KB and its
+worker about 147 KB. Their bounded budgets are 320 KB and 155 KB, with 790 KB for
+the complete shell/map/worker experience. The existing 315 KB shell and 65 KB
+analytics limits and all Lighthouse thresholds remain unchanged. This explicitly
+accounts for the security upgrade's added transfer cost, including the worker
+that Vite omits from its main manifest.
+Nuxt separately caps the dynamically loaded map JavaScript, including its worker,
+at 475 KiB gzip (measured at 447 KiB) and map CSS at 18 KiB (measured at 16 KiB).
+The checks that keep all map assets out of every route's initial load remain.
 
 ## Project Structure
 
 ```
-app/                       # Nuxt pages, components, composables, and utilities
-├── assets/                # Styles and the MapLibre basemap style
-├── components/            # Dashboard explorer, map, filters, and charts
-├── pages/                 # Explore, About, Statistics, Methodology, and Data
-└── utils/                 # Pure filtering, formatting, map, and download helpers
+app/                       # Canonical Nuxt pages, components, and utilities
 layers/civic-ui/           # Reusable civic UI Nuxt layer
-modules/                   # Local Nuxt build modules (client bundle manifest)
 server/                    # Same-origin server endpoints used during SSR
-shared/                    # Code shared by the app and server
-scripts/                   # Cloudflare, bundle-budget, and Lighthouse tooling
 tests/                     # Unit, SSR/SEO, accessibility, and browser contracts
+src/                       # Legacy Vite rollback application
+├── app/                    # Application setup
+│   ├── components/         # Shared layout components (AppNavbar, AppFooter)
+│   ├── router.ts           # Vue Router configuration
+│   └── vuetify.ts          # Vuetify theme and plugin setup
+├── features/               # Feature modules
+│   ├── charts/             # D3-based chart components
+│   │   └── components/     # ChartDashboard, BarChart, etc.
+│   └── map/                # MapLibre-based mapping
+│       ├── components/     # MappingDashboard, FilterableMap, etc.
+│       └── composables/    # Map-related hooks (useAggregation, etc.)
+├── pages/                  # Page components
+│   ├── AboutPage.vue       # About page (lazy-loaded)
+│   ├── DashboardPage.vue   # Main dashboard
+│   └── components/         # Page-specific components
+├── shared/                 # Shared utilities
+│   ├── api/                # API client functions
+│   └── stores/             # Legacy Pinia stores (shootings, etc.)
+├── types/                  # TypeScript type definitions
+└── main.ts                 # Application entry point
 ```
 
 ## Key Features
@@ -193,7 +216,17 @@ tests/                     # Unit, SSR/SEO, accessibility, and browser contracts
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` for local development. The app supports:
+Create a `.env` file for local development:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+VITE_POSTHOG_KEY=              # Optional: PostHog analytics key
+```
+
+For the legacy rollback build, `VITE_API_BASE_URL` points to the Fly.io API
+deployment.
+
+The canonical Nuxt app supports:
 
 ```env
 NUXT_PUBLIC_API_BASE_URL=http://localhost:8000
@@ -233,8 +266,9 @@ not send analytics or contaminate production data. The client is loaded from a
 deferred bundle and analytics failures never prevent the dashboard from
 loading.
 
-Autocapture and session recording are disabled, anonymous persistence uses
-`localStorage`, and person profiles are created only for explicitly identified users. Initial and Nuxt
+The migration preserves the legacy privacy settings: autocapture and session
+recording are disabled, anonymous persistence uses `localStorage`, and person
+profiles are created only for explicitly identified users. Initial and Nuxt
 client-side page navigation pageviews are captured automatically; application
 events remain explicit.
 
@@ -246,7 +280,8 @@ Tracked events include:
 - **Print requests** - Track annual-count and map print actions
 - **External links** - Track clicks to data sources and GitHub
 
-Analytics is production-only; without the key, all tracking calls are no-ops.
+The legacy rollback build still uses `VITE_POSTHOG_KEY`. Both integrations are
+production-only; without the matching key, all tracking calls are no-ops.
 
 Event names:
 
@@ -282,16 +317,17 @@ Other endpoints:
 ## Build Output
 
 Production builds are optimized with:
-- Route-level code splitting, with the map explorer loaded client-only
+- Code splitting (About page lazy-loaded)
 - CSS extraction
 - Asset hashing for cache busting
 
+The legacy output is in `dist/` for local compatibility checks only.
 Nuxt emits its server build in `.output/`. The pinned Wrangler configuration
 has separate environments:
 
-- `npm run deploy:staging` builds a `noindex` Workers preview and deploys
+- `npm run deploy:nuxt:staging` builds a `noindex` Workers preview and deploys
   only to its `workers.dev` hostname.
-- `npm run deploy:production` builds an indexable release and deploys the
+- `npm run deploy:nuxt:production` builds an indexable release and deploys the
   exact and slash-subtree Worker routes for
   `www.nickhand.dev/philly-gun-violence-map`.
 
@@ -307,7 +343,7 @@ routes, and activates it only after all selected gates pass. It verifies the
 exact Nuxt build on all five public pages and confirms the terminal active
 version; a frontend-specific failure restores the captured prior version. The
 full production smoke runs afterward as a health report and cannot trigger an
-automatic rollback. `npm run deploy:production` remains an operator-only
+automatic rollback. `npm run deploy:nuxt:production` remains an operator-only
 emergency command. Follow [the cutover runbook](../docs/cloudflare-cutover.md).
 
 Production permits the dashboard to be framed by its own origin and

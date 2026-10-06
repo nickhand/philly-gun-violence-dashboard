@@ -9,8 +9,8 @@ This monorepo is a typed data platform with four Python packages and one fronten
   and atomically swaps one frozen in-memory snapshot.
 - `packages/dashboard-utils`: shared Pydantic models, paths, and storage utilities.
 - `packages/aws-batch-scraper`: reusable SQS/ECS court-scraper orchestration.
-- `frontend`: Nuxt 4 / Vue 3 / MapLibre dashboard deployed to Cloudflare Workers. The former
-  Vite SPA has been removed; rollback uses a retained Cloudflare Worker version.
+- `frontend`: canonical Nuxt 4 / Vue 3 / MapLibre / D3 dashboard deployed to Cloudflare
+  Workers. The Vite SPA is retained only as a temporary rollback artifact.
 
 Production data flow is:
 
@@ -65,7 +65,7 @@ in formatting and lint gates.
 
 Shared public models live under `packages/dashboard-utils/src/dashboard_utils/models`. A field
 change normally requires coordinated updates to the shared model, ETL transform/export, API
-validation/router, Nuxt TypeScript contracts, user-facing methodology, and tests.
+validation/router, Nuxt and legacy TypeScript contracts, user-facing methodology, and tests.
 
 ETL publication order is strict:
 
@@ -99,14 +99,14 @@ ECS `secrets` list.
 
 ## Frontend
 
-- App: Nuxt code in `frontend/app`, server routes in `frontend/server`, and the reusable civic
-  layer in `frontend/layers/civic-ui`. There is no other frontend.
+- Canonical app: Nuxt code in `frontend/app` and the reusable civic layer in
+  `frontend/layers/civic-ui`.
+- Rollback app: legacy Vite code in `frontend/src`; keep its contracts aligned while it remains
+  a supported rollback path.
 - Package manager: the exact npm version in `frontend/package.json`.
-- Main checks: `npm run type-check`, `npm run test:coverage`, `npm run build`,
-  `npm run check:bundle` (after the build), `npm run test:seo`,
-  `npm run build:cloudflare:staging` and `npm run build:cloudflare:production` artifact checks,
-  the Playwright project matrix (`npm run test:e2e`), `npm run test:lighthouse` against the
-  Lighthouse policy, and full plus production dependency audits.
+- Main checks: `npm run type-check`, `npm run type-check:nuxt`, `npm run test:coverage`,
+  `npm run test:nuxt:seo`, the Playwright project matrix, both builds, bundle policy,
+  Lighthouse policy, Cloudflare artifact checks, and full plus production dependency audits.
 - Preserve server-rendered links/content, mobile WebKit behavior, keyboard/touch accessibility,
   no-overflow layouts at narrow widths, print pagination, security headers, and noindex behavior
   in staging.

@@ -68,16 +68,6 @@ const geographicReferenceFiles = [
     filename: "geography/philadelphia-street-blocks.geojson",
   },
 ] as const;
-
-type GeographicReferenceDownload = Omit<
-  (typeof geographicReferenceFiles)[number],
-  "filename"
-> & {
-  filename: string;
-  path: string;
-  sizeBytes: number | null;
-  url: string;
-};
 const description =
   "View and download Philadelphia shooting-victim records, learn what the fields mean, check the dates covered, and understand the data's limits.";
 
@@ -187,7 +177,7 @@ const publicRecordDownload = computed(() => {
 const geographicReferenceDownloads = computed(() => {
   if (!downloadsConfigured || invalidV2Manifest.value) return [];
   const manifest = parsedPublicDownloadManifest.value;
-  return geographicReferenceFiles.flatMap<GeographicReferenceDownload>((item) => {
+  return geographicReferenceFiles.flatMap((item) => {
     if (manifest?.schemaVersion === 2) {
       const entry = v2DownloadEntry(item.dataset, "geography");
       const url = entry ? downloadUrl(entry.path) : null;

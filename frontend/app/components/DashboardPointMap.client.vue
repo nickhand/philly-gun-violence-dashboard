@@ -18,8 +18,8 @@ import {
   ref,
   watch,
 } from "vue";
-import mapStyle from "~/assets/map/style.json";
-import { enhanceBasemapLabels } from "~/utils/basemapLabels";
+import mapStyle from "../../src/data/style.json";
+import { enhanceBasemapLabels } from "../../src/features/explorer/config/basemapLabels";
 import type { AddressResult } from "~/utils/geocoding";
 import {
   AGGREGATE_ZERO_COLOR,
@@ -1155,7 +1155,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       dragRotate: false,
       pitchWithRotate: false,
       attributionControl: false,
-      canvasContextAttributes: { preserveDrawingBuffer: true },
+      preserveDrawingBuffer: true,
     });
     syncMapCanvasAccessibility(instance);
     const onMoveEnd = () => {
@@ -1197,7 +1197,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
         mapIdle.value = true;
       }
     };
-    const mapState: ActiveMap = {
+    candidate = {
       cleanupAttribution: () => {},
       cleanupInteractions: () => {},
       createPopup: (options) => new maplibregl.Popup(options),
@@ -1210,8 +1210,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       ready: false,
       timer: null,
     };
-    candidate = mapState;
-    activeMap = mapState;
+    activeMap = candidate;
     instance.on("dataloading", onDataLoading);
     instance.on("idle", onIdle);
 
@@ -1231,7 +1230,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
     );
     collapseCompactAttribution(mapContainer.value);
     const onAttributionResize = () => {
-      if (activeMap !== mapState || currentLoadId !== loadId) return;
+      if (activeMap !== candidate || currentLoadId !== loadId) return;
       const shouldBeCompact = shouldCompactAttribution();
       if (shouldBeCompact === compactAttribution) return;
 
@@ -1244,23 +1243,23 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       collapseCompactAttribution(mapContainer.value);
     };
     window.addEventListener("resize", onAttributionResize);
-    mapState.cleanupAttribution = () => {
+    candidate.cleanupAttribution = () => {
       window.removeEventListener("resize", onAttributionResize);
     };
 
-    mapState.timer = setTimeout(() => {
+    candidate.timer = setTimeout(() => {
       if (
-        activeMap === mapState &&
+        activeMap === candidate &&
         currentLoadId === loadId &&
-        !mapState.ready
+        !candidate.ready
       ) {
         state.value = "error";
-        destroyMap(mapState);
+        destroyMap(candidate);
       }
     }, 15_000);
 
     instance.once("load", () => {
-      if (activeMap !== mapState || currentLoadId !== loadId) return;
+      if (activeMap !== candidate || currentLoadId !== loadId) return;
 
       try {
         // MapLibre expands a newly compacted attribution control. Collapse it
@@ -1387,24 +1386,24 @@ async function initializeMap(currentLoadId: number): Promise<void> {
           const onPointClick = (event: MapLayerMouseEvent) => {
             hoverPopup?.remove();
             hoverPopup = null;
-            mapState.pinnedPopup?.remove();
-            mapState.pinnedPopup = popupAt(event, true);
-            mapState.pinnedLayerId = mapState.pinnedPopup
+            candidate.pinnedPopup?.remove();
+            candidate.pinnedPopup = popupAt(event, true);
+            candidate.pinnedLayerId = candidate.pinnedPopup
               ? pointLayerId
               : null;
-            const currentPopup = mapState.pinnedPopup;
+            const currentPopup = candidate.pinnedPopup;
             currentPopup?.on("close", () => {
-              if (mapState.pinnedPopup === currentPopup) {
-                mapState.pinnedPopup = null;
-                mapState.pinnedLayerId = null;
+              if (candidate.pinnedPopup === currentPopup) {
+                candidate.pinnedPopup = null;
+                candidate.pinnedLayerId = null;
               }
             });
           };
           const onPointEnter = (event: MapLayerMouseEvent) => {
             instance.getCanvas().style.cursor = "pointer";
             if (
-              mapState.pinnedPopup &&
-              mapState.pinnedLayerId === pointLayerId
+              candidate.pinnedPopup &&
+              candidate.pinnedLayerId === pointLayerId
             ) {
               return;
             }
@@ -1419,31 +1418,31 @@ async function initializeMap(currentLoadId: number): Promise<void> {
           instance.on("click", pointLayerId, onPointClick);
           instance.on("mouseenter", pointLayerId, onPointEnter);
           instance.on("mouseleave", pointLayerId, onPointLeave);
-          mapState.cleanupInteractions = () => {
+          candidate.cleanupInteractions = () => {
             hoverPopup?.remove();
-            if (mapState.pinnedLayerId === pointLayerId) {
-              mapState.pinnedPopup?.remove();
-              mapState.pinnedPopup = null;
-              mapState.pinnedLayerId = null;
+            if (candidate.pinnedLayerId === pointLayerId) {
+              candidate.pinnedPopup?.remove();
+              candidate.pinnedPopup = null;
+              candidate.pinnedLayerId = null;
             }
             instance.off("click", pointLayerId, onPointClick);
             instance.off("mouseenter", pointLayerId, onPointEnter);
             instance.off("mouseleave", pointLayerId, onPointLeave);
           };
         installSearchLocation(instance);
-        if (mapState.timer) clearTimeout(mapState.timer);
-        mapState.timer = null;
-        mapState.ready = true;
+        if (candidate.timer) clearTimeout(candidate.timer);
+        candidate.timer = null;
+        candidate.ready = true;
         instance.on("moveend", onMoveEnd);
         syncMapCanvasAccessibility(instance);
         syncSearchLocation();
-        void installCityBoundary(mapState, currentLoadId);
+        void installCityBoundary(candidate, currentLoadId);
         void syncBoundaryOverlay();
         scheduleStreetHotSpots();
         state.value = "ready";
       } catch {
         state.value = "error";
-        destroyMap(mapState);
+        destroyMap(candidate);
       }
     });
   } catch {

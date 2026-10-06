@@ -32,13 +32,6 @@ useSeoMeta({
       : "index, follow",
 });
 
-// unhead 3 only types well-known `rel` values. Its identity `defineLink`
-// helper is not auto-imported, so assert the custom rel's shape here.
-type HeadLinks = Extract<
-  Parameters<typeof useHead>[0],
-  { link?: unknown }
->["link"];
-
 useHead({
   link: [
     {
@@ -46,7 +39,7 @@ useHead({
       href: llmsGuideUrl,
       type: "text/plain",
     },
-  ] as unknown as HeadLinks,
+  ],
 });
 </script>
 

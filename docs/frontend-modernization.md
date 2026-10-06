@@ -9,11 +9,6 @@ Future-tense and “current Netlify” language in the phase plan describes the
 historical state at that gate; it is not the live topology. Use `README.md`,
 `frontend/README.md`, and the cutover runbook for current operations.
 
-Update (October 2026): the legacy `src/` Vue/Vite application, its Vite config,
-and its `dev:legacy`/`build:legacy` scripts have since been removed. The Nuxt
-app is the only frontend, and its npm scripts dropped the `:nuxt` suffix (for
-example, `npm run build`, `npm run test:e2e`, `npm run build:cloudflare`).
-
 ## Decision summary
 
 **Unbreakable migration principle: simpler is better.** At every design and
@@ -635,7 +630,7 @@ not download MapLibre.
 ### Phase 6: deployment canary and SEO cutover
 
 The repository now has a local-only Cloudflare staging target. Running
-`npm run build:cloudflare` selects Nitro's `cloudflare_module` preset and
+`npm run build:nuxt:cloudflare` selects Nitro's `cloudflare_module` preset and
 then checks the Worker entry, base-prefixed Workers Assets, explicit Wrangler
 configuration, observability, and crawler exclusion. The staging Wrangler file
 has no route or custom domain, and the repository has no deploy command. This

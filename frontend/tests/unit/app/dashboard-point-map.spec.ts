@@ -1065,8 +1065,8 @@ describe("DashboardPointMap", () => {
         attributionControl: false,
         center: [-75.1652, 39.9526],
         maxZoom: 18,
-        canvasContextAttributes: { preserveDrawingBuffer: true },
         minZoom: 9,
+        preserveDrawingBuffer: true,
         zoom: 11,
       }),
     );

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    />
+
+    <style>
+      /* Prevent white flash before Vuetify/theme CSS loads */
+      html,
+      body {
+        background: #353d42;
+        margin: 0;
+        height: 100%;
+      }
+
+      #app {
+        min-height: 100%;
+        background: #353d42;
+      }
+    </style>
+    <meta name="theme-color" content="#353d42" />
+
+    <!-- Primary Meta Tags -->
+    <title>
+      Philadelphia Gun Violence Dashboard | Interactive Shootings Map & Data
+    </title>
+    <meta
+      name="title"
+      content="Philadelphia Gun Violence Dashboard | Interactive Shootings Map & Data"
+    />
+    <meta
+      name="description"
+      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data. Filter by year, district, and neighborhood. Download data in CSV and GeoJSON formats."
+    />
+    <meta
+      name="keywords"
+      content="Philadelphia gun violence, Philly shootings, Philadelphia shootings map, Philly shootings data, gun violence dashboard, Philly crime map, Philadelphia crime data, shooting victims Philadelphia, download Philadelphia shootings data, Philly shootings dataset"
+    />
+    <meta name="author" content="Nick Hand" />
+    <link
+      rel="preload"
+      href="/fonts/montserrat/montserrat-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="canonical"
+      href="https://www.nickhand.dev/philly-gun-violence-map/"
+    />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://www.nickhand.dev/philly-gun-violence-map/"
+    />
+    <meta
+      property="og:title"
+      content="Philadelphia Gun Violence Dashboard | Interactive Shootings Map & Data"
+    />
+    <meta
+      property="og:description"
+      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data. Download in CSV and GeoJSON."
+    />
+    <meta
+      property="og:image"
+      content="https://www.nickhand.dev/philly-gun-violence-map/og-image.png"
+    />
+    <meta property="og:site_name" content="Nick Hand" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:url"
+      content="https://www.nickhand.dev/philly-gun-violence-map/"
+    />
+    <meta
+      name="twitter:title"
+      content="Philadelphia Gun Violence Dashboard | Interactive Shootings Map & Data"
+    />
+    <meta
+      name="twitter:description"
+      content="Interactive map and charts visualizing gun violence and shooting incidents in Philadelphia. Updated daily with public data. Download data in CSV and GeoJSON."
+    />
+    <meta
+      name="twitter:image"
+      content="https://www.nickhand.dev/philly-gun-violence-map/og-image.png"
+    />
+
+    <!-- Geo Tags -->
+    <meta name="geo.region" content="US-PA" />
+    <meta name="geo.placename" content="Philadelphia" />
+
+    <!-- JSON-LD Structured Data - WebApplication -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Philadelphia Gun Violence Dashboard",
+        "description": "Download Philadelphia gun violence data in CSV and GeoJSON formats. Interactive map of 17,000+ shooting incidents updated daily.",
+        "url": "https://www.nickhand.dev/philly-gun-violence-map/",
+        "applicationCategory": "DataVisualization",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript",
+        "author": {
+          "@type": "Person",
+          "name": "Nick Hand",
+          "url": "https://www.nickhand.dev"
+        },
+        "publisher": {
+          "@type": "Person",
+          "name": "Nick Hand"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "image": "https://www.nickhand.dev/philly-gun-violence-map/og-image.png",
+        "about": {
+          "@type": "Thing",
+          "name": "Gun Violence in Philadelphia",
+          "description": "Data visualization of shooting incidents in Philadelphia, Pennsylvania"
+        },
+        "spatial": {
+          "@type": "Place",
+          "name": "Philadelphia, Pennsylvania",
+          "geo": {
+            "@type": "GeoCoordinates",
+            "latitude": 39.9526,
+            "longitude": -75.1652
+          }
+        }
+      }
+    </script>
+
+    <!-- JSON-LD Structured Data - Dataset (for Google Dataset Search) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": "Philadelphia Gun Violence and Shooting Victims Data",
+        "description": "Records of shooting victims in Philadelphia with victim demographics, locations, outcomes (fatal or nonfatal), and automated public-court-search results. Updated daily from official Philadelphia Police Department data.",
+        "url": "https://www.nickhand.dev/philly-gun-violence-map/",
+        "license": "https://opendatacommons.org/licenses/pddl/1-0/",
+        "isAccessibleForFree": true,
+        "creator": {
+          "@type": "Person",
+          "name": "Nick Hand",
+          "url": "https://www.nickhand.dev"
+        },
+        "provider": {
+          "@type": "Organization",
+          "name": "OpenDataPhilly",
+          "url": "https://www.opendataphilly.org"
+        },
+        "temporalCoverage": "2015/..",
+        "spatialCoverage": {
+          "@type": "Place",
+          "name": "Philadelphia, Pennsylvania, USA",
+          "geo": {
+            "@type": "GeoShape",
+            "box": "39.867 -75.280 40.138 -74.956"
+          }
+        },
+        "distribution": [
+          {
+            "@type": "DataDownload",
+            "name": "Shootings dataset metadata (JSON)",
+            "description": "Current dataset version, available years, and links to per-year NDJSON data files with all shooting victim records",
+            "encodingFormat": "application/json",
+            "contentUrl": "https://philly-gun-violence-dashboard-api.fly.dev/shootings/meta"
+          },
+          {
+            "@type": "DataDownload",
+            "name": "Data freshness and headline totals (JSON)",
+            "description": "Last-updated dates, row counts, and year-to-date homicide total for all datasets",
+            "encodingFormat": "application/json",
+            "contentUrl": "https://philly-gun-violence-dashboard-api.fly.dev/meta"
+          },
+          {
+            "@type": "DataDownload",
+            "name": "Source shooting victims data on OpenDataPhilly",
+            "encodingFormat": "text/csv",
+            "contentUrl": "https://opendataphilly.org/datasets/shooting-victims/"
+          }
+        ],
+        "isBasedOn": "https://opendataphilly.org/datasets/shooting-victims/",
+        "sameAs": "https://github.com/nickhand/philly-gun-violence-dashboard",
+        "variableMeasured": [
+          {
+            "@type": "PropertyValue",
+            "name": "dc_key",
+            "description": "Unique incident number assigned by Police Department"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "date",
+            "description": "Date and time of the shooting incident"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "fatal",
+            "description": "Whether the shooting was fatal (true/false)"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "race",
+            "description": "Race/ethnicity of victim (B, H, W, A, Other/Unknown)"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "sex",
+            "description": "Sex of victim (M/F)"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "age",
+            "description": "Victim's age in years"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "age_group",
+            "description": "Victim's age group category"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "police_district",
+            "description": "Police district where incident occurred"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "neighborhood",
+            "description": "Neighborhood name where incident occurred"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "council_district",
+            "description": "City Council district number"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "zip_code",
+            "description": "ZIP code of incident location"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "street_name",
+            "description": "Street name where incident occurred"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "block_number",
+            "description": "Block number of incident location"
+          },
+          {
+            "@type": "PropertyValue",
+            "name": "has_court_case",
+            "description": "Automated public court-portal search result: found, explicit no-results, or unknown"
+          }
+        ],
+        "keywords": [
+          "gun violence",
+          "shootings",
+          "Philadelphia",
+          "crime data",
+          "public safety",
+          "victim data",
+          "geospatial data"
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"><!-- __SEO_SUMMARY__ --></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

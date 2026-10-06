@@ -18,17 +18,11 @@ import {
 
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = resolve(frontendRoot, "lighthouse-report");
-const host = "127.0.0.1";
-const appPort = 4174;
-const apiPort = 4175;
-const appOrigin = `http://${host}:${appPort}`;
-const apiOrigin = `http://${host}:${apiPort}`;
-const auditUrl = `${appOrigin}/philly-gun-violence-map/`;
-const fixtureApiPath = resolve(
+const auditUrl = "http://127.0.0.1:4174/philly-gun-violence-map/";
+const fixtureServerPath = resolve(
   frontendRoot,
-  "tests/e2e/support/nuxtApiFixture.mjs",
+  "scripts/serve-lighthouse.mjs",
 );
-const nitroServerPath = resolve(frontendRoot, ".output/server/index.mjs");
 const lighthouseCliPath = resolve(
   frontendRoot,
   "node_modules/lighthouse/cli/index.js",
@@ -60,30 +54,30 @@ function runCommand(command, args, options = {}) {
   });
 }
 
-async function waitForServer(server, label, url) {
+async function waitForServer(server) {
   const deadline = Date.now() + 20_000;
   let lastError;
 
   while (Date.now() < deadline) {
     if (server.exitCode !== null) {
       throw new Error(
-        `${label} exited before becoming ready (${server.exitCode})`,
+        `Lighthouse fixture server exited before becoming ready (${server.exitCode})`,
       );
     }
 
     try {
-      const response = await fetch(url, {
+      const response = await fetch(auditUrl, {
         signal: AbortSignal.timeout(1_000),
       });
       if (response.ok) return;
-      lastError = new Error(`${label} returned HTTP ${response.status}`);
+      lastError = new Error(`fixture server returned HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
     }
     await delay(100);
   }
 
-  throw new Error(`${label} did not become ready`, {
+  throw new Error("Lighthouse fixture server did not become ready", {
     cause: lastError,
   });
 }
@@ -99,48 +93,18 @@ async function stopServer(server) {
 
 async function main() {
   const chromePath = process.env.CHROME_PATH || chromium.executablePath();
-  try {
-    await access(nitroServerPath);
-  } catch (error) {
-    throw new Error("Run `npm run build` before auditing with Lighthouse.", {
-      cause: error,
-    });
-  }
   await Promise.all([access(chromePath), access(lighthouseCliPath)]);
 
   await rm(outputDirectory, { force: true, recursive: true });
   await mkdir(outputDirectory, { recursive: true });
 
-  const servers = [];
-  try {
-    const api = spawn(process.execPath, [fixtureApiPath], {
-      cwd: frontendRoot,
-      env: {
-        ...process.env,
-        NUXT_E2E_ALLOWED_ORIGIN: appOrigin,
-        NUXT_E2E_API_PORT: String(apiPort),
-      },
-      stdio: "inherit",
-    });
-    servers.push(api);
-    await waitForServer(api, "Lighthouse API fixture", `${apiOrigin}/health`);
+  const server = spawn(process.execPath, [fixtureServerPath], {
+    cwd: frontendRoot,
+    stdio: "inherit",
+  });
 
-    // Audit the production Nitro build against deterministic fixture data.
-    // Analytics stays disabled so third-party scripts do not skew the scores.
-    const app = spawn(process.execPath, [nitroServerPath], {
-      cwd: frontendRoot,
-      env: {
-        ...process.env,
-        HOST: host,
-        PORT: String(appPort),
-        NUXT_PUBLIC_API_BASE_URL: apiOrigin,
-        NUXT_PUBLIC_DOWNLOADS_BASE_URL: apiOrigin,
-        NUXT_PUBLIC_POSTHOG_KEY: "",
-      },
-      stdio: "inherit",
-    });
-    servers.push(app);
-    await waitForServer(app, "Nuxt production server", auditUrl);
+  try {
+    await waitForServer(server);
     const lhrs = [];
 
     for (let run = 1; run <= LIGHTHOUSE_POLICY.numberOfRuns; run += 1) {
@@ -193,7 +157,7 @@ async function main() {
     }
     console.log("Lighthouse policy passed");
   } finally {
-    await Promise.all(servers.map(stopServer));
+    await stopServer(server);
   }
 }
 
