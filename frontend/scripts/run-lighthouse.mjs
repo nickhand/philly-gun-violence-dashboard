@@ -32,6 +32,11 @@ const apiFixturePath = resolve(
   "tests/e2e/support/nuxtApiFixture.mjs",
 );
 const nuxtServerPath = resolve(frontendRoot, ".output/server/index.mjs");
+// Optional extra Lighthouse CLI flags for local diagnosis, e.g.
+// LIGHTHOUSE_EXTRA_FLAGS="--throttling.cpuSlowdownMultiplier=4" to approximate CI.
+const extraLighthouseFlags = (process.env.LIGHTHOUSE_EXTRA_FLAGS ?? "")
+  .split(/\s+/)
+  .filter(Boolean);
 const lighthouseCliPath = resolve(
   frontendRoot,
   "node_modules/lighthouse/cli/index.js",
@@ -155,6 +160,12 @@ async function main() {
           "--output=html",
           `--output-path=${outputPrefix}`,
           "--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage",
+          // Keep the audit deterministic and first-party: like the legacy blank
+          // map style and the Nuxt browser tests, skip the third-party ArcGIS
+          // basemap so remote tiles and software WebGL rendering of them on CI
+          // runners do not dominate the measured main-thread work.
+          "--blocked-url-patterns=https://basemaps-api.arcgis.com/*",
+          ...extraLighthouseFlags,
           "--quiet",
           "--no-enable-error-reporting",
         ],

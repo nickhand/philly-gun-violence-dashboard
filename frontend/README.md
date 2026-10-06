@@ -151,7 +151,10 @@ route's initial load.
 
 `npm run test:lighthouse` builds the Nuxt server, serves it against the same
 deterministic API fixture as the Nuxt browser tests, and runs three desktop
-Lighthouse audits of the home page. The runner stores HTML and JSON for every
+Lighthouse audits of the home page. Like those tests, it blocks the third-party
+ArcGIS basemap, so remote tiles and software WebGL rendering on CI runners do not
+dominate main-thread time (the map still initializes with an empty basemap). The
+runner stores HTML and JSON for every
 run plus a machine-readable summary, then enforces median scores and Core Web
 Vitals-oriented thresholds (`scripts/lighthouse-policy.mjs`).
 
