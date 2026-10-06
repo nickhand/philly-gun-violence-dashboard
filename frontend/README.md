@@ -3,22 +3,18 @@
 Interactive dashboard visualizing gun violence data in Philadelphia with maps,
 charts, and filtering capabilities.
 
-The canonical production frontend is the Nuxt 4 application in `app/`, mounted
-at `/philly-gun-violence-map/` on Cloudflare Workers. The former Vue/Vite
-application in `src/` remains runnable locally as legacy reference code, but it
-is no longer a deployed rollback origin.
+The production frontend is the Nuxt 4 application in `app/`, mounted at
+`/philly-gun-violence-map/` on Cloudflare Workers. The former Vue/Vite
+application in `src/` was removed in October 2026; production rollbacks use
+retained Cloudflare Worker versions.
 
 ## Tech Stack
 
 - **Framework:** Nuxt 4 + Vue 3 Composition API
 - **Language:** TypeScript
-- **UI:** Local `civic-ui` Nuxt layer backed by USWDS; Vuetify remains only in
-  the legacy rollback app
+- **UI:** Local `civic-ui` Nuxt layer backed by USWDS
 - **Mapping:** MapLibre GL
-- **Charts:** D3.js
-- **Data Filtering:** Arquero
-- **State Management:** URL state and local Nuxt composables; Pinia remains in
-  the legacy explorer only
+- **State Management:** URL state and local Nuxt composables
 - **Build Tool:** Nuxt/Nitro and Vite
 
 ## Prerequisites
@@ -32,17 +28,19 @@ is no longer a deployed rollback origin.
 # Reproduce the locked dependency graph
 npm ci
 
-# Start the canonical Nuxt application
-npm run dev:nuxt
+# Start the Nuxt application
+npm run dev
 
-# Type-check and build Nuxt
-npm run type-check:nuxt
-npm run build:nuxt
-
-# Validate the retained legacy rollback bundle
-npm run build:legacy
+# Type-check the tests, build Nuxt, and enforce the bundle budgets
+npm run type-check
+npm run build
 npm run check:bundle
 ```
+
+`npm run type-check:nuxt` covers `app/` and `server/` but currently reports
+existing type errors, so it is not yet a CI gate (and `typescript.typeCheck` is
+off in `nuxt.config.ts`). The removed legacy `tsconfig.json` never covered the
+Nuxt app; re-enable both once those errors are fixed.
 
 The Nuxt development server runs at
 `http://localhost:3000/philly-gun-violence-map/`.
@@ -112,11 +110,11 @@ npm run test:coverage
 npm run build:nuxt
 npm run test:nuxt:seo
 
-# Hydrated Nuxt explorer in desktop and mobile Chromium
-npm run test:e2e:nuxt
-
-# Legacy Vite browser suite retained during cutover
+# Full Nuxt browser suite (all Playwright projects)
 npm run test:e2e
+
+# Hydrated Nuxt explorer in desktop and mobile Chromium
+npm run test:e2e:chromium
 
 # WCAG 2.1 A/AA automated checks
 npm run test:e2e:a11y
@@ -131,69 +129,41 @@ npm run audit:dependencies
 The Nuxt browser gate uses a deterministic cross-origin API fixture and creates
 a real MapLibre map; only third-party basemap and geocoder traffic is stubbed.
 It covers desktop browsers, Pixel-sized Chromium, and an iPhone WebKit profile
-without depending on production data. The legacy Vite browser suite remains a
-required rollback gate. See
+without depending on production data. See
 [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) for the manual WCAG 2.1 AA evaluation
 checklist.
 
-The legacy header displays validated statistics as soon as the selected data is
-ready, while the map initializes with its own loader. Montserrat uses local
-copies of the existing Google Fonts v31 subsets, with the Latin face preloaded;
-the original font license and source hashes are in `public/fonts/montserrat`.
-This removes the blocking third-party font stylesheet from initial rendering.
-
 ## Bundle budgets
 
-The production build emits a Vite manifest and `npm run check:bundle` enforces
-gzip budgets for the initial app shell, the asynchronously loaded map, their
-separate MapLibre worker, their combined core experience, and deferred analytics.
-The check also prevents the full Material Design icon font from being bundled
-again. Lighthouse runs three
-desktop audits against deterministic local data and a local map style. The
-direct Lighthouse runner stores HTML and JSON for every run plus a machine-
-readable summary, then enforces median scores and Core Web Vitals-oriented
-thresholds.
+`npm run check:bundle` runs after `npm run build:nuxt`. It reads the client
+dependency graph Nuxt embeds in its server build
+(`.output/server/chunks/virtual/precomputed.mjs`) and enforces gzip budgets for
+the app shell (entry plus default layout), the interactive map (explorer plus
+MapLibre and its CSS), the separately bundled MapLibre worker, their combined
+core experience, and deferred analytics. It fails if analytics joins the app
+shell or if the full Material Design icon font is bundled. Budgets sit about 5%
+above the sizes measured when the Nuxt app replaced the legacy bundle (shell
+101 KiB, map 331 KiB, worker 141 KiB, combined 573 KiB, analytics 93 KiB).
 
-The September 2026 security update migrates MapLibre 2 to patched MapLibre 6.
-Version 6 uses named ES-module exports and a separate worker; both apps explicitly
-bundle that worker with Vite so deployment paths and the development optimizer
-cannot strand it. The measured compressed map module is about 308 KB and its
-worker about 147 KB. Their bounded budgets are 320 KB and 155 KB, with 790 KB for
-the complete shell/map/worker experience. The existing 315 KB shell and 65 KB
-analytics limits and all Lighthouse thresholds remain unchanged. This explicitly
-accounts for the security upgrade's added transfer cost, including the worker
-that Vite omits from its main manifest.
 Nuxt separately caps the dynamically loaded map JavaScript, including its worker,
-at 475 KiB gzip (measured at 447 KiB) and map CSS at 18 KiB (measured at 16 KiB).
-The checks that keep all map assets out of every route's initial load remain.
+at 475 KiB gzip and map CSS at 18 KiB, and keeps all map assets out of every
+route's initial load.
+
+`npm run test:lighthouse` builds the Nuxt server, serves it against the same
+deterministic API fixture as the Nuxt browser tests, and runs three desktop
+Lighthouse audits of the home page. The runner stores HTML and JSON for every
+run plus a machine-readable summary, then enforces median scores and Core Web
+Vitals-oriented thresholds (`scripts/lighthouse-policy.mjs`).
 
 ## Project Structure
 
 ```
-app/                       # Canonical Nuxt pages, components, and utilities
+app/                       # Nuxt pages, components, utilities, and map style
 layers/civic-ui/           # Reusable civic UI Nuxt layer
 server/                    # Same-origin server endpoints used during SSR
 tests/                     # Unit, SSR/SEO, accessibility, and browser contracts
-src/                       # Legacy Vite rollback application
-├── app/                    # Application setup
-│   ├── components/         # Shared layout components (AppNavbar, AppFooter)
-│   ├── router.ts           # Vue Router configuration
-│   └── vuetify.ts          # Vuetify theme and plugin setup
-├── features/               # Feature modules
-│   ├── charts/             # D3-based chart components
-│   │   └── components/     # ChartDashboard, BarChart, etc.
-│   └── map/                # MapLibre-based mapping
-│       ├── components/     # MappingDashboard, FilterableMap, etc.
-│       └── composables/    # Map-related hooks (useAggregation, etc.)
-├── pages/                  # Page components
-│   ├── AboutPage.vue       # About page (lazy-loaded)
-│   ├── DashboardPage.vue   # Main dashboard
-│   └── components/         # Page-specific components
-├── shared/                 # Shared utilities
-│   ├── api/                # API client functions
-│   └── stores/             # Legacy Pinia stores (shootings, etc.)
-├── types/                  # TypeScript type definitions
-└── main.ts                 # Application entry point
+config/                    # Shared response-header policy
+scripts/                   # Build, bundle, Lighthouse, and Cloudflare checks
 ```
 
 ## Key Features
@@ -216,17 +186,7 @@ src/                       # Legacy Vite rollback application
 
 ## Environment Variables
 
-Create a `.env` file for local development:
-
-```env
-VITE_API_BASE_URL=http://localhost:8000
-VITE_POSTHOG_KEY=              # Optional: PostHog analytics key
-```
-
-For the legacy rollback build, `VITE_API_BASE_URL` points to the Fly.io API
-deployment.
-
-The canonical Nuxt app supports:
+The Nuxt app reads these from the environment (for example a `.env` file):
 
 ```env
 NUXT_PUBLIC_API_BASE_URL=http://localhost:8000
