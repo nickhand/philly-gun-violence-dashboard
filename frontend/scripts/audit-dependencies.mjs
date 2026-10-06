@@ -15,16 +15,6 @@ export const EXCEPTIONS = [
       + 'Reached only through nitropack > globby > fast-glob > micromatch, which expands build '
       + 'patterns from repository config, never request input.',
   },
-  {
-    id: 'GHSA-68fv-2mgg-jv7q',
-    package: 'source-map-js',
-    reviewed: '2026-10-05',
-    expires: '2026-10-14',
-    reason:
-      'Event-loop DoS on crafted source-map section offsets. Only parses source maps produced by '
-      + 'our own build. Fixed in 1.2.2 (published 2026-09-30); pin it once it clears the 7-day '
-      + 'npm release-age policy and remove this exception.',
-  },
 ];
 
 const BLOCKING = new Set(['high', 'critical']);
