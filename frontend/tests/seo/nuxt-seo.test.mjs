@@ -627,7 +627,7 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
     assert.equal(document.querySelector("main")?.getAttribute("tabindex"), "-1");
     assert.equal(
       document.querySelector("h1")?.textContent?.trim(),
-      "Mapping Philadelphia's Gun Violence",
+      "Mapping Philadelphia’s Gun Violence",
     );
     assert.equal(
       normalizedText(document.querySelector(".civic-site-header__brand")),
@@ -638,7 +638,13 @@ test("dashboard root renders a complete, accessible SSR shell", async () => {
       [...document.querySelectorAll(".civic-site-footer__links a")].map(
         normalizedText,
       ),
-      ["Data sources", "Methodology", "Corrections", "Source code"],
+      [
+        "Data sources",
+        "Methodology",
+        "Corrections",
+        "Source code",
+        "Built by Nick Hand",
+      ],
     );
     assert.equal(
       document.querySelector("#explorer")?.getAttribute("aria-label"),
@@ -904,7 +910,7 @@ test("dashboard year query drives truthful SSR summaries and category charts", a
       assert.equal(document.querySelector('select[name="year"]')?.value, item.selected);
       assert.equal(
         document.querySelector("h1")?.textContent?.trim(),
-        "Mapping Philadelphia's Gun Violence",
+        "Mapping Philadelphia’s Gun Violence",
       );
       assert.equal(document.querySelector('select[name="outcome"]'), null);
       assert.equal(document.querySelector('select[name="layers"]'), null);
@@ -1016,7 +1022,7 @@ test("dashboard renders an honest SSR fallback when statistics are unavailable",
       assert.equal(response.status, 200);
       assert.equal(
         document.querySelector("h1")?.textContent?.trim(),
-        "Mapping Philadelphia's Gun Violence",
+        "Mapping Philadelphia’s Gun Violence",
       );
       assert.match(
         dashboardSummaries(document)[0],

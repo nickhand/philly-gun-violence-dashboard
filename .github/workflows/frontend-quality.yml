@@ -80,7 +80,7 @@ jobs:
       - run: npm ci
       - name: Audit production dependencies before a release
         if: needs.changes.outputs.release == 'true'
-        run: npm audit --package-lock-only --audit-level=high
+        run: npm run audit:dependencies
       - run: npm run test:dependency-security
       - run: npm run test:lighthouse:policy
       - run: npm run type-check

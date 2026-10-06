@@ -34,10 +34,10 @@
     "test:e2e:nuxt:chromium": "playwright test --config=playwright.nuxt.config.ts --project=nuxt-chromium",
     "test:lighthouse": "npm run build:lighthouse && node scripts/run-lighthouse.mjs",
     "test:lighthouse:policy": "node --test tests/lighthouse-policy.test.mjs",
-    "audit:dependencies": "npm audit --audit-level=high",
+    "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "deploy:nuxt:staging": "npm run build:nuxt:cloudflare:staging && wrangler deploy --env staging",
     "deploy:nuxt:production": "npm run build:nuxt:cloudflare:production && wrangler deploy --env production",
-    "test:dependency-security": "node --test tests/dependency-security.test.mjs"
+    "test:dependency-security": "node --test tests/dependency-security.test.mjs tests/audit-dependencies.test.mjs"
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
@@ -93,6 +93,9 @@
     "brace-expansion@^2.0.0": "2.1.7",
     "brace-expansion@^5.0.0": "5.0.12",
     "devalue": "5.9.3",
-    "dompurify": "3.4.16"
+    "dompurify": "3.4.16",
+    "simple-git": "4.0.2",
+    "seroval": "1.6.7",
+    "postcss-selector-parser": "7.1.6"
   }
 }

@@ -275,7 +275,7 @@ class DeploymentContracts(unittest.TestCase):
         self.assertGreaterEqual(source.count("git rev-parse FETCH_HEAD"), 3)
         self.assertGreaterEqual(source.count("release=true"), 3)
         self.assertIn("CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}", source)
-        self.assertIn("npm audit --package-lock-only --audit-level=high", source)
+        self.assertIn("npm run audit:dependencies", source)
         self.assertIn("overwrite: true", source)
         self.assertIn("wrangler versions upload \\", source)
         self.assertIn('wrangler versions deploy "${VERSION}@100%"', source)
