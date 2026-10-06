@@ -65,7 +65,7 @@ in formatting and lint gates.
 
 Shared public models live under `packages/dashboard-utils/src/dashboard_utils/models`. A field
 change normally requires coordinated updates to the shared model, ETL transform/export, API
-validation/router, Nuxt and legacy TypeScript contracts, user-facing methodology, and tests.
+validation/router, Nuxt TypeScript contracts, user-facing methodology, and tests.
 
 ETL publication order is strict:
 
@@ -101,11 +101,9 @@ ECS `secrets` list.
 
 - Canonical app: Nuxt code in `frontend/app` and the reusable civic layer in
   `frontend/layers/civic-ui`.
-- Rollback app: legacy Vite code in `frontend/src`; keep its contracts aligned while it remains
-  a supported rollback path.
 - Package manager: the exact npm version in `frontend/package.json`.
-- Main checks: `npm run type-check`, `npm run type-check:nuxt`, `npm run test:coverage`,
-  `npm run test:nuxt:seo`, the Playwright project matrix, both builds, bundle policy,
+- Main checks: `npm run type-check`, `npm run test:coverage`, `npm run build:nuxt`,
+  `npm run test:nuxt:seo`, the Nuxt Playwright project matrix, bundle policy,
   Lighthouse policy, Cloudflare artifact checks, and full plus production dependency audits.
 - Preserve server-rendered links/content, mobile WebKit behavior, keyboard/touch accessibility,
   no-overflow layouts at narrow widths, print pagination, security headers, and noindex behavior

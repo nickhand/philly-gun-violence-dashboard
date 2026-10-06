@@ -75,7 +75,7 @@ async function openDashboard(
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Mapping Philadelphia's Gun Violence",
+      name: "Mapping Philadelphia’s Gun Violence",
     }),
   ).toBeVisible();
 
@@ -707,7 +707,7 @@ test("shows chart definitions without changing desktop chart geometry @maplibre"
   await expect(tooltip).toHaveAttribute("aria-label", "Outcome information");
   await page.getByRole("heading", {
     level: 1,
-    name: "Mapping Philadelphia's Gun Violence",
+    name: "Mapping Philadelphia’s Gun Violence",
   }).click();
   await expect(tooltip).not.toBeVisible();
 });

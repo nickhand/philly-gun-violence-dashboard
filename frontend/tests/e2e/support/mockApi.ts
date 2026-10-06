@@ -8,7 +8,7 @@ import {
 } from "../../fixtures/shootings";
 
 const require = createRequire(import.meta.url);
-const mapStyle = require("../../../src/data/style.json") as {
+const mapStyle = require("../../../app/assets/basemap-style.json") as {
   layers: Array<Record<string, unknown>>;
 };
 

@@ -79,7 +79,7 @@ const definitions: ChartDefinition[] = [
     accessor: "race",
     className: "race",
     description:
-      "Categories use the reported race field together with the source's Latino indicator. Other/Unknown groups remaining or unavailable values.",
+      "Categories use the reported race field together with the source's Latino indicator. Other/Unknown covers any remaining or missing values.",
     labelWidth: 200,
     responsiveLabelWidth: 90,
     categories: [

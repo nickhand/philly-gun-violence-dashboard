@@ -18,8 +18,8 @@ import {
   ref,
   watch,
 } from "vue";
-import mapStyle from "../../src/data/style.json";
-import { enhanceBasemapLabels } from "../../src/features/explorer/config/basemapLabels";
+import mapStyle from "../assets/basemap-style.json";
+import { enhanceBasemapLabels } from "../utils/basemapLabels";
 import type { AddressResult } from "~/utils/geocoding";
 import {
   AGGREGATE_ZERO_COLOR,
