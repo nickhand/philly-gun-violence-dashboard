@@ -103,7 +103,7 @@ describe("CivicSiteHeader", () => {
 });
 
 describe("CivicSiteFooter", () => {
-  it("exposes concise project-navigation and source-code links", () => {
+  it("exposes concise project-navigation, source-code, and author links", () => {
     const wrapper = track(
       mount(CivicSiteFooter, {
         global: { stubs: { NuxtLink: NuxtLinkStub } },
@@ -118,13 +118,16 @@ describe("CivicSiteFooter", () => {
       "Methodology",
       "Corrections",
       "Source code",
+      "Built by Nick Hand",
     ]);
     expect(links.map((link) => link.attributes("href"))).toEqual([
       "/data#source-records",
       "/methodology",
       "/about#corrections",
       "https://github.com/nickhand/philly-gun-violence-dashboard",
+      "https://www.nickhand.dev/",
     ]);
     expect(links[3].attributes("rel")).toBe("external");
+    expect(links[4].attributes("rel")).toBe("external author");
   });
 });

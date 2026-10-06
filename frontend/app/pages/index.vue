@@ -282,7 +282,7 @@ useHead(() => ({
     </div>
 
     <header class="civic-legacy-dashboard-header">
-      <h1>Mapping Philadelphia's Gun Violence</h1>
+      <h1>Mapping Philadelphia’s Gun Violence</h1>
 
       <p
         class="civic-legacy-dashboard-header__summary civic-legacy-dashboard-header__summary--homicide"

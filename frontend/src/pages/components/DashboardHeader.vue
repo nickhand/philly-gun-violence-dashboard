@@ -1,6 +1,6 @@
 <template>
   <div class="dashboard-header">
-    <h1 class="header-message">Mapping Philadelphia's Gun Violence</h1>
+    <h1 class="header-message">Mapping Philadelphia’s Gun Violence</h1>
 
     <div>
       <!--

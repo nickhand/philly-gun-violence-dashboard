@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Mapping Philadelphia's Gun Violence",
+      name: "Mapping Philadelphia’s Gun Violence",
     }),
   ).toBeVisible();
   await expect(
