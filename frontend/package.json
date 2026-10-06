@@ -93,6 +93,9 @@
     "brace-expansion@^2.0.0": "2.1.7",
     "brace-expansion@^5.0.0": "5.0.12",
     "devalue": "5.9.3",
-    "dompurify": "3.4.16"
+    "dompurify": "3.4.16",
+    "simple-git": "4.0.2",
+    "seroval": "1.6.7",
+    "postcss-selector-parser": "7.1.6"
   }
 }
