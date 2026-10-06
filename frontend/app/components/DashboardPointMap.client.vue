@@ -1155,7 +1155,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       dragRotate: false,
       pitchWithRotate: false,
       attributionControl: false,
-      preserveDrawingBuffer: true,
+      canvasContextAttributes: { preserveDrawingBuffer: true },
     });
     syncMapCanvasAccessibility(instance);
     const onMoveEnd = () => {
@@ -1197,7 +1197,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
         mapIdle.value = true;
       }
     };
-    candidate = {
+    const mapState: ActiveMap = {
       cleanupAttribution: () => {},
       cleanupInteractions: () => {},
       createPopup: (options) => new maplibregl.Popup(options),
@@ -1210,7 +1210,8 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       ready: false,
       timer: null,
     };
-    activeMap = candidate;
+    candidate = mapState;
+    activeMap = mapState;
     instance.on("dataloading", onDataLoading);
     instance.on("idle", onIdle);
 
@@ -1230,7 +1231,7 @@ async function initializeMap(currentLoadId: number): Promise<void> {
     );
     collapseCompactAttribution(mapContainer.value);
     const onAttributionResize = () => {
-      if (activeMap !== candidate || currentLoadId !== loadId) return;
+      if (activeMap !== mapState || currentLoadId !== loadId) return;
       const shouldBeCompact = shouldCompactAttribution();
       if (shouldBeCompact === compactAttribution) return;
 
@@ -1243,23 +1244,23 @@ async function initializeMap(currentLoadId: number): Promise<void> {
       collapseCompactAttribution(mapContainer.value);
     };
     window.addEventListener("resize", onAttributionResize);
-    candidate.cleanupAttribution = () => {
+    mapState.cleanupAttribution = () => {
       window.removeEventListener("resize", onAttributionResize);
     };
 
-    candidate.timer = setTimeout(() => {
+    mapState.timer = setTimeout(() => {
       if (
-        activeMap === candidate &&
+        activeMap === mapState &&
         currentLoadId === loadId &&
-        !candidate.ready
+        !mapState.ready
       ) {
         state.value = "error";
-        destroyMap(candidate);
+        destroyMap(mapState);
       }
     }, 15_000);
 
     instance.once("load", () => {
-      if (activeMap !== candidate || currentLoadId !== loadId) return;
+      if (activeMap !== mapState || currentLoadId !== loadId) return;
 
       try {
         // MapLibre expands a newly compacted attribution control. Collapse it
@@ -1386,24 +1387,24 @@ async function initializeMap(currentLoadId: number): Promise<void> {
           const onPointClick = (event: MapLayerMouseEvent) => {
             hoverPopup?.remove();
             hoverPopup = null;
-            candidate.pinnedPopup?.remove();
-            candidate.pinnedPopup = popupAt(event, true);
-            candidate.pinnedLayerId = candidate.pinnedPopup
+            mapState.pinnedPopup?.remove();
+            mapState.pinnedPopup = popupAt(event, true);
+            mapState.pinnedLayerId = mapState.pinnedPopup
               ? pointLayerId
               : null;
-            const currentPopup = candidate.pinnedPopup;
+            const currentPopup = mapState.pinnedPopup;
             currentPopup?.on("close", () => {
-              if (candidate.pinnedPopup === currentPopup) {
-                candidate.pinnedPopup = null;
-                candidate.pinnedLayerId = null;
+              if (mapState.pinnedPopup === currentPopup) {
+                mapState.pinnedPopup = null;
+                mapState.pinnedLayerId = null;
               }
             });
           };
           const onPointEnter = (event: MapLayerMouseEvent) => {
             instance.getCanvas().style.cursor = "pointer";
             if (
-              candidate.pinnedPopup &&
-              candidate.pinnedLayerId === pointLayerId
+              mapState.pinnedPopup &&
+              mapState.pinnedLayerId === pointLayerId
             ) {
               return;
             }
@@ -1418,31 +1419,31 @@ async function initializeMap(currentLoadId: number): Promise<void> {
           instance.on("click", pointLayerId, onPointClick);
           instance.on("mouseenter", pointLayerId, onPointEnter);
           instance.on("mouseleave", pointLayerId, onPointLeave);
-          candidate.cleanupInteractions = () => {
+          mapState.cleanupInteractions = () => {
             hoverPopup?.remove();
-            if (candidate.pinnedLayerId === pointLayerId) {
-              candidate.pinnedPopup?.remove();
-              candidate.pinnedPopup = null;
-              candidate.pinnedLayerId = null;
+            if (mapState.pinnedLayerId === pointLayerId) {
+              mapState.pinnedPopup?.remove();
+              mapState.pinnedPopup = null;
+              mapState.pinnedLayerId = null;
             }
             instance.off("click", pointLayerId, onPointClick);
             instance.off("mouseenter", pointLayerId, onPointEnter);
             instance.off("mouseleave", pointLayerId, onPointLeave);
           };
         installSearchLocation(instance);
-        if (candidate.timer) clearTimeout(candidate.timer);
-        candidate.timer = null;
-        candidate.ready = true;
+        if (mapState.timer) clearTimeout(mapState.timer);
+        mapState.timer = null;
+        mapState.ready = true;
         instance.on("moveend", onMoveEnd);
         syncMapCanvasAccessibility(instance);
         syncSearchLocation();
-        void installCityBoundary(candidate, currentLoadId);
+        void installCityBoundary(mapState, currentLoadId);
         void syncBoundaryOverlay();
         scheduleStreetHotSpots();
         state.value = "ready";
       } catch {
         state.value = "error";
-        destroyMap(candidate);
+        destroyMap(mapState);
       }
     });
   } catch {

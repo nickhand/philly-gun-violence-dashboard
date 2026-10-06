@@ -291,8 +291,8 @@ function updateCategory(
   values: Array<number | string>,
 ): void {
   if (!filters.value) return;
-  const previous = new Set(filters.value[dimension]);
-  const next = new Set(values);
+  const previous = new Set<number | string>(filters.value[dimension]);
+  const next = new Set<number | string>(values);
   for (const value of new Set([...previous, ...next])) {
     if (previous.has(value) === next.has(value)) continue;
     track("filter_toggled", {
