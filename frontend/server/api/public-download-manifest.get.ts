@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const manifest = await $fetch<unknown>(manifestUrl, {
+    const manifest: unknown = await $fetch<unknown>(manifestUrl, {
       headers: {
         Accept: "application/json",
         // Cloudflare Worker subrequests do not include a user agent by

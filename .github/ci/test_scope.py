@@ -103,9 +103,19 @@ class TriggerContracts(unittest.TestCase):
                 "lighthouse",
             },
             ("frontend", "frontend/wrangler.jsonc"): {"release", "unit"},
-            ("frontend", "frontend/app/app.vue"): {"release", "unit", "browser"},
-            ("frontend", "frontend/src/main.ts"): {
+            ("frontend", "frontend/app/app.vue"): {
                 "release",
+                "unit",
+                "browser",
+                "lighthouse",
+            },
+            ("frontend", "frontend/modules/client-bundle-manifest.ts"): {
+                "release",
+                "unit",
+                "browser",
+                "lighthouse",
+            },
+            ("frontend", "frontend/tests/e2e/support/nuxtApiFixture.mjs"): {
                 "unit",
                 "browser",
                 "lighthouse",
@@ -220,7 +230,6 @@ class TriggerContracts(unittest.TestCase):
         for path in (
             "frontend/scripts/lighthouse-policy.mjs",
             "frontend/scripts/run-lighthouse.mjs",
-            "frontend/scripts/serve-lighthouse.mjs",
         ):
             with self.subTest(path=path):
                 decisions = SCOPE.classify("frontend", [path])
@@ -232,7 +241,7 @@ class TriggerContracts(unittest.TestCase):
             "frontend/app/app.vue",
             "frontend/public/robots.txt",
             "frontend/server/api/public-download-manifest.get.ts",
-            "frontend/src/data/style.json",
+            "frontend/app/assets/map/style.json",
             "frontend/wrangler.jsonc",
         ):
             with self.subTest(path=path):

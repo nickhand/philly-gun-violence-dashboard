@@ -1,7 +1,8 @@
 # Accessibility standard and verification
 
-The frontend targets **WCAG 2.1 Level AA** across the dashboard and About page,
-including loading, error, filtering, map-layer, and download-dialog states.
+The frontend targets **WCAG 2.1 Level AA** across the dashboard and its
+Statistics, Data, Methodology, and About pages, including loading, error,
+filtering, map-layer, and download-dialog states.
 
 Automated Playwright checks use axe rules tagged for WCAG 2.0 and 2.1 Level A
 and AA. They are regression guards, not a complete conformance evaluation.
@@ -14,9 +15,10 @@ npm run test:e2e:a11y
 
 The suite checks:
 
-- Dashboard default state
-- Expanded filter and open download dialog
-- About page
+- Hydrated dashboard explorer with the map ready
+- Expanded filter, open info tooltip, and open download dialog
+- Statistics, Data, Methodology, and About pages
+- Client-side route announcements and focus management
 - Programmatic names, roles, values, document structure, and color contrast
 
 ## Manual WCAG 2.1 AA checklist

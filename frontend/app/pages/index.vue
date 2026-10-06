@@ -408,7 +408,7 @@ useHead(() => ({
                 class="usa-button usa-button--outline"
                 type="button"
                 :disabled="status === 'pending'"
-                @click="refresh"
+                @click="refresh()"
               >
                 {{ status === "pending" ? "Trying again…" : "Try again" }}
               </button>

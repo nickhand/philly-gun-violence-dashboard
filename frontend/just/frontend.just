@@ -15,7 +15,7 @@ ui-build:
 ui-dev:
 	cd frontend; npm run dev
 
-# Type check the frontend application
+# Type check the frontend application and its tests
 [group: "ui"]
 ui-type-check:
 	cd frontend; npm run type-check
@@ -23,7 +23,7 @@ ui-type-check:
 # Lint the frontend (alias for type-check)
 [group: "ui"]
 ui-lint:
-	cd frontend; npm run type-check
+	just ui-type-check
 
 # Run frontend unit and component tests
 [group: "ui"]

@@ -1,6 +1,9 @@
-import type { ShootingRow } from "@/shared/types/shootings";
+import type { ShootingRow } from "../../app/utils/shootingRecords";
 
-export const shootingRows: ShootingRow[] = [
+// API rows also carry `unique_id`, which the dashboard does not read.
+type FixtureShootingRow = ShootingRow & { unique_id: number };
+
+export const shootingRows: FixtureShootingRow[] = [
   {
     dc_key: "2026-01",
     race: "B",

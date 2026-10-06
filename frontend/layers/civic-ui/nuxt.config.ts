@@ -10,7 +10,6 @@ export default defineNuxtConfig({
     css: {
       preprocessorOptions: {
         scss: {
-          api: "modern-compiler",
           quietDeps: true,
           loadPaths: [
             resolve(

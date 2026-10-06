@@ -84,16 +84,14 @@ jobs:
       - run: npm run test:dependency-security
       - run: npm run test:lighthouse:policy
       - run: npm run type-check
-      - run: npm run type-check:nuxt
       - run: npm run test:coverage
       - run: npm run build
       - run: npm run check:bundle
-      - run: npm run build:nuxt
-      - run: npm run test:nuxt:seo
+      - run: npm run test:seo
       - name: Build and validate staging Cloudflare artifact
-        run: npm run build:nuxt:cloudflare:staging
+        run: npm run build:cloudflare:staging
       - name: Build and validate production Cloudflare artifact
-        run: npm run build:nuxt:cloudflare:production
+        run: npm run build:cloudflare:production
       - name: Package the exact production Cloudflare artifact
         if: >-
           needs.changes.outputs.release == 'true' &&
@@ -163,14 +161,11 @@ jobs:
       matrix:
         include:
           - browser: chromium
-            legacy_projects: "--project=chromium --project=mobile-chrome"
-            nuxt_projects: "--project=nuxt-chromium --project=nuxt-mobile-chrome"
+            projects: "--project=nuxt-chromium --project=nuxt-mobile-chrome"
           - browser: firefox
-            legacy_projects: "--project=firefox"
-            nuxt_projects: "--project=nuxt-firefox-core"
+            projects: "--project=nuxt-firefox-core"
           - browser: webkit
-            legacy_projects: "--project=webkit"
-            nuxt_projects: "--project=nuxt-webkit-core --project=nuxt-mobile-webkit"
+            projects: "--project=nuxt-webkit-core --project=nuxt-mobile-webkit"
     defaults:
       run:
         working-directory: frontend
@@ -184,13 +179,9 @@ jobs:
       - run: npm install --global npm@11.18.0
       - run: npm ci
       - name: Install the locked Playwright browser and system dependencies
-        id: playwright
         run: npx --no-install playwright install --with-deps ${{ matrix.browser }}
-      - name: Run legacy browser tests
-        run: npx playwright test ${{ matrix.legacy_projects }}
-      - name: Run Nuxt browser tests
-        if: ${{ !cancelled() && steps.playwright.outcome == 'success' }}
-        run: npx playwright test --config=playwright.nuxt.config.ts ${{ matrix.nuxt_projects }}
+      - name: Run browser tests
+        run: npx playwright test ${{ matrix.projects }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:

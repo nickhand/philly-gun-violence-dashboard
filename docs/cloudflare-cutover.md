@@ -98,7 +98,7 @@ Sitemap: https://www.nickhand.dev/philly-gun-violence-map/sitemap.xml
 From `frontend/`:
 
 ```bash
-npm run deploy:nuxt:staging
+npm run deploy:staging
 ```
 
 The staging build is explicitly `noindex`. Add its exact `workers.dev` origin
@@ -125,7 +125,7 @@ enters the slash-subtree route without capturing nearby paths such as
 After the canary gate passes:
 
 ```bash
-npm run deploy:nuxt:production
+npm run deploy:production
 ```
 
 Immediately verify the canonical URL, trailing-slash behavior, navigation,

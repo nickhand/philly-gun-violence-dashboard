@@ -16,7 +16,7 @@ Visit the live map: https://nickhand.dev/philly-gun-violence-map
 - Production-style geospatial data engineering: extract, validate, enrich, version, and serve public datasets.
 - Typed Python package boundaries across ETL, shared utilities, scraper orchestration, and API code.
 - A FastAPI backend designed around immutable, versioned NDJSON payloads for efficient frontend caching.
-- A Nuxt/MapLibre/D3 frontend for map-first analysis with synchronized charts and filters.
+- A Nuxt/MapLibre frontend for map-first analysis with synchronized charts and filters.
 - Operational automation with GitHub Actions, AWS S3, ECS/SQS scraper workers, Fly.io, and Cloudflare Workers.
 
 ## System Overview
@@ -54,7 +54,7 @@ expectations - without coupling the application to a specific IaC implementation
 
 ## Highlights
 - End-to-end geospatial data platform powering a public dashboard used by civic audiences.
-- Nuxt frontend with MapLibre GL maps, D3.js charts, and the project civic UI layer.
+- Nuxt frontend with MapLibre GL maps, native Vue/SVG charts, and the project civic UI layer.
 - Automated ETL pipelines with scheduled refreshes, validation, and S3-backed storage.
 - FastAPI service optimized for large GeoJSON payloads with pagination and caching.
 - Shared, typed data models across ETL and API for consistent contracts.
@@ -152,23 +152,24 @@ security exceptions, automatic merge safeguards, and deployment boundaries.
 
 ## Frontend
 
-The canonical dashboard is a Nuxt application with server-rendered content routes
-and a client-rendered interactive map. The former Vite SPA remains only as a
-temporary rollback build while the Cloudflare migration is observed.
+The dashboard is a Nuxt application with server-rendered content routes and a
+client-rendered interactive map. The former Vite SPA has been retired and
+removed.
 
 **Tech stack:**
 - **Nuxt 4 / Vue 3** with Composition API
 - **Project civic UI layer** built from accessible, reusable components
 - **MapLibre GL** for interactive mapping
-- **D3.js** for data visualizations and charts
-- **Arquero** for in-browser data filtering
-- **Pinia** for state management
-- **Vite** for build tooling
+- **Native Vue/SVG components** for charts
+- **Pure TypeScript utilities** for in-browser filtering
+- **URL state and local composables** for state management
+- **Nitro and Vite** (via Nuxt) for server and build tooling
 
 **Project structure:**
 ```
 frontend/app/       Nuxt pages, components, composables, and utilities
 frontend/layers/    Reusable civic UI layer
+frontend/modules/   Local Nuxt build modules
 frontend/server/    Server endpoints used by the Nuxt renderer
 frontend/tests/     Unit, SSR/SEO, accessibility, and browser contracts
 ```
@@ -177,8 +178,8 @@ frontend/tests/     Unit, SSR/SEO, accessibility, and browser contracts
 ```bash
 cd frontend
 npm ci
-npm run dev:nuxt
-npm run build:nuxt
+npm run dev
+npm run build
 ```
 
 **Deployment:**

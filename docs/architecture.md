@@ -21,7 +21,8 @@ packages/aws-batch-scraper
   Reusable ECS/SQS scraper framework for high-volume independent scrape tasks.
 
 frontend
-  Nuxt application with MapLibre maps, D3 charts, a civic UI layer, and Pinia state.
+  Nuxt application with MapLibre maps, native Vue/SVG charts, a civic UI layer,
+  and URL-driven state.
 ```
 
 ## Data Flow
