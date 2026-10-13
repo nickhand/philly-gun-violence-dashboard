@@ -10,7 +10,7 @@ jobs:
   image:
     name: Build, smoke-test, and audit scraper image
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -23,7 +23,8 @@ jobs:
         working-directory: packages/etl
         run: uv run python scripts/render_chrome_lock.py --check
       - name: Build production scraper image
-        timeout-minutes: 20
+        # Keep slow but progressing snapshot downloads within a bounded build.
+        timeout-minutes: 90
         run: python .github/ci/build_scraper_image.py
       - name: Smoke-test production scraper image
         run: |
