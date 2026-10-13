@@ -35,7 +35,7 @@ jobs:
           runtime_flags=(--rm --read-only --cap-drop ALL --tmpfs "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m")
           inspection_runtime_flags=(--rm --read-only --network none --tmpfs "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m")
           test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -c 'printf %s "$HOME"')" = "/tmp/app-home"
-          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'"
+          docker run "${runtime_flags[@]}" philly-courts-scraper:ci python -c "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.63.0'"
           test "$(docker run "${runtime_flags[@]}" philly-courts-scraper:ci google-chrome --product-version)" = "${chrome_product_version}"
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test ! -e /opt/google/chrome/chrome-sandbox; test ! -e /ms-playwright; test ! -e /usr/bin/pebble; test ! -e /etc/apt/sources.list.d/google-chrome.list; test ! -e /etc/cron.daily/google-chrome; test ! -e /etc/default/google-chrome; test ! -e /usr/share/keyrings/google-linux-signing-keyring.gpg; test ! -e /opt/google/chrome/cron'
           docker run "${runtime_flags[@]}" philly-courts-scraper:ci sh -ceu 'test -x /bin/false'
@@ -64,7 +64,7 @@ jobs:
             --image philly-courts-scraper:ci \
             --expected-distro-name ubuntu \
             --expected-distro-version 26.04 \
-            --required-packages "python:playwright=1.62.0,deb:google-chrome-stable=${chrome_package_version},deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.7,deb:libaom3=3.13.1-2ubuntu0.1,deb:bubblewrap=0.12.0-0philly1,binary:node=24.18.1" \
+            --required-packages "python:playwright=1.63.0,deb:google-chrome-stable=${chrome_package_version},deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.7,deb:libaom3=3.13.1-2ubuntu0.1,deb:bubblewrap=0.12.0-0philly1,binary:node=24.21.0" \
             --required-chrome-executable-sha256 "sha256:${chrome_executable_sha256}" \
             --forbid-chrome-sandbox \
             --forbid-setuid-setgid-files \

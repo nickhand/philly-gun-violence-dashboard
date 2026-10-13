@@ -989,9 +989,9 @@ def test_push_recipe_cannot_mask_scan_cli_failure_with_a_later_echo() -> None:
 
 def _required_packages() -> tuple[PackageRequirement, ...]:
     return parse_package_requirements(
-        "python:playwright=1.62.0,"
+        "python:playwright=1.63.0,"
         f"deb:google-chrome-stable={CHROME_PACKAGE_VERSION},"
-        "binary:node=24.18.1"
+        "binary:node=24.21.0"
     )
 
 
@@ -1010,9 +1010,9 @@ def _syft_payload() -> dict[str, object]:
         "artifacts": [
             {
                 "name": "playwright",
-                "version": "1.62.0",
+                "version": "1.63.0",
                 "type": "python",
-                "purl": "pkg:pypi/playwright@1.62.0",
+                "purl": "pkg:pypi/playwright@1.63.0",
                 "locations": [{"path": "/app/.venv/playwright/METADATA"}],
             },
             {
@@ -1033,10 +1033,10 @@ def _syft_payload() -> dict[str, object]:
             },
             {
                 "name": "node",
-                "version": "24.18.1",
+                "version": "24.21.0",
                 "type": "binary",
-                "purl": "pkg:generic/node@24.18.1",
-                "cpes": [{"cpe": "cpe:2.3:a:nodejs:node.js:24.18.1:*:*:*:*:*:*:*"}],
+                "purl": "pkg:generic/node@24.21.0",
+                "cpes": [{"cpe": "cpe:2.3:a:nodejs:node.js:24.21.0:*:*:*:*:*:*:*"}],
                 "locations": [
                     {"path": ("/app/.venv/lib/python3.14/site-packages/playwright/driver/node")}
                 ],
@@ -1130,14 +1130,14 @@ def _clone(payload: dict[str, object]) -> dict[str, object]:
 
 def test_package_contract_requires_actual_system_chrome_and_playwright_node() -> None:
     assert {requirement.canonical for requirement in _required_packages()} == {
-        "python:playwright=1.62.0",
+        "python:playwright=1.63.0",
         f"deb:google-chrome-stable={CHROME_PACKAGE_VERSION}",
-        "binary:node=24.18.1",
+        "binary:node=24.21.0",
     }
 
     with pytest.raises(ValueError, match="google-chrome-stable"):
         parse_package_requirements(
-            f"python:playwright=1.62.0,binary:chrome={CHROME_VERSION},binary:node=24.18.1"
+            f"python:playwright=1.63.0,binary:chrome={CHROME_VERSION},binary:node=24.21.0"
         )
 
 

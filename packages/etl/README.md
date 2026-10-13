@@ -240,7 +240,7 @@ package when Canonical supplies a complete supported fix.
 It full-upgrades that snapshot before installing Ubuntu's native Python
 (3.13 or newer) and a checksum-pinned Google Chrome 154.0.8037.97 package.
 <!-- END GENERATED: chrome-lock-product-version -->
-The Playwright client is pinned to 1.62.0, launches the system `chrome` channel
+The Playwright client is pinned to 1.63.0, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly
 sets `chromium_sandbox=False`: Fargate's default seccomp profile does not permit
 the namespace operations required by Chrome's nested sandbox. This exception is

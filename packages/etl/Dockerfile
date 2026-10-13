@@ -187,7 +187,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/dashboard-utils --locked \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
-        "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.62.0'" \
+        "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.63.0'" \
     && test "$(google-chrome --product-version)" = "154.0.8037.97" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
