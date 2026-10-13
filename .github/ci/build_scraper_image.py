@@ -26,7 +26,7 @@ BUILD_COMMAND = (
 MAX_ATTEMPTS = 3
 _DIGEST_MISMATCH = re.compile(r"digest mismatch sha256:([0-9a-f]{64}):")
 _HTTP_TRANSIENT = re.compile(
-    r"\b(?:502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)\b"
+    r"\b(?:502\s+Bad\s+Gateway|503\s+Service\s+Unavailable|504\s+Gateway\s+Timeout)\b"
     r"|\b(?:HTTP(?:/[0-9.]+)?(?: status)?|status code)\s*[:=]?\s*(?:502|503|504)\b",
     re.IGNORECASE,
 )
