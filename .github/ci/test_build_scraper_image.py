@@ -105,6 +105,31 @@ class ScraperBuildRetryTests(unittest.TestCase):
                 )
                 self.assertTrue(BUILD.transient_download_failure(apt_output))
 
+    def test_real_apt_503_spacing_retries_the_failed_download(self) -> None:
+        # Captured from the failed Ubuntu image update's APT/BuildKit output.
+        output = (
+            "#16 482.8 E: Failed to fetch "
+            "https://snapshot.ubuntu.com/ubuntu/20261001T180000Z/"
+            "dists/resolute-security/InRelease  503  Service Unavailable "
+            "[IP: 185.125.189.37 443]\n"
+            "#16 482.8 E: Some index files failed to download. "
+            "They have been ignored, or old ones used instead.\n"
+            '#16 ERROR: process "/bin/sh -c apt-get --error-on=any update" '
+            "did not complete successfully: exit code: 100\n"
+            "ERROR: failed to build: failed to solve: process "
+            '"/bin/sh -c apt-get --error-on=any update" '
+            "did not complete successfully: exit code: 100\n"
+        )
+        code, runner, sleeper = self.run_attempts((1, output), (0, "done"))
+        self.assertEqual(code, 0)
+        self.assertEqual(runner.call_count, 2)
+        sleeper.assert_called_once_with(20)
+        self.assertFalse(
+            BUILD.transient_download_failure(
+                output + "E: Failed to fetch https://snapshot.ubuntu.com/other 404 Not Found\n"
+            )
+        )
+
     def test_an_http_status_in_ordinary_build_output_does_not_trigger_retry(self) -> None:
         self.assertFalse(BUILD.transient_download_failure("test fixture HTTP 503"))
         self.assertFalse(
