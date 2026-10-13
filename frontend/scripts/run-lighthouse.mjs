@@ -18,11 +18,25 @@ import {
 
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = resolve(frontendRoot, "lighthouse-report");
-const auditUrl = "http://127.0.0.1:4174/philly-gun-violence-map/";
-const fixtureServerPath = resolve(
+const host = "127.0.0.1";
+const appPort = 4174;
+const apiPort = 4175;
+const basePath = "/philly-gun-violence-map/";
+const appOrigin = `http://${host}:${appPort}`;
+const apiOrigin = `http://${host}:${apiPort}`;
+const auditUrl = `${appOrigin}${basePath}`;
+// Audit the built Nuxt server (`npm run build:lighthouse`) against the same
+// deterministic API fixture the Nuxt browser tests use.
+const apiFixturePath = resolve(
   frontendRoot,
-  "scripts/serve-lighthouse.mjs",
+  "tests/e2e/support/nuxtApiFixture.mjs",
 );
+const nuxtServerPath = resolve(frontendRoot, ".output/server/index.mjs");
+// Optional extra Lighthouse CLI flags for local diagnosis, e.g.
+// LIGHTHOUSE_EXTRA_FLAGS="--throttling.cpuSlowdownMultiplier=4" to approximate CI.
+const extraLighthouseFlags = (process.env.LIGHTHOUSE_EXTRA_FLAGS ?? "")
+  .split(/\s+/)
+  .filter(Boolean);
 const lighthouseCliPath = resolve(
   frontendRoot,
   "node_modules/lighthouse/cli/index.js",
@@ -54,30 +68,30 @@ function runCommand(command, args, options = {}) {
   });
 }
 
-async function waitForServer(server) {
-  const deadline = Date.now() + 20_000;
+async function waitForServer(server, url, label) {
+  const deadline = Date.now() + 30_000;
   let lastError;
 
   while (Date.now() < deadline) {
     if (server.exitCode !== null) {
       throw new Error(
-        `Lighthouse fixture server exited before becoming ready (${server.exitCode})`,
+        `${label} exited before becoming ready (${server.exitCode})`,
       );
     }
 
     try {
-      const response = await fetch(auditUrl, {
+      const response = await fetch(url, {
         signal: AbortSignal.timeout(1_000),
       });
       if (response.ok) return;
-      lastError = new Error(`fixture server returned HTTP ${response.status}`);
+      lastError = new Error(`${label} returned HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
     }
     await delay(100);
   }
 
-  throw new Error("Lighthouse fixture server did not become ready", {
+  throw new Error(`${label} did not become ready`, {
     cause: lastError,
   });
 }
@@ -93,18 +107,43 @@ async function stopServer(server) {
 
 async function main() {
   const chromePath = process.env.CHROME_PATH || chromium.executablePath();
-  await Promise.all([access(chromePath), access(lighthouseCliPath)]);
+  await Promise.all([
+    access(chromePath),
+    access(lighthouseCliPath),
+    access(nuxtServerPath),
+  ]);
 
   await rm(outputDirectory, { force: true, recursive: true });
   await mkdir(outputDirectory, { recursive: true });
 
-  const server = spawn(process.execPath, [fixtureServerPath], {
+  const api = spawn(process.execPath, [apiFixturePath], {
     cwd: frontendRoot,
     stdio: "inherit",
+    env: {
+      ...process.env,
+      NUXT_E2E_ALLOWED_ORIGIN: appOrigin,
+      NUXT_E2E_API_PORT: String(apiPort),
+    },
+  });
+  const app = spawn(process.execPath, [nuxtServerPath], {
+    cwd: frontendRoot,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      HOST: host,
+      NITRO_HOST: host,
+      NITRO_PORT: String(appPort),
+      NUXT_APP_BASE_URL: basePath,
+      NUXT_PUBLIC_API_BASE_URL: apiOrigin,
+      NUXT_PUBLIC_DOWNLOADS_BASE_URL:
+        "https://data.example.test/philly-shooting-records",
+      NUXT_PUBLIC_POSTHOG_KEY: "",
+    },
   });
 
   try {
-    await waitForServer(server);
+    await waitForServer(api, `${apiOrigin}/health`, "Lighthouse API fixture");
+    await waitForServer(app, auditUrl, "Nuxt server");
     const lhrs = [];
 
     for (let run = 1; run <= LIGHTHOUSE_POLICY.numberOfRuns; run += 1) {
@@ -121,6 +160,12 @@ async function main() {
           "--output=html",
           `--output-path=${outputPrefix}`,
           "--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage",
+          // Keep the audit deterministic and first-party: like the legacy blank
+          // map style and the Nuxt browser tests, skip the third-party ArcGIS
+          // basemap so remote tiles and software WebGL rendering of them on CI
+          // runners do not dominate the measured main-thread work.
+          "--blocked-url-patterns=https://basemaps-api.arcgis.com/*",
+          ...extraLighthouseFlags,
           "--quiet",
           "--no-enable-error-reporting",
         ],
@@ -157,7 +202,7 @@ async function main() {
     }
     console.log("Lighthouse policy passed");
   } finally {
-    await stopServer(server);
+    await Promise.all([stopServer(app), stopServer(api)]);
   }
 }
 

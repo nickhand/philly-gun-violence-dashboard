@@ -128,8 +128,9 @@ export function aggregateShootingRows(
 }
 
 export function recordsToCsv(records: Array<Record<string, unknown>>): string {
-  if (records.length === 0) return "";
-  const headers = Object.keys(records[0]);
+  const [firstRecord] = records;
+  if (!firstRecord) return "";
+  const headers = Object.keys(firstRecord);
   return [
     headers.join(","),
     ...records.map((record) =>

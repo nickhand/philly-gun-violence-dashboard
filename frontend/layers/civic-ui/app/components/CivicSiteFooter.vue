@@ -12,6 +12,9 @@
               rel="external"
             >Source code</a>
           </li>
+          <li>
+            <a href="https://www.nickhand.dev/" rel="external author">Built by Nick Hand</a>
+          </li>
         </ul>
       </nav>
     </div>

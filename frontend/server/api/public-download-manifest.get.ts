@@ -1,3 +1,6 @@
+import { defineEventHandler, setResponseHeader } from "h3";
+import { useRuntimeConfig } from "nitropack/runtime";
+
 import { getPublicDownloadUrl } from "#shared/publicDownloads";
 
 const unavailableManifest = { available: false } as const;
@@ -19,7 +22,7 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const manifest = await $fetch<unknown>(manifestUrl, {
+    const manifest: unknown = await $fetch<unknown>(manifestUrl, {
       headers: {
         Accept: "application/json",
         // Cloudflare Worker subrequests do not include a user agent by

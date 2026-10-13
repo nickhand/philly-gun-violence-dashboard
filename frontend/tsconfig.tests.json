@@ -1,14 +1,27 @@
 {
-  "extends": "./tsconfig.json",
   "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
     "moduleResolution": "Bundler",
-    "types": ["node", "vitest/globals"]
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "preserve",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node", "vitest/globals", "vite/client"]
   },
   "include": [
-    "src/vite-env.d.ts",
-    "src/types/**/*.d.ts",
     "tests/**/*.ts",
-    "playwright.config.ts",
+    "playwright.nuxt.config.ts",
     "vitest.config.ts"
   ]
 }
