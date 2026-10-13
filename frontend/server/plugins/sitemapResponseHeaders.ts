@@ -4,6 +4,7 @@ import {
   setResponseHeader,
   setResponseStatus,
 } from "h3";
+import { defineNitroPlugin } from "nitropack/runtime";
 
 async function sitemapEtag(body: string): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest(
