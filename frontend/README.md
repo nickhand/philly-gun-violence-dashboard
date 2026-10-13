@@ -19,7 +19,7 @@ retained Cloudflare Worker versions.
 
 ## Prerequisites
 
-- Node.js 22.19+, 24.11+, or 26+
+- Node.js 22.22.3+, 24.15+, or 26+ (CI uses 22.23.3)
 - npm 11.18.0 (the exact version in `packageManager`)
 
 ## Getting Started
