@@ -1,3 +1,6 @@
+import { defineEventHandler, setResponseHeader } from "h3";
+import { useRuntimeConfig } from "nitropack/runtime";
+
 import {
   getPublicDownloadUrl,
   parsePublicDownloadManifest,

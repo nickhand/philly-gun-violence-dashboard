@@ -62,8 +62,9 @@ const mapFiles = new Set(
     ...preloadFiles(MAPLIBRE_CSS_KEY),
   ].filter((file) => !appShellFiles.has(file)),
 );
-// MapLibre 6 loads a separately bundled worker that the client manifest does
-// not list, so include it explicitly rather than hiding its transfer cost.
+// MapLibre 6 loads a separately bundled worker. Newer Nuxt manifests also
+// include it in the explorer's preloads; keep its dedicated budget separate
+// from the main-thread map code while still counting it in the total below.
 const mapWorkerFiles = new Set(
   readdirSync(publicAssets).filter((file) =>
     /^maplibre-gl-worker-[\w-]+\.js$/.test(file),
@@ -71,6 +72,9 @@ const mapWorkerFiles = new Set(
 );
 if (mapWorkerFiles.size !== 1) {
   throw new Error("Expected exactly one bundled MapLibre worker");
+}
+for (const file of mapWorkerFiles) {
+  mapFiles.delete(file);
 }
 const analyticsFiles = preloadFiles(ANALYTICS_KEY);
 for (const file of analyticsFiles) {
