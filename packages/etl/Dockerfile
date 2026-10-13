@@ -9,13 +9,11 @@ ARG UBUNTU_SNAPSHOT=20261001T180000Z
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
 # HTTPS. Bootstrap the exact CA dependency pair recorded in Canonical's signed
 # resolute-security Packages index for this snapshot before the first apt call.
-# Use content-specific snapshot URLs to avoid cached error responses while
-# ADD still enforces the exact authenticated package checksums.
 ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621 \
-    https://snapshot.ubuntu.com/ubuntu/20261001T180000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb?sha256=6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621 \
+    https://snapshot.ubuntu.com/ubuntu/20261001T180000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb \
     /tmp/openssl.deb
 ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 \
-    https://snapshot.ubuntu.com/ubuntu/20261001T180000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb?sha256=6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 \
+    https://snapshot.ubuntu.com/ubuntu/20261001T180000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb \
     /tmp/ca-certificates.deb
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \

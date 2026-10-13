@@ -52,6 +52,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         ".github/workflows/daily-homicide-sync.yml",
         ".github/workflows/etl-quality.yml",
         ".github/workflows/scraper-image-quality.yml",
+        ".github/ci/build_scraper_image.py",
         ".github/workflows/production-smoke.yml",
         ROUTER_PATH,
     ),
@@ -184,6 +185,7 @@ GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "image": (
             ".github/workflows/scraper-image-quality.yml",
+            ".github/ci/build_scraper_image.py",
             "packages/etl/src/**",
             "packages/etl/Dockerfile",
             "packages/etl/pyproject.toml",

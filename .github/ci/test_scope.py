@@ -122,6 +122,7 @@ class TriggerContracts(unittest.TestCase):
             ("security", "frontend/vendor/node-forge-1.4.1-philly.1.tgz"): {"frontend"},
             ("security", "frontend/tests/dependency-security.test.mjs"): {"frontend"},
             ("etl", ".github/workflows/scraper-image-quality.yml"): {"image"},
+            ("etl", ".github/ci/build_scraper_image.py"): {"image"},
             ("frontend", "frontend/vendor/node-forge-1.4.1-philly.1.tgz"): {
                 "release",
                 "unit",
