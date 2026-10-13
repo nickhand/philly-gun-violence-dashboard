@@ -179,8 +179,8 @@ aws_batch_scraper_cli_group := "courts"
 aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
 aws_batch_scraper_browser_lock_script := "etl/scripts/render_chrome_lock.py"
 # BEGIN GENERATED: chrome-lock-release-contract
-aws_batch_scraper_required_sbom_packages := "python:playwright=1.62.0,deb:google-chrome-stable=154.0.8037.97-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.7,binary:node=24.18.1"
-aws_batch_scraper_chrome_executable_sha256 := "sha256:6c792041b07547a662e1b17974d1dc34a3db630379b45d9d89ddd7e3e68cc587"
+aws_batch_scraper_required_sbom_packages := "python:playwright=1.62.0,deb:google-chrome-stable=155.0.8059.39-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.7,binary:node=24.18.1"
+aws_batch_scraper_chrome_executable_sha256 := "sha256:9bfb381296dffe75f3419d07b6cc64525105ed117d1453a4ef3b291cb97d2b58"
 # END GENERATED: chrome-lock-release-contract
 aws_batch_scraper_chrome_sandbox_scan_args := "--forbid-chrome-sandbox --forbid-setuid-setgid-files"
 aws_batch_scraper_release_evidence_root := ".artifacts/aws-batch-scraper/releases"
