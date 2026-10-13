@@ -2,6 +2,7 @@
 
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 from aws_batch_scraper.types import ScrapeStatus, WorkItem
@@ -85,6 +86,30 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     assert "test -x /bin/false" in source
     assert '( /bin/false; test "$?" -eq 1 )' in source
     assert "ENTRYPOINT []" in source
+
+
+def test_courts_image_playwright_contract_matches_locked_dependency() -> None:
+    """Dependency updates must also update image assertions and release gates."""
+    etl_root = Path(__file__).resolve().parents[1]
+    repo_root = etl_root.parents[1]
+    project = tomllib.loads((etl_root / "pyproject.toml").read_text())
+    lock = tomllib.loads((etl_root / "uv.lock").read_text())
+    dependency = next(
+        value for value in project["project"]["dependencies"] if value.startswith("playwright==")
+    )
+    version = dependency.removeprefix("playwright==")
+    locked = next(package for package in lock["package"] if package["name"] == "playwright")
+    assert locked["version"] == version
+    assertion = f"assert m.version('playwright') == '{version}'"
+    assert assertion in (etl_root / "Dockerfile").read_text()
+    workflow = (repo_root / ".github/workflows/scraper-image-quality.yml").read_text()
+    assert assertion in workflow
+    for source in (
+        workflow,
+        (repo_root / "Justfile").read_text(),
+        (repo_root / "packages/aws-batch-scraper/docs/container.md").read_text(),
+    ):
+        assert f"python:playwright={version}," in source
 
 
 def test_courts_image_declares_writable_tmp_volume() -> None:

@@ -35,9 +35,9 @@ IMAGE_PUSHED_AT = "2026-08-19T14:00:00+00:00"
 IMAGE_ID = "sha256:" + "c" * 64
 MANIFEST_DIGEST = "sha256:" + "d" * 64
 # BEGIN GENERATED: chrome-lock-test-constants
-CHROME_PACKAGE_VERSION = "154.0.8037.97-1"
-CHROME_VERSION = "154.0.8037.97"
-CHROME_SHA256 = "sha256:6c792041b07547a662e1b17974d1dc34a3db630379b45d9d89ddd7e3e68cc587"
+CHROME_PACKAGE_VERSION = "155.0.8059.39-1"
+CHROME_VERSION = "155.0.8059.39"
+CHROME_SHA256 = "sha256:9bfb381296dffe75f3419d07b6cc64525105ed117d1453a4ef3b291cb97d2b58"
 # END GENERATED: chrome-lock-test-constants
 CHROME_SANDBOX_SHA256 = "sha256:18391bf9d217ddbde9956347cbb1346d2808a73ade4baa3f88a610447cf946b4"
 NOW = datetime(2026, 8, 19, 14, 30, tzinfo=timezone.utc)
@@ -989,9 +989,9 @@ def test_push_recipe_cannot_mask_scan_cli_failure_with_a_later_echo() -> None:
 
 def _required_packages() -> tuple[PackageRequirement, ...]:
     return parse_package_requirements(
-        "python:playwright=1.62.0,"
+        "python:playwright=1.63.0,"
         f"deb:google-chrome-stable={CHROME_PACKAGE_VERSION},"
-        "binary:node=24.18.1"
+        "binary:node=24.21.0"
     )
 
 
@@ -1010,9 +1010,9 @@ def _syft_payload() -> dict[str, object]:
         "artifacts": [
             {
                 "name": "playwright",
-                "version": "1.62.0",
+                "version": "1.63.0",
                 "type": "python",
-                "purl": "pkg:pypi/playwright@1.62.0",
+                "purl": "pkg:pypi/playwright@1.63.0",
                 "locations": [{"path": "/app/.venv/playwright/METADATA"}],
             },
             {
@@ -1033,10 +1033,10 @@ def _syft_payload() -> dict[str, object]:
             },
             {
                 "name": "node",
-                "version": "24.18.1",
+                "version": "24.21.0",
                 "type": "binary",
-                "purl": "pkg:generic/node@24.18.1",
-                "cpes": [{"cpe": "cpe:2.3:a:nodejs:node.js:24.18.1:*:*:*:*:*:*:*"}],
+                "purl": "pkg:generic/node@24.21.0",
+                "cpes": [{"cpe": "cpe:2.3:a:nodejs:node.js:24.21.0:*:*:*:*:*:*:*"}],
                 "locations": [
                     {"path": ("/app/.venv/lib/python3.14/site-packages/playwright/driver/node")}
                 ],
@@ -1130,14 +1130,14 @@ def _clone(payload: dict[str, object]) -> dict[str, object]:
 
 def test_package_contract_requires_actual_system_chrome_and_playwright_node() -> None:
     assert {requirement.canonical for requirement in _required_packages()} == {
-        "python:playwright=1.62.0",
+        "python:playwright=1.63.0",
         f"deb:google-chrome-stable={CHROME_PACKAGE_VERSION}",
-        "binary:node=24.18.1",
+        "binary:node=24.21.0",
     }
 
     with pytest.raises(ValueError, match="google-chrome-stable"):
         parse_package_requirements(
-            f"python:playwright=1.62.0,binary:chrome={CHROME_VERSION},binary:node=24.18.1"
+            f"python:playwright=1.63.0,binary:chrome={CHROME_VERSION},binary:node=24.21.0"
         )
 
 
@@ -1577,3 +1577,45 @@ def test_release_build_streams_only_the_immutable_git_tree() -> None:
     assert "git archive --format=tar HEAD | docker buildx build" in build_line
     assert '-f "{{aws_batch_scraper_dockerfile}}" -' in build_line
     assert "aws_batch_scraper_docker_context" not in recipe
+
+
+@pytest.mark.parametrize("contents", ["", "not JSON"])
+def test_invalid_grype_report_preserves_bounded_scanner_error(
+    tmp_path: Path, contents: str
+) -> None:
+    report = tmp_path / "grype.json"
+    report.write_text(contents)
+    result = subprocess.CompletedProcess(
+        ["grype"], 1, "", "x" * 3000 + "\n::error::database unavailable\x1b[31m"
+    )
+
+    with pytest.raises(ReleaseIntegrityError) as exc:
+        release_image._load_grype_report(report, label="Grype report", result=result)
+
+    message = str(exc.value)
+    assert "scanner exit status 1" in message
+    assert "database unavailable" in message
+    assert len(message) < 2200
+    assert "\n" not in message
+    assert "\x1b" not in message
+    release_image._copy_failed_scan_artifacts(
+        tmp_path,
+        tmp_path / "evidence",
+        names=["grype.json"],
+        message=message,
+    )
+    evidence = json.loads((tmp_path / "evidence/FAILED.json").read_text())
+    assert evidence["message"] == message
+    assert evidence["verified"] is False
+    assert not (tmp_path / "evidence/receipt.json").exists()
+
+
+def test_grype_report_loader_leaves_severity_validation_to_existing_gate(tmp_path: Path) -> None:
+    report = tmp_path / "grype.json"
+    payload = {"matches": [{"vulnerability": {"severity": "High"}}]}
+    report.write_text(json.dumps(payload))
+    result = subprocess.CompletedProcess(["grype"], 2, "", "severity threshold reached")
+
+    assert release_image._load_grype_report(report, label="Grype report", result=result) == payload
+    with pytest.raises(ReleaseIntegrityError, match="blocked release"):
+        release_image._validate_grype_matches(payload, scanner_returncode=2, label="Grype report")
