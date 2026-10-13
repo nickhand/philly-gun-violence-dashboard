@@ -82,6 +82,9 @@ def build_with_retry(
         result = runner()
         if result.returncode == 0:
             return 0
+        # Never restart work interrupted by a signal (including shell encoding).
+        if result.returncode < 0 or result.returncode >= 128:
+            return result.returncode
         if attempt == MAX_ATTEMPTS or not transient_download_failure(result.stdout):
             return result.returncode
         delay = 20 * attempt

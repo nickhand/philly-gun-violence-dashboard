@@ -47,6 +47,14 @@ class ScraperBuildRetryTests(unittest.TestCase):
         self.assertEqual(runner.call_count, 2)
         sleeper.assert_called_once_with(20)
 
+    def test_signal_termination_is_not_retried_even_after_transient_output(self) -> None:
+        for status in (-15, 130, 137, 143):
+            with self.subTest(status=status):
+                code, runner, sleeper = self.run_attempts((status, TRANSIENT_DIGEST))
+                self.assertEqual(code, status)
+                self.assertEqual(runner.call_count, 1)
+                sleeper.assert_not_called()
+
     def test_exhaustion_preserves_docker_failure_status(self) -> None:
         code, runner, sleeper = self.run_attempts(*[(17, TRANSIENT_DIGEST)] * 3)
         self.assertEqual(code, 17)
