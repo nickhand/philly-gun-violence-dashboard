@@ -592,6 +592,24 @@ def _load_json_file(path: Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _load_grype_report(
+    path: Path,
+    *,
+    label: str,
+    result: subprocess.CompletedProcess[str],
+) -> dict[str, Any]:
+    """Keep bounded scanner diagnostics when it did not produce a valid report."""
+    try:
+        return _load_json_file(path, label=label)
+    except ReleaseIntegrityError as exc:
+        # Quote the output so terminal controls/newlines cannot become workflow
+        # commands. The same message is retained in FAILED.json by the caller.
+        stderr = json.dumps((result.stderr or "")[-2000:], ensure_ascii=True)
+        raise ReleaseIntegrityError(
+            f"{exc}; scanner exit status {result.returncode}; stderr tail: {stderr}"
+        ) from exc
+
+
 def _aware_timestamp(value: object, *, label: str) -> datetime:
     if not isinstance(value, str) or not value.strip():
         raise ReleaseIntegrityError(f"{label} timestamp was missing")
@@ -1652,7 +1670,11 @@ def scan_local_image(
             raw_artifact_names.append("grype.chrome-control.json")
         try:
             report = validate_grype_report(
-                _load_json_file(report_path, label="Grype vulnerability report"),
+                _load_grype_report(
+                    report_path,
+                    label="Grype vulnerability report",
+                    result=scan_result,
+                ),
                 image_id=sbom["image_id"],
                 manifest_digest=sbom["manifest_digest"],
                 expected_distro_name=expected_distro_name,
@@ -1670,15 +1692,20 @@ def scan_local_image(
                 and chrome_control_result is not None
             ):
                 chrome_report = validate_chrome_grype_report(
-                    _load_json_file(chrome_report_path, label="Grype Chrome CPE report"),
+                    _load_grype_report(
+                        chrome_report_path,
+                        label="Grype Chrome CPE report",
+                        result=chrome_scan_result,
+                    ),
                     cpe=chrome_cpe,
                     now=_clock_time(clock),
                     scanner_returncode=chrome_scan_result.returncode,
                 )
                 chrome_control = validate_chrome_control_report(
-                    _load_json_file(
+                    _load_grype_report(
                         chrome_control_path,
                         label="Grype Chrome coverage-control report",
+                        result=chrome_control_result,
                     ),
                     now=_clock_time(clock),
                     scanner_returncode=chrome_control_result.returncode,

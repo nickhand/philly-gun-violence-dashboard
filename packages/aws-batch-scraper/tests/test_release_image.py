@@ -1577,3 +1577,45 @@ def test_release_build_streams_only_the_immutable_git_tree() -> None:
     assert "git archive --format=tar HEAD | docker buildx build" in build_line
     assert '-f "{{aws_batch_scraper_dockerfile}}" -' in build_line
     assert "aws_batch_scraper_docker_context" not in recipe
+
+
+@pytest.mark.parametrize("contents", ["", "not JSON"])
+def test_invalid_grype_report_preserves_bounded_scanner_error(
+    tmp_path: Path, contents: str
+) -> None:
+    report = tmp_path / "grype.json"
+    report.write_text(contents)
+    result = subprocess.CompletedProcess(
+        ["grype"], 1, "", "x" * 3000 + "\n::error::database unavailable\x1b[31m"
+    )
+
+    with pytest.raises(ReleaseIntegrityError) as exc:
+        release_image._load_grype_report(report, label="Grype report", result=result)
+
+    message = str(exc.value)
+    assert "scanner exit status 1" in message
+    assert "database unavailable" in message
+    assert len(message) < 2200
+    assert "\n" not in message
+    assert "\x1b" not in message
+    release_image._copy_failed_scan_artifacts(
+        tmp_path,
+        tmp_path / "evidence",
+        names=["grype.json"],
+        message=message,
+    )
+    evidence = json.loads((tmp_path / "evidence/FAILED.json").read_text())
+    assert evidence["message"] == message
+    assert evidence["verified"] is False
+    assert not (tmp_path / "evidence/receipt.json").exists()
+
+
+def test_grype_report_loader_leaves_severity_validation_to_existing_gate(tmp_path: Path) -> None:
+    report = tmp_path / "grype.json"
+    payload = {"matches": [{"vulnerability": {"severity": "High"}}]}
+    report.write_text(json.dumps(payload))
+    result = subprocess.CompletedProcess(["grype"], 2, "", "severity threshold reached")
+
+    assert release_image._load_grype_report(report, label="Grype report", result=result) == payload
+    with pytest.raises(ReleaseIntegrityError, match="blocked release"):
+        release_image._validate_grype_matches(payload, scanner_returncode=2, label="Grype report")
