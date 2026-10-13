@@ -19,6 +19,7 @@ on:
       - ".github/workflows/daily-homicide-sync.yml"
       - ".github/workflows/etl-quality.yml"
       - ".github/workflows/scraper-image-quality.yml"
+      - ".github/ci/build_scraper_image.py"
       - ".github/workflows/production-smoke.yml"
       - ".github/ci/scope.py"
 
