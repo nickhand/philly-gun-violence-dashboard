@@ -33,7 +33,7 @@
     "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "deploy:nuxt:staging": "npm run build:nuxt:cloudflare:staging && wrangler deploy --env staging",
     "deploy:nuxt:production": "npm run build:nuxt:cloudflare:production && wrangler deploy --env production",
-    "test:dependency-security": "node --test tests/dependency-security.test.mjs tests/audit-dependencies.test.mjs"
+    "test:dependency-security": "node --test tests/dependency-security.test.mjs tests/audit-dependencies.test.mjs tests/braces-security.test.mjs"
   },
   "dependencies": {
     "@nuxtjs/sitemap": "8.6.1",
@@ -44,7 +44,8 @@
     "posthog-js": "^1.434.17",
     "vue": "3.5.43",
     "vue-router": "5.3.1",
-    "node-forge": "file:vendor/node-forge-1.4.1-philly.1.tgz"
+    "node-forge": "file:vendor/node-forge-1.4.1-philly.1.tgz",
+    "braces": "file:vendor/braces-3.0.4-philly.1.tgz"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -71,6 +72,7 @@
     "dompurify": "3.4.16",
     "simple-git": "4.0.2",
     "seroval": "1.6.7",
-    "postcss-selector-parser": "7.1.6"
+    "postcss-selector-parser": "7.1.6",
+    "braces": "$braces"
   }
 }
