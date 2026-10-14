@@ -4,18 +4,9 @@
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const EXCEPTIONS = [
-  {
-    id: 'GHSA-vfj7-8cjw-p6xm',
-    package: 'braces',
-    reviewed: '2026-10-05',
-    expires: '2026-11-05',
-    reason:
-      'Stack-exhaustion DoS on deeply nested glob patterns. No fixed release exists (3.0.3 is latest). '
-      + 'Reached only through nitropack > globby > fast-glob > micromatch, which expands build '
-      + 'patterns from repository config, never request input.',
-  },
-];
+// The braces exception was removed after applying the tested local backport.
+// Its provenance and removal criteria are documented in vendor/README.md.
+export const EXCEPTIONS = [];
 
 const BLOCKING = new Set(['high', 'critical']);
 
