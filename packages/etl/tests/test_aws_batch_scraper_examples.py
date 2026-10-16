@@ -105,7 +105,8 @@ def test_courts_image_playwright_contract_matches_locked_dependency() -> None:
     assertion = f"assert m.version('playwright') == '{version}'"
     assert assertion in (etl_root / "Dockerfile").read_text()
     workflow = (repo_root / ".github/workflows/scraper-image-quality.yml").read_text()
-    assert assertion in workflow
+    assert "bash .github/ci/smoke_scraper_image.sh philly-courts-scraper:ci" in workflow
+    assert assertion in (repo_root / ".github/ci/smoke_scraper_image.sh").read_text()
     for source in (
         workflow,
         (repo_root / "Justfile").read_text(),
@@ -188,6 +189,7 @@ def test_etl_quality_checks_generated_chrome_consumers_without_live_lookup() -> 
     """Container CI must build only from the validated repository lock."""
     repo_root = Path(__file__).resolve().parents[3]
     source = (repo_root / ".github/workflows/scraper-image-quality.yml").read_text()
+    source += (repo_root / ".github/ci/smoke_scraper_image.sh").read_text()
 
     render = "uv run python scripts/render_chrome_lock.py --check"
     assert render in source
@@ -206,6 +208,8 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     """Container CI must not relax seccomp to launch the courts browser."""
     repo_root = Path(__file__).resolve().parents[3]
     source = (repo_root / ".github/workflows/scraper-image-quality.yml").read_text()
+    assert "bash .github/ci/smoke_scraper_image.sh philly-courts-scraper:ci" in source
+    source += (repo_root / ".github/ci/smoke_scraper_image.sh").read_text()
 
     assert "--security-opt seccomp=unconfined" not in source
     assert "chromium_sandbox=False" in source
@@ -214,7 +218,7 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     privilege_enumeration = 'privileged_paths="$(find / -xdev -type f -perm /6000 -print)"'
     assert "runtime_flags=(--rm --read-only --cap-drop ALL" in source
     assert "inspection_runtime_flags=(--rm --read-only --network none" in source
-    assert "--user root philly-courts-scraper:ci" in source
+    assert '--user root "${image}"' in source
     assert source.count(privilege_enumeration) == 1
     assert 'test -z "$privileged_paths"' in source
     assert "--forbid-chrome-sandbox" in source
@@ -232,7 +236,7 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     assert "image_entrypoint=" in source
     assert "{{json .Config.Entrypoint}}" in source
     assert "test -x /bin/false" in source
-    assert "philly-courts-scraper:ci /bin/false" in source
+    assert '"${image}" /bin/false' in source
 
 
 def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:

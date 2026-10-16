@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import unittest
 from collections import Counter
@@ -14,7 +15,11 @@ import tomllib
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
 ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset(
-    {"./.github/workflows/production-smoke.yml", "./.github/workflows/scraper-image-quality.yml"}
+    {
+        "./.github/workflows/production-smoke.yml",
+        "./.github/workflows/scraper-image-quality.yml",
+        "./.github/workflows/courts-watchdog.yml",
+    }
 )
 
 EXTERNAL_SCHEDULE_COUNTS = {
@@ -66,6 +71,59 @@ def _load_dispatcher() -> ModuleType:
 
 
 class DeploymentContracts(unittest.TestCase):
+    def test_chrome_deployment_is_main_only_and_waits_for_all_health_checks(self) -> None:
+        source = (WORKFLOWS / "scraper-deploy.yml").read_text()
+        self.assertIn("workflows: [ETL quality]", source)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", source)
+        self.assertIn(
+            "github.event.workflow_run.head_repository.full_name == github.repository", source
+        )
+        self.assertIn("github.ref == 'refs/heads/main'", source)
+        self.assertIn("needs: [candidate, public-health, court-health]", source)
+        self.assertIn("uses: ./.github/workflows/production-smoke.yml", source)
+        self.assertIn("uses: ./.github/workflows/courts-watchdog.yml", source)
+        self.assertNotIn("CHROME_UPDATE_TOKEN", source)
+        for name in ("scraper-deploy.yml", "courts-scrape.yml", "courts-process.yml"):
+            queued = (WORKFLOWS / name).read_text()
+            self.assertIn("group: courts-production", queued)
+            self.assertIn("queue: max", queued)
+            self.assertIn("cancel-in-progress: false", queued)
+        submit = (WORKFLOWS / "courts-scrape.yml").read_text()
+        self.assertLess(submit.index("load_courts_release.py"), submit.index("courts submit"))
+
+    def test_deployment_role_cannot_write_court_data_or_modify_queues(self) -> None:
+        trust = json.loads((REPOSITORY_ROOT / ".github/aws/chrome-deploy-trust.json").read_text())
+        values = trust["Statement"][0]["Condition"]["StringEquals"]
+        self.assertEqual(
+            values["token.actions.githubusercontent.com:sub"],
+            "repo:nickhand/philly-gun-violence-dashboard:ref:refs/heads/main",
+        )
+        policy = json.loads((REPOSITORY_ROOT / ".github/aws/chrome-deploy-policy.json").read_text())
+        actions = {
+            a
+            for s in policy["Statement"]
+            for a in ([s["Action"]] if isinstance(s["Action"], str) else s["Action"])
+        }
+        self.assertFalse(
+            {
+                "sqs:SendMessage",
+                "sqs:PurgeQueue",
+                "sqs:DeleteMessage",
+                "s3:DeleteObject",
+                "secretsmanager:GetSecretValue",
+            }
+            & actions
+        )
+        write = next(s for s in policy["Statement"] if s["Sid"] == "AtomicReleaseOnly")
+        self.assertEqual(
+            write["Resource"],
+            "arn:aws:s3:::philly-gun-violence-dashboard/ujs-scraper/deployment/active.json",
+        )
+        stop = next(s for s in policy["Statement"] if s["Sid"] == "StopOnlyDeploymentProbes")
+        self.assertEqual(
+            stop["Condition"]["StringEquals"]["aws:ResourceTag/ManagedBy"], "chrome-deploy"
+        )
+
     def test_frontend_weekly_schedule_stays_native_during_phase_one(self) -> None:
         workflow = (REPOSITORY_ROOT / ".github/workflows/frontend-quality.yml").read_text()
         crontab = (REPOSITORY_ROOT / "packages/api/crontab").read_text()
@@ -96,7 +154,9 @@ class DeploymentContracts(unittest.TestCase):
         self.assertIn('require_routed_job "${IMAGE_SELECTED}" "${IMAGE_RESULT}" "image"', security)
         self.assertIn("workflow_call:", shared)
         self.assertIn("scan-local-image", shared)
-        self.assertIn("chromium_sandbox=False", shared)
+        smoke_script = (REPOSITORY_ROOT / ".github/ci/smoke_scraper_image.sh").read_text()
+        self.assertIn("bash .github/ci/smoke_scraper_image.sh", shared)
+        self.assertIn("chromium_sandbox=False", smoke_script)
         self.assertIn("if: always()", shared)
         self.assertIn("retention-days: 30", shared)
 
