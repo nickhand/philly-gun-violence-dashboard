@@ -267,8 +267,20 @@ new milestone or same-version republish remains open for review. Production
 smoke tests are independent of Chrome release drift, while scheduled ETL runs
 consume the reviewed lock instead of failing merely because Google published a
 newer release. The repository's Actions settings must allow `GITHUB_TOKEN` to
-create pull requests; an optional
-`CHROME_UPDATE_TOKEN` secret can supply a dedicated bot token instead.
+create pull requests. For unattended updates, configure the Actions secret
+`CHROME_UPDATE_TOKEN` with a dedicated GitHub App installation token or a
+fine-grained PAT restricted to this repository, with Actions, Contents, and
+Pull requests permissions set to read/write. Do not store a developer's broad
+CLI token or reuse the courts monitor's dispatch-only token.
+
+GitHub requires maintainer approval for the PR workflows created using the
+built-in `GITHUB_TOKEN`, even when separately dispatched validation has passed.
+Without `CHROME_UPDATE_TOKEN`, the updater still opens and validates the update,
+then requests native auto-merge and reports the outstanding approval. Approve
+the workflows on that exact PR to finish it. With the dedicated token, those
+PR checks can run unattended. Native auto-merge waits for branch protection;
+neither mode bypasses required checks or merges milestone changes automatically.
+See [GitHub's token event rules](https://docs.github.com/en/actions/concepts/security/github_token).
 
 The browser context blocks service workers and intercepts every routed page
 request. It permits only HTTPS requests to the exact

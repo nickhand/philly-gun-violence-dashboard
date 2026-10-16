@@ -20,6 +20,7 @@ jobs:
     env:
       UPDATE_BRANCH: automation/chrome-stable
       GH_TOKEN: ${{ secrets.CHROME_UPDATE_TOKEN || github.token }}
+      HAS_CHROME_UPDATE_TOKEN: ${{ secrets.CHROME_UPDATE_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -298,9 +299,19 @@ jobs:
           gh pr merge "${{ steps.pull_request.outputs.number }}" \
             --repo "${GITHUB_REPOSITORY}" \
             --match-head-commit "${tested_head_sha}" \
+            --auto \
             --squash \
             --delete-branch
-          printf 'Same-milestone update passed validation and was merged.\n' >> "${GITHUB_STEP_SUMMARY}"
+          merge_state="$(gh pr view "${{ steps.pull_request.outputs.number }}" \
+            --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
+          if [[ "${merge_state}" == MERGED ]]; then
+            printf 'Same-milestone update passed validation and was merged.\n' >> "${GITHUB_STEP_SUMMARY}"
+          else
+            printf 'Same-milestone update passed validation; native auto-merge is waiting for the required pull-request checks.\n' >> "${GITHUB_STEP_SUMMARY}"
+            if [[ "${HAS_CHROME_UPDATE_TOKEN}" != true ]]; then
+              echo '::warning::Approve the Chrome pull request workflows to finish this update. Configure a repository-scoped CHROME_UPDATE_TOKEN for future unattended updates; GITHUB_TOKEN-created pull requests require approval.'
+            fi
+          fi
       - name: Report a milestone update
         if: >-
           steps.update.outputs.changed == 'true' &&
