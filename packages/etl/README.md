@@ -260,8 +260,10 @@ to reject missing markers, unexpected consumer structure, and generated drift.
 The Fly scheduler dispatches the `Chrome stable update` workflow every morning.
 It authenticates Google's signed repository metadata, downloads and verifies
 the selected package, refreshes the lock and all generated consumers, and opens
-or updates one automation pull request. It dispatches the complete ETL and
-repository-configuration suites on the exact update commit. A passing, strictly
+or updates one automation pull request. It waits for the required PR validation
+on the exact update commit, reusing those runs instead of dispatching duplicate
+image builds. The built-in-token fallback dispatches validation explicitly.
+A passing, strictly
 newer release within the current Chrome milestone is merged automatically; a
 new milestone or same-version republish remains open for review. Production
 smoke tests are independent of Chrome release drift, while scheduled ETL runs
@@ -280,6 +282,8 @@ then requests native auto-merge and reports the outstanding approval. Approve
 the workflows on that exact PR to finish it. With the dedicated token, those
 PR checks can run unattended. Native auto-merge waits for branch protection;
 neither mode bypasses required checks or merges milestone changes automatically.
+Any previous auto-merge request is cleared before the automation branch is
+refreshed, so approval of a patch update cannot carry over to a new milestone.
 See [GitHub's token event rules](https://docs.github.com/en/actions/concepts/security/github_token).
 
 The browser context blocks service workers and intercepts every routed page
