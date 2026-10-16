@@ -5,16 +5,16 @@ FROM public.ecr.aws/ubuntu/ubuntu:26.04@sha256:88a381d5b5eeb2b35d3ad70925a362c37
 # Ubuntu 26.04's stock deb822 sources use Canonical's signed archive and support
 # apt snapshots. Validate the build argument before every apt transaction so a
 # caller cannot silently replace the reviewed package set with another date.
-ARG UBUNTU_SNAPSHOT=20261001T180000Z
+ARG UBUNTU_SNAPSHOT=20261016T180000Z
 
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
 # HTTPS. Bootstrap the exact CA dependency pair recorded in Canonical's signed
 # resolute-security Packages index for this snapshot before the first apt call.
 ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621 \
-    https://snapshot.ubuntu.com/ubuntu/20261001T180000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb \
+    https://snapshot.ubuntu.com/ubuntu/20261016T180000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb \
     /tmp/openssl.deb
 ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 \
-    https://snapshot.ubuntu.com/ubuntu/20261001T180000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb \
+    https://snapshot.ubuntu.com/ubuntu/20261016T180000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb \
     /tmp/ca-certificates.deb
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
@@ -33,7 +33,7 @@ FROM ubuntu-base AS bubblewrap-build
 ADD --checksum=sha256:9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314 \
     https://github.com/containers/bubblewrap/releases/download/v0.12.0/bubblewrap-0.12.0.tar.xz \
     /tmp/bubblewrap.tar.xz
-RUN test "$UBUNTU_SNAPSHOT" = "20261001T180000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20261016T180000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
     && DEBIAN_FRONTEND=noninteractive apt-get -S "$UBUNTU_SNAPSHOT" \
@@ -82,14 +82,14 @@ ADD --checksum=sha256:8fbd2ae69cdf7ee98b7513c3396a7b5e06f974f8625fdd590df3091dd0
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
-# The October 1 snapshot includes Canonical's security backports for
-# OpenSSL, Perl, Python, libcurl, and libaom. Pin and
-# assert it below so stale packages cannot silently return to the image.
+# The October 16 snapshot includes Canonical's security backports for
+# libcurl, libX11, librsvg, and libpng, alongside the earlier runtime fixes.
+# Assert their versions so stale packages cannot silently return to the image.
 #
 # Fargate's default seccomp profile cannot start Chrome's nested namespace
 # sandbox. The courts worker therefore disables that sandbox, so the runtime
 # image removes the otherwise unused privilege-bearing helper entirely.
-RUN test "$UBUNTU_SNAPSHOT" = "20261001T180000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20261016T180000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
     && for suite in resolute resolute-updates resolute-backports resolute-security; do \
@@ -113,7 +113,13 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261001T180000Z" \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
         = "155.0.8059.84-1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
-        = "8.18.0-1ubuntu2.7" \
+        = "8.18.0-1ubuntu2.8" \
+    && test "$(dpkg-query --show --showformat='${Version}' libx11-6)" \
+        = "2:1.8.13-1ubuntu0.1" \
+    && test "$(dpkg-query --show --showformat='${Version}' librsvg2-2)" \
+        = "2.61.3+dfsg-3ubuntu0.1" \
+    && test "$(dpkg-query --show --showformat='${Version}' libpng16-16t64)" \
+        = "1.6.57-1ubuntu0.1" \
     && test "$(dpkg-query --show --showformat='${Version}' libaom3)" \
         = "3.13.1-2ubuntu0.1" \
     && test "$(dpkg-query --show --showformat='${Version}' bubblewrap)" \
