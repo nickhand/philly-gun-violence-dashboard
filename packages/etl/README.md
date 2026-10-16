@@ -221,10 +221,15 @@ The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
 same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
-date. The `20261001T180000Z` snapshot includes Canonical's security updates for
-OpenSSL, Perl, Python, libcurl, and libaom. The image build and SBOM gate assert
-`libcurl3t64-gnutls` version `8.18.0-1ubuntu2.7` and `libaom3` version
-`3.13.1-2ubuntu0.1`.
+date. The `20261016T180000Z` snapshot includes Canonical's security updates for
+libcurl, libX11, librsvg, and libpng, alongside the earlier runtime fixes.
+The image build and SBOM gate assert `libcurl3t64-gnutls=8.18.0-1ubuntu2.8`,
+`libx11-6=2:1.8.13-1ubuntu0.1`, `librsvg2-2=2.61.3+dfsg-3ubuntu0.1`,
+`libpng16-16t64=1.6.57-1ubuntu0.1`, and `libaom3=3.13.1-2ubuntu0.1`.
+These cover the ECR release blockers [CVE-2026-92392](https://ubuntu.com/security/CVE-2026-92392),
+[CVE-2026-88806](https://ubuntu.com/security/CVE-2026-88806),
+[CVE-2026-96889](https://ubuntu.com/security/CVE-2026-96889), and
+[USN-8899-1](https://ubuntu.com/security/notices/USN-8899-1).
 
 GTK's image-loader dependencies require Bubblewrap. Ubuntu reverted its
 CVE-2026-87766 fix in [USN-8779-2](https://ubuntu.com/security/notices/USN-8779-2),
