@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -32,6 +34,268 @@ def _push_script() -> str:
     )
     script = textwrap.dedent(step.split("        run: |\n", maxsplit=1)[1])
     return script.replace("${{ github.event.repository.default_branch }}", "main")
+
+
+def _merge_script() -> str:
+    step = (
+        WORKFLOW.read_text()
+        .split("      - name: Merge a validated same-milestone update\n", maxsplit=1)[1]
+        .split("      - name:", maxsplit=1)[0]
+    )
+    script = textwrap.dedent(step.split("        run: |\n", maxsplit=1)[1])
+    for expression, value in {
+        "github.event.repository.default_branch": "main",
+        "steps.pull_request.outputs.number": "86",
+        "steps.push.outputs.head_sha": "tested-head",
+        "steps.update.outputs.base_sha": "tested-base",
+    }.items():
+        script = script.replace("${{ " + expression + " }}", value)
+    return script
+
+
+def _validation_functions() -> str:
+    step = (
+        WORKFLOW.read_text()
+        .split("      - name: Validate the exact update commit\n", maxsplit=1)[1]
+        .split("      - name:", maxsplit=1)[0]
+    )
+    script = textwrap.dedent(step.split("        run: |\n", maxsplit=1)[1])
+    script = script.split('etl_run_id="$(prepare_validation_run', maxsplit=1)[0]
+    return (
+        script.replace("${{ steps.push.outputs.head_sha }}", "tested-head")
+        .replace("${{ steps.push.outputs.reused }}", "true")
+        .replace("${{ steps.pull_request.outputs.number }}", "86")
+    )
+
+
+class ChromeUpdateValidationTests(unittest.TestCase):
+    def run_validation(
+        self, *, status: str, conclusion: str, token: bool = True
+    ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            gh = root / "gh"
+            gh.write_text(
+                f"#!{sys.executable}\n"
+                + textwrap.dedent("""\
+                    import json, os, sys
+                    from pathlib import Path
+                    args = sys.argv[1:]
+                    with open(os.environ["TEST_CALLS"], "a") as output:
+                        output.write(json.dumps(args) + "\\n")
+                    if args[:2] == ["run", "list"]:
+                        print(json.dumps([
+                            {"databaseId": 999, "headSha": "unrelated-head",
+                             "status": "completed", "conclusion": "success"},
+                            {"databaseId": 42, "headSha": "tested-head",
+                             "status": os.environ["TEST_STATUS"],
+                             "conclusion": os.environ["TEST_CONCLUSION"]}
+                        ]))
+                    elif args[:2] == ["run", "view"]:
+                        print(2 if Path(os.environ["TEST_RERUN"]).exists() else 1)
+                    elif args[:2] == ["run", "rerun"]:
+                        Path(os.environ["TEST_RERUN"]).touch()
+                    else:
+                        sys.exit(2)
+                """)
+            )
+            gh.chmod(0o755)
+            calls = root / "calls"
+            env = {
+                **os.environ,
+                "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                "GITHUB_REPOSITORY": "owner/repository",
+                "UPDATE_BRANCH": UPDATE_BRANCH,
+                "HAS_CHROME_UPDATE_TOKEN": str(token).lower(),
+                "TEST_CALLS": str(calls),
+                "TEST_RERUN": str(root / "rerun"),
+                "TEST_STATUS": status,
+                "TEST_CONCLUSION": conclusion,
+            }
+            result = subprocess.run(
+                [
+                    "bash",
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    _validation_functions() + '\nprepare_validation_run "etl-quality.yml"\n',
+                ],
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            return result, [json.loads(line) for line in calls.read_text().splitlines()]
+
+    def test_reuses_exact_head_pr_checks_without_duplicate_dispatch(self) -> None:
+        for status, conclusion in (("in_progress", ""), ("completed", "success")):
+            with self.subTest(status=status):
+                result, calls = self.run_validation(status=status, conclusion=conclusion)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "42")
+                self.assertTrue(all(call[:2] == ["run", "list"] for call in calls))
+                self.assertTrue(
+                    all(call[call.index("--event") + 1] == "pull_request" for call in calls)
+                )
+
+    def test_retries_the_failed_pr_run_and_waits_for_its_new_attempt(self) -> None:
+        result, calls = self.run_validation(status="completed", conclusion="failure")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "42")
+        reruns = [call for call in calls if call[:2] == ["run", "rerun"]]
+        self.assertEqual(len(reruns), 1)
+        self.assertEqual(reruns[0][2], "42")
+        self.assertIn("--failed", reruns[0])
+        self.assertEqual(sum(call[:2] == ["run", "view"] for call in calls), 2)
+
+    def test_required_approval_is_not_bypassed(self) -> None:
+        result, calls = self.run_validation(status="completed", conclusion="action_required")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires maintainer workflow approval", result.stderr)
+        self.assertTrue(all(call[:2] == ["run", "list"] for call in calls))
+
+    def test_builtin_token_retains_the_explicit_dispatch_path(self) -> None:
+        result, calls = self.run_validation(status="completed", conclusion="success", token=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "42")
+        self.assertTrue(
+            all(call[call.index("--event") + 1] == "workflow_dispatch" for call in calls)
+        )
+
+
+class ChromeUpdateRefreshTests(unittest.TestCase):
+    def test_clears_only_the_existing_auto_merge_before_the_branch_push(self) -> None:
+        source = WORKFLOW.read_text()
+        name = "      - name: Clear prior auto-merge before refreshing the update\n"
+        self.assertLess(source.index(name), source.index("      - name: Commit and push"))
+        step = source.split(name, maxsplit=1)[1].split("      - name:", maxsplit=1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", maxsplit=1)[1])
+        script = script.replace("${{ github.event.repository.default_branch }}", "main")
+        for pulls, expected in (
+            ([], None),
+            ([{"number": 86, "auto_merge": None}], None),
+            ([{"number": 86, "auto_merge": {"merge_method": "squash"}}], "86"),
+        ):
+            with self.subTest(pulls=pulls), tempfile.TemporaryDirectory() as temporary:
+                calls = Path(temporary) / "calls"
+                mock = """gh() {
+                    if [[ "$1" == api ]]; then
+                      printf '%s\\n' "$TEST_PULLS"
+                    else
+                      printf '%s\\n' "$*" >> "$TEST_CALLS"
+                    fi
+                }
+                """
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-c", mock + script],
+                    env={
+                        **os.environ,
+                        "TEST_PULLS": json.dumps(pulls),
+                        "TEST_CALLS": str(calls),
+                        "GITHUB_REPOSITORY": "owner/repo",
+                        "GITHUB_REPOSITORY_OWNER": "owner",
+                        "UPDATE_BRANCH": UPDATE_BRANCH,
+                    },
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls.exists(), expected is not None)
+                if expected is not None:
+                    self.assertEqual(
+                        calls.read_text().strip(), "pr merge 86 --repo owner/repo --disable-auto"
+                    )
+
+
+class ChromeUpdateMergeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.summary = self.root / "summary"
+        self.calls = self.root / "calls"
+        gh = self.root / "gh"
+        gh.write_text(
+            f"#!{sys.executable}\n"
+            + textwrap.dedent("""\
+                import json, os, sys
+                args = sys.argv[1:]
+                with open(os.environ["TEST_CALLS"], "a") as output:
+                    output.write(json.dumps(args) + "\\n")
+                if args[:2] == ["pr", "view"]:
+                    if "headRefOid,baseRefOid" in args:
+                        print(json.dumps({"headRefOid": os.environ["TEST_HEAD"],
+                                          "baseRefOid": os.environ["TEST_BASE"]}))
+                    else:
+                        print(os.environ["TEST_PR_STATE"])
+                elif args[0] == "api":
+                    print(os.environ["TEST_CURRENT_BASE"])
+                elif args[:2] != ["pr", "merge"]:
+                    sys.exit(2)
+            """)
+        )
+        gh.chmod(0o755)
+        self.environment = {
+            **os.environ,
+            "PATH": str(self.root) + os.pathsep + os.environ["PATH"],
+            "GITHUB_REPOSITORY": "owner/repository",
+            "GITHUB_STEP_SUMMARY": str(self.summary),
+            "HAS_CHROME_UPDATE_TOKEN": "true",
+            "TEST_CALLS": str(self.calls),
+            "TEST_HEAD": "tested-head",
+            "TEST_BASE": "tested-base",
+            "TEST_CURRENT_BASE": "tested-base",
+            "TEST_PR_STATE": "OPEN",
+        }
+
+    def run_merge(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "--noprofile", "--norc", "-c", _merge_script()],
+            env=self.environment,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+
+    def test_queues_native_merge_for_the_validated_head(self) -> None:
+        result = self.run_merge()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        merge = next(call for call in calls if call[:2] == ["pr", "merge"])
+        self.assertIn("--auto", merge)
+        self.assertNotIn("--admin", merge)
+        self.assertEqual(merge[merge.index("--match-head-commit") + 1], "tested-head")
+        self.assertIn("waiting for the required pull-request checks", self.summary.read_text())
+        self.assertNotIn("was merged", self.summary.read_text())
+
+    def test_builtin_token_explains_required_workflow_approval(self) -> None:
+        self.environment["HAS_CHROME_UPDATE_TOKEN"] = "false"
+        result = self.run_merge()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning::Approve", result.stdout)
+        self.assertIn("CHROME_UPDATE_TOKEN", result.stdout)
+
+    def test_reports_an_already_completed_merge(self) -> None:
+        self.environment["TEST_PR_STATE"] = "MERGED"
+        result = self.run_merge()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("was merged", self.summary.read_text())
+
+    def test_head_or_base_changes_never_request_a_merge(self) -> None:
+        for variable in ("TEST_HEAD", "TEST_BASE", "TEST_CURRENT_BASE"):
+            with self.subTest(variable=variable):
+                original = self.environment[variable]
+                self.environment[variable] = "changed"
+                self.calls.unlink(missing_ok=True)
+                result = self.run_merge()
+                self.assertNotEqual(result.returncode, 0)
+                calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+                self.assertFalse(any(call[:2] == ["pr", "merge"] for call in calls))
+                self.environment[variable] = original
 
 
 class ChromeUpdateBranchTests(unittest.TestCase):

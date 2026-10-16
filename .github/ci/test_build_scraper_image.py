@@ -130,6 +130,32 @@ class ScraperBuildRetryTests(unittest.TestCase):
             )
         )
 
+    def test_ecr_manifest_rate_limit_is_retried_without_changing_the_image(self) -> None:
+        # The two error lines emitted by the October 16 security workflow.
+        detail = (
+            "failed to copy: httpReadSeeker: failed open: unexpected status code "
+            "https://public.ecr.aws/v2/ubuntu/ubuntu/manifests/sha256:"
+            + "a" * 64
+            + ": 429 Too Many Requests - Server message: toomanyrequests: Data limit exceeded"
+        )
+        output = (
+            f"#2 ERROR: {detail}\n"
+            "ERROR: failed to build: failed to solve: public.ecr.aws/ubuntu/ubuntu:26.04: "
+            f"failed to resolve source metadata: {detail}\n"
+        )
+        code, runner, sleeper = self.run_attempts((1, output), (0, "done"))
+        self.assertEqual(code, 0)
+        self.assertEqual(runner.call_count, 2)
+        sleeper.assert_called_once_with(20)
+        self.assertFalse(
+            BUILD.transient_download_failure(
+                output.replace("429 Too Many Requests", "403 Forbidden")
+            )
+        )
+        self.assertFalse(
+            BUILD.transient_download_failure(output + "ERROR: image assertion failed\n")
+        )
+
     def test_an_http_status_in_ordinary_build_output_does_not_trigger_retry(self) -> None:
         self.assertFalse(BUILD.transient_download_failure("test fixture HTTP 503"))
         self.assertFalse(

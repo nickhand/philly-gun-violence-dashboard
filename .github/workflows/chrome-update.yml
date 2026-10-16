@@ -20,6 +20,7 @@ jobs:
     env:
       UPDATE_BRANCH: automation/chrome-stable
       GH_TOKEN: ${{ secrets.CHROME_UPDATE_TOKEN || github.token }}
+      HAS_CHROME_UPDATE_TOKEN: ${{ secrets.CHROME_UPDATE_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,6 +82,26 @@ jobs:
             printf 'changed=%s\n' "${changed}"
             printf 'automatic_update=%s\n' "${automatic_update}"
           } >> "${GITHUB_OUTPUT}"
+      - name: Clear prior auto-merge before refreshing the update
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          matching_pulls="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
+            --field state=open \
+            --field base="${{ github.event.repository.default_branch }}" \
+            --field head="${GITHUB_REPOSITORY_OWNER}:${UPDATE_BRANCH}" \
+            --field per_page=2)"
+          if [[ "$(jq 'length' <<< "${matching_pulls}")" -gt 1 ]]; then
+            echo 'More than one Chrome update pull request is open.' >&2
+            exit 1
+          fi
+          # An old same-milestone request must never carry over to a new
+          # milestone or republished package when this branch is refreshed.
+          pr_number="$(jq -r '.[0] | select(.auto_merge != null) | .number // empty' <<< "${matching_pulls}")"
+          if [[ -n "${pr_number}" ]]; then
+            gh pr merge "${pr_number}" --repo "${GITHUB_REPOSITORY}" --disable-auto
+          fi
       - name: Commit and push the generated update
         if: steps.update.outputs.changed == 'true'
         id: push
@@ -197,11 +218,12 @@ jobs:
 
           latest_validation_run() {
             local workflow="$1"
+            local event="${2:-workflow_dispatch}"
             gh run list \
               --repo "${GITHUB_REPOSITORY}" \
               --workflow "${workflow}" \
               --branch "${UPDATE_BRANCH}" \
-              --event workflow_dispatch \
+              --event "${event}" \
               --limit 20 \
               --json conclusion,databaseId,headSha,status | \
               jq -c --arg head_sha "${head_sha}" \
@@ -211,11 +233,12 @@ jobs:
           find_new_validation_run() {
             local workflow="$1"
             local prior_id="$2"
+            local event="${3:-workflow_dispatch}"
             local snapshot
             local run_id
             local attempt
             for ((attempt = 1; attempt <= 60; attempt++)); do
-              snapshot="$(latest_validation_run "${workflow}")"
+              snapshot="$(latest_validation_run "${workflow}" "${event}")"
               run_id="$(jq -r '.databaseId // 0' <<< "${snapshot}")"
               if [[ "${run_id}" -gt "${prior_id}" ]]; then
                 printf '%s\n' "${run_id}"
@@ -233,6 +256,39 @@ jobs:
             local prior_id
             local status
             local conclusion
+            if [[ "${HAS_CHROME_UPDATE_TOKEN}" == true && "${workflow}" != dependabot-auto-merge.yml ]]; then
+              # PAT-created PRs run the required checks themselves. Reuse
+              # those runs instead of building/scanning the image again.
+              local run_id
+              run_id="$(find_new_validation_run "${workflow}" 0 pull_request)"
+              snapshot="$(latest_validation_run "${workflow}" pull_request)"
+              status="$(jq -r '.status' <<< "${snapshot}")"
+              conclusion="$(jq -r '.conclusion' <<< "${snapshot}")"
+              if [[ "${status}" == completed && "${conclusion}" != success ]]; then
+                if [[ "${conclusion}" == action_required ]]; then
+                  echo 'The exact Chrome PR still requires maintainer workflow approval.' >&2
+                  return 1
+                fi
+                local previous_attempt
+                local current_attempt
+                local poll
+                previous_attempt="$(gh run view "${run_id}" --repo "${GITHUB_REPOSITORY}" --json attempt --jq '.attempt')"
+                gh run rerun "${run_id}" --repo "${GITHUB_REPOSITORY}" --failed >/dev/null
+                for ((poll = 1; poll <= 60; poll++)); do
+                  current_attempt="$(gh run view "${run_id}" --repo "${GITHUB_REPOSITORY}" --json attempt --jq '.attempt')"
+                  if [[ "${current_attempt}" -gt "${previous_attempt}" ]]; then
+                    break
+                  fi
+                  sleep 10
+                done
+                if [[ "${current_attempt}" -le "${previous_attempt}" ]]; then
+                  echo "Timed out waiting for the next attempt of ${workflow}." >&2
+                  return 1
+                fi
+              fi
+              printf '%s\n' "${run_id}"
+              return 0
+            fi
             snapshot="$(latest_validation_run "${workflow}")"
             prior_id="$(jq -r '.databaseId // 0' <<< "${snapshot}")"
             status="$(jq -r '.status // empty' <<< "${snapshot}")"
@@ -298,9 +354,19 @@ jobs:
           gh pr merge "${{ steps.pull_request.outputs.number }}" \
             --repo "${GITHUB_REPOSITORY}" \
             --match-head-commit "${tested_head_sha}" \
+            --auto \
             --squash \
             --delete-branch
-          printf 'Same-milestone update passed validation and was merged.\n' >> "${GITHUB_STEP_SUMMARY}"
+          merge_state="$(gh pr view "${{ steps.pull_request.outputs.number }}" \
+            --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
+          if [[ "${merge_state}" == MERGED ]]; then
+            printf 'Same-milestone update passed validation and was merged.\n' >> "${GITHUB_STEP_SUMMARY}"
+          else
+            printf 'Same-milestone update passed validation; native auto-merge is waiting for the required pull-request checks.\n' >> "${GITHUB_STEP_SUMMARY}"
+            if [[ "${HAS_CHROME_UPDATE_TOKEN}" != true ]]; then
+              echo '::warning::Approve the Chrome pull request workflows to finish this update. Configure a repository-scoped CHROME_UPDATE_TOKEN for future unattended updates; GITHUB_TOKEN-created pull requests require approval.'
+            fi
+          fi
       - name: Report a milestone update
         if: >-
           steps.update.outputs.changed == 'true' &&
