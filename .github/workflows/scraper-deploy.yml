@@ -1,0 +1,160 @@
+name: Deploy merged Chrome to ECS
+
+on:
+  workflow_run:
+    workflows: [ETL quality]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      verify_only:
+        description: Run live probes and health checks against the current release without changing it
+        type: boolean
+        default: false
+      force:
+        description: Rebuild the current merged release even if its Chrome lock is unchanged
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+# Court submission and processing cannot overlap promotion. An already-running
+# Fargate scrape is preserved; plan defers and the daily Chrome updater retries.
+concurrency:
+  group: courts-production
+  cancel-in-progress: false
+  queue: max
+
+env:
+  ENV: prod
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  S3_BUCKET: ${{ vars.S3_BUCKET }}
+  S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
+  S3_PROCESSED_PREFIX: ${{ vars.S3_PROCESSED_PREFIX }}
+  S3_REFERENCE_PREFIX: ${{ vars.S3_REFERENCE_PREFIX }}
+  SQS_QUEUE_NAME: ${{ vars.SQS_QUEUE_NAME }}
+  SQS_DLQ_NAME: ${{ vars.SQS_DLQ_NAME }}
+  ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
+  ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
+  ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
+  ECS_MONITOR_TASK_DEFINITION: ${{ vars.ECS_MONITOR_TASK_DEFINITION }}
+  ECS_EXPECTED_IMAGE_URI: ${{ vars.ECS_EXPECTED_IMAGE_URI }}
+  ECS_EXPECTED_TASK_ROLE_ARN: ${{ vars.ECS_EXPECTED_TASK_ROLE_ARN }}
+  ECS_EXPECTED_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXPECTED_EXECUTION_ROLE_ARN }}
+  ECS_EXPECTED_MONITOR_SECRET_ARN: ${{ vars.ECS_EXPECTED_MONITOR_SECRET_ARN }}
+  ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
+  ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
+  ECS_PLATFORM_VERSION: "1.4.0"
+  COURTS_RELEASE_KEY: ${{ vars.COURTS_RELEASE_KEY }}
+
+jobs:
+  candidate:
+    name: Build and verify the candidate release
+    if: >-
+      vars.COURTS_RELEASE_KEY != '' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.head_branch == 'main' &&
+        (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    outputs:
+      verified: ${{ steps.prepare.outputs.verified }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+        with:
+          version: "0.12.0"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-deployer
+          aws-region: us-east-1
+          role-duration-seconds: 10800
+      - name: Verify the generated Chrome pin
+        run: uv run --project packages/etl --frozen python packages/etl/scripts/render_chrome_lock.py --check
+      - name: Plan against the exact green main commit and idle court cluster
+        id: plan
+        env:
+          VERIFY_ONLY: ${{ inputs.verify_only || false }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          args=()
+          if [ "${VERIFY_ONLY}" = true ]; then args+=(--verify-only); fi
+          if [ "${FORCE}" = true ]; then args+=(--force); fi
+          uv run --project packages/etl --frozen python .github/ci/deploy_scraper.py plan "${args[@]}"
+      - name: Build, scan, and run exact worker and monitor probes
+        id: prepare
+        if: steps.plan.outputs.ready == 'true'
+        run: uv run --project packages/etl --frozen python .github/ci/deploy_scraper.py prepare
+      - name: Preserve deployment and vulnerability evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chrome-ecs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/scraper-deploy
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 90
+
+  public-health:
+    needs: candidate
+    if: needs.candidate.outputs.verified == 'true'
+    uses: ./.github/workflows/production-smoke.yml
+    secrets:
+      PRODUCTION_SMOKE_HEARTBEAT_URL: ${{ secrets.PRODUCTION_SMOKE_HEARTBEAT_URL }}
+
+  court-health:
+    needs: candidate
+    if: needs.candidate.outputs.verified == 'true'
+    uses: ./.github/workflows/courts-watchdog.yml
+
+  promote:
+    name: Atomically promote after every health check passes
+    needs: [candidate, public-health, court-health]
+    if: needs.candidate.outputs.verified == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+        with:
+          version: "0.12.0"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: chrome-ecs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/scraper-deploy
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-deployer
+          aws-region: us-east-1
+      - name: Recheck source, court evidence, and release identity before atomic promotion
+        run: uv run --project packages/etl --frozen python .github/ci/deploy_scraper.py promote
+      - name: Preserve promotion or rollback evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chrome-ecs-promotion-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/scraper-deploy
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90

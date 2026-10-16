@@ -20,6 +20,9 @@ on:
       - ".github/workflows/etl-quality.yml"
       - ".github/workflows/scraper-image-quality.yml"
       - ".github/ci/build_scraper_image.py"
+      - ".github/ci/deploy_scraper.py"
+      - ".github/ci/smoke_scraper_image.sh"
+      - ".github/workflows/scraper-deploy.yml"
       - ".github/workflows/production-smoke.yml"
       - ".github/ci/scope.py"
 

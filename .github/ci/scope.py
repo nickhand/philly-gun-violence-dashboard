@@ -12,6 +12,7 @@ from pathlib import PurePosixPath
 ROUTER_PATH = ".github/ci/scope.py"
 
 CONFIG_TRIGGERS = (
+    ".github/aws/**",
     ".github/ci/**",
     ".github/workflows/**",
     "README.md",
@@ -53,6 +54,9 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         ".github/workflows/etl-quality.yml",
         ".github/workflows/scraper-image-quality.yml",
         ".github/ci/build_scraper_image.py",
+        ".github/ci/deploy_scraper.py",
+        ".github/ci/smoke_scraper_image.sh",
+        ".github/workflows/scraper-deploy.yml",
         ".github/workflows/production-smoke.yml",
         ROUTER_PATH,
     ),
@@ -138,6 +142,8 @@ GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "etl": {
         "etl": (
+            ".github/ci/deploy_scraper.py",
+            ".github/workflows/scraper-deploy.yml",
             "packages/etl/src/**",
             "packages/etl/tests/**",
             "packages/etl/Dockerfile",
@@ -184,6 +190,7 @@ GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
             "uv.toml",
         ),
         "image": (
+            ".github/ci/smoke_scraper_image.sh",
             ".github/workflows/scraper-image-quality.yml",
             ".github/ci/build_scraper_image.py",
             "packages/etl/src/**",

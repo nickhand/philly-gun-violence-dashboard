@@ -381,3 +381,8 @@ jobs:
           printf 'Pull request #%s is awaiting review because %s.\n' \
             '${{ steps.pull_request.outputs.number }}' \
             "${reason}" >> "${GITHUB_STEP_SUMMARY}"
+      - name: Reconcile the merged Chrome ECS deployment
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run scraper-deploy.yml --repo "${GITHUB_REPOSITORY}" --ref main

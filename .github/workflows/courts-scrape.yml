@@ -26,11 +26,44 @@ permissions:
 concurrency:
   group: courts-production
   cancel-in-progress: false
+  queue: max
 
 jobs:
   batch-courts-scraper:
     name: Submit courts scrape
     runs-on: ubuntu-24.04
+    env:
+      ALLOW_RECENT_FULL_RUN: ${{ inputs.allow_recent_full_run }}
+      SAMPLE: ${{ inputs.sample }}
+      SEED: ${{ inputs.seed }}
+      ENV: prod
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+      S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
+      S3_PROCESSED_PREFIX: ${{ vars.S3_PROCESSED_PREFIX }}
+      S3_REFERENCE_PREFIX: ${{ vars.S3_REFERENCE_PREFIX }}
+      SQS_QUEUE_NAME: ${{ vars.SQS_QUEUE_NAME }}
+      SQS_DLQ_NAME: ${{ vars.SQS_DLQ_NAME }}
+      ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
+      # Exact digest-backed worker revision; must not contain monitor secrets.
+      ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
+      # Distinct exact monitor revision, permitted to receive the dispatch token.
+      ECS_MONITOR_TASK_DEFINITION: ${{ vars.ECS_MONITOR_TASK_DEFINITION }}
+      # Exact repository@sha256 URI printed only after local and ECR release gates pass.
+      ECS_EXPECTED_IMAGE_URI: ${{ vars.ECS_EXPECTED_IMAGE_URI }}
+      # Exact reviewed roles; task-definition substitution fails before queue mutation.
+      ECS_EXPECTED_TASK_ROLE_ARN: ${{ vars.ECS_EXPECTED_TASK_ROLE_ARN }}
+      ECS_EXPECTED_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXPECTED_EXECUTION_ROLE_ARN }}
+      # Exact monitor-only secret and reviewed Fargate runtime contract.
+      ECS_EXPECTED_MONITOR_SECRET_ARN: ${{ vars.ECS_EXPECTED_MONITOR_SECRET_ARN }}
+      ECS_PLATFORM_VERSION: "1.4.0"
+      ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
+      ECS_TASK_COUNT: ${{ vars.ECS_TASK_COUNT }}
+      ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
+      ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      COURTS_RELEASE_KEY: ${{ vars.COURTS_RELEASE_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate sample input
@@ -60,6 +93,8 @@ jobs:
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
           version: "0.12.0"
+      - name: Load the atomic courts release
+        run: uv run --project packages/etl --frozen python packages/etl/scripts/load_courts_release.py
       - name: Verify identity
         run: aws sts get-caller-identity
       - name: Submit courts ETL (completion tracked by watchdog)
@@ -78,34 +113,3 @@ jobs:
           else
             uv run gv-dashboard-etl courts submit "${submit_args[@]}"
           fi
-        env:
-          ALLOW_RECENT_FULL_RUN: ${{ inputs.allow_recent_full_run }}
-          SAMPLE: ${{ inputs.sample }}
-          SEED: ${{ inputs.seed }}
-          ENV: prod
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          S3_BUCKET: ${{ vars.S3_BUCKET }}
-          S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
-          S3_PROCESSED_PREFIX: ${{ vars.S3_PROCESSED_PREFIX }}
-          S3_REFERENCE_PREFIX: ${{ vars.S3_REFERENCE_PREFIX }}
-          SQS_QUEUE_NAME: ${{ vars.SQS_QUEUE_NAME }}
-          SQS_DLQ_NAME: ${{ vars.SQS_DLQ_NAME }}
-          ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
-          # Exact digest-backed worker revision; must not contain monitor secrets.
-          ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
-          # Distinct exact monitor revision, permitted to receive the dispatch token.
-          ECS_MONITOR_TASK_DEFINITION: ${{ vars.ECS_MONITOR_TASK_DEFINITION }}
-          # Exact repository@sha256 URI printed only after local and ECR release gates pass.
-          ECS_EXPECTED_IMAGE_URI: ${{ vars.ECS_EXPECTED_IMAGE_URI }}
-          # Exact reviewed roles; task-definition substitution fails before queue mutation.
-          ECS_EXPECTED_TASK_ROLE_ARN: ${{ vars.ECS_EXPECTED_TASK_ROLE_ARN }}
-          ECS_EXPECTED_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXPECTED_EXECUTION_ROLE_ARN }}
-          # Exact monitor-only secret and reviewed Fargate runtime contract.
-          ECS_EXPECTED_MONITOR_SECRET_ARN: ${{ vars.ECS_EXPECTED_MONITOR_SECRET_ARN }}
-          ECS_PLATFORM_VERSION: "1.4.0"
-          ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
-          ECS_TASK_COUNT: ${{ vars.ECS_TASK_COUNT }}
-          ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
-          ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
-          GITHUB_REPOSITORY: ${{ github.repository }}

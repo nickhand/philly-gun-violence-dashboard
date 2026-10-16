@@ -291,6 +291,51 @@ Any previous auto-merge request is cleared before the automation branch is
 refreshed, so approval of a patch update cannot carry over to a new milestone.
 See [GitHub's token event rules](https://docs.github.com/en/actions/concepts/security/github_token).
 
+After a merge, `scraper-deploy.yml` waits for ETL quality on that exact `main`
+commit. It builds from `git archive`, runs the shared image smoke script and
+the existing exact-image Syft/Grype and ECR gates, then registers image-only
+worker and monitor revisions. One-shot Fargate probes prove the live portal,
+monitor health, exact digest, runtime isolation, and authoritative ENI security
+groups. The existing public production smoke and court watchdog workflows must
+also pass before promotion. Evidence is retained in Actions artifacts for 90 days.
+
+Production pins are read together from
+`s3://philly-gun-violence-dashboard/ujs-scraper/deployment/active.json` when the
+repository variable `COURTS_RELEASE_KEY` is `ujs-scraper/deployment/active.json`.
+The submission workflow validates both resolved definitions before exporting
+these pins. A missing or malformed enabled pointer fails closed. The older
+three repository pin variables are bootstrap settings, not the current release
+once this pointer is enabled; local operators must likewise resolve the active
+record before launching work.
+
+Deployments, submissions, and processing share the `courts-production` queue.
+A live task, nonempty main queue, or active court lease defers deployment without
+stopping or modifying court work. The daily Chrome updater dispatches deployment
+again even when the Chrome lock is unchanged. Stale source commits cannot
+promote. The release pointer uses an S3 ETag conditional write, and the recovered
+manifest and lease must be unchanged before and after promotion. A failed
+post-promotion check conditionally restores the prior release; it never overwrites
+a later operator change. Previous definitions and immutable images remain for rollback.
+
+One-time setup: create `gha-ujs-deployer` with a three-hour maximum session using
+the checked-in [OIDC trust](../../.github/aws/chrome-deploy-trust.json) and
+[deployment permissions](../../.github/aws/chrome-deploy-policy.json). Trust is
+limited to this repository's `main` branch. No AWS key or additional GitHub PAT
+is stored. Seed the active record from the already-verified current release
+using `IfNoneMatch=*`, then set `COURTS_RELEASE_KEY`. The record has
+`schema_version=1`, `source_sha`, the canonical JSON `chrome_lock_sha256`, and
+`worker`, `monitor`, and `image` pins. Keep its old bytes and ETag with deployment
+evidence. The existing submitter role needs read access to this object, which
+is inside its current court evidence prefix.
+
+Use a manual `scraper-deploy.yml` dispatch with `verify_only=true` to rerun the
+live probes and health workflows without changing pins, or `force=true` to
+build and deploy the current green `main` commit after an OS or deployment fix.
+An immutable tag from an interrupted attempt is pulled and rescanned instead
+of overwritten; existing freshness and vulnerability gates still apply.
+For rollback, restore the previous verified record with `IfMatch` against the
+current ETag in a quiet court window, then rerun `verify_only=true`.
+
 The browser context blocks service workers and intercepts every routed page
 request. It permits only HTTPS requests to the exact
 `ujsportal.pacourts.us` origin on the default TLS port, aborts and records every
