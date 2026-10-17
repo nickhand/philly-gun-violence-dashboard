@@ -53,7 +53,11 @@ class TriggerContracts(unittest.TestCase):
         for workflow, expected in SCOPE.TRIGGERS.items():
             with self.subTest(workflow=workflow):
                 self.assertEqual(_workflow_paths(workflow, "pull_request"), ())
-                self.assertEqual(_workflow_paths(workflow, "push"), expected)
+                # Chrome deployment retries need a current-main ETL gate after
+                # unrelated merges, while the job routing policy stays narrow.
+                self.assertEqual(
+                    _workflow_paths(workflow, "push"), () if workflow == "etl" else expected
+                )
         self.assertEqual(_workflow_paths("config", "pull_request"), ())
         self.assertEqual(_workflow_paths("config", "push"), SCOPE.CONFIG_TRIGGERS)
 
@@ -75,6 +79,8 @@ class TriggerContracts(unittest.TestCase):
             ("api", "README.md"): set(),
             ("etl", "packages/etl/src/etl/cli.py"): {"etl", "image"},
             ("etl", "packages/etl/tests/test_query.py"): {"etl"},
+            ("etl", ".github/aws/chrome-deploy-policy.json"): set(),
+            ("etl", "README.md"): set(),
             ("etl", "packages/etl/chrome-lock.json"): {
                 "etl",
                 "dashboard",
