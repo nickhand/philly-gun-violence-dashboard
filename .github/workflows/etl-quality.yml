@@ -4,27 +4,10 @@ on:
   workflow_dispatch:
   # Emit a final gate on every PR; job routing keeps unrelated changes cheap.
   pull_request:
+  # Deployment retries require a gate for the current main SHA even when an
+  # unrelated merge follows a Chrome update. Job routing skips unrelated work.
   push:
     branches: [main]
-    paths:
-      - "packages/etl/**"
-      - "packages/dashboard-utils/**"
-      - "packages/aws-batch-scraper/**"
-      - ".dockerignore"
-      - "Justfile"
-      - "ruff.toml"
-      - "ty.toml"
-      - "uv.toml"
-      - ".github/workflows/chrome-update.yml"
-      - ".github/workflows/daily-homicide-sync.yml"
-      - ".github/workflows/etl-quality.yml"
-      - ".github/workflows/scraper-image-quality.yml"
-      - ".github/ci/build_scraper_image.py"
-      - ".github/ci/deploy_scraper.py"
-      - ".github/ci/smoke_scraper_image.sh"
-      - ".github/workflows/scraper-deploy.yml"
-      - ".github/workflows/production-smoke.yml"
-      - ".github/ci/scope.py"
 
 concurrency:
   group: etl-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
