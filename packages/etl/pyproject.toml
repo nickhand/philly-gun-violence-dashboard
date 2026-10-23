@@ -43,7 +43,7 @@ dev = [
     "pandas-stubs>=2.3.3.251201",
     "pytest>=8.0.0",
     "ruff>=0.16.7",
-    "ty==0.0.84",
+    "ty==0.0.89",
     "types-geopandas>=1.1.4.20260807",
     "types-networkx>=3.6.1.20251212",
 ]
