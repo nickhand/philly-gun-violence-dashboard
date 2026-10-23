@@ -1,5 +1,18 @@
-FROM python:3.14-slim-trixie@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
-COPY --from=ghcr.io/astral-sh/uv:0.12.0@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 /uv /uvx /bin/
+FROM python:3.14.9-slim-trixie@sha256:b347e2dcbc7f0b6f9fb7182e9da6a187fb10ae715e0692518c1aed0eec94a700
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /bin/
+
+# Distrust both the compromised emSign root and its AAA cross-signing path.
+# https://emudhra.we-have-a-problem.com/#workarounds
+RUN sed -i \
+        -e 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt|!&|' \
+        -e 's|^mozilla/Comodo_AAA_Services_root.crt|!&|' \
+        /etc/ca-certificates.conf \
+    && update-ca-certificates --fresh \
+    && test ! -e /etc/ssl/certs/emSign_ECC_Root_CA_-_G3.pem \
+    && test ! -e /etc/ssl/certs/Comodo_AAA_Services_root.pem
+
+# The interpreter and ensurepip seed must both carry the fixed vendored CA bundle.
+RUN python -c "import ensurepip, pip, pip._vendor.certifi as certifi; assert tuple(map(int, pip.__version__.split('.'))) >= (26, 2, 2); assert tuple(map(int, ensurepip.version().split('.'))) >= (26, 2, 2); assert tuple(map(int, certifi.__version__.split('.'))) >= (2026, 10, 19)"
 
 WORKDIR /app
 

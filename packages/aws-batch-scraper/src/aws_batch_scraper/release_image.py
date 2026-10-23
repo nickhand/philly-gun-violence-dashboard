@@ -16,7 +16,7 @@ import tempfile
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -92,14 +92,14 @@ class ReleaseIntegrityError(RuntimeError):
 
 
 def _current_utc_time() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _clock_time(clock: Clock) -> datetime:
     timestamp = clock()
     if timestamp.tzinfo is None or timestamp.utcoffset() is None:
         raise ValueError("Local scan clock must return a timezone-aware datetime")
-    return timestamp.astimezone(timezone.utc)
+    return timestamp.astimezone(UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -619,7 +619,7 @@ def _aware_timestamp(value: object, *, label: str) -> datetime:
         raise ReleaseIntegrityError(f"{label} timestamp was invalid") from exc
     if timestamp.tzinfo is None or timestamp.utcoffset() is None:
         raise ReleaseIntegrityError(f"{label} timestamp was not timezone-aware")
-    return timestamp.astimezone(timezone.utc)
+    return timestamp.astimezone(UTC)
 
 
 def _require_fresh_timestamp(

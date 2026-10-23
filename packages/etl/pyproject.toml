@@ -13,7 +13,7 @@ dependencies = [
     "loguru>=0.7.3",
     "networkx>=3.6.1",
     "pandas>=2.3.3,<3",
-    "playwright==1.63.0",
+    "playwright==1.64.1",
     "pydantic>=2.13.5",
     "aws-batch-scraper",
     "dashboard-utils",
@@ -21,8 +21,10 @@ dependencies = [
 
 [tool.uv]
 exclude-newer = "1 week"
+# Apply the reviewed certificate and Playwright security releases immediately.
+exclude-newer-package = { certifi = false, playwright = false }
 # Keep independent locks above the reviewed shared security floor.
-constraint-dependencies = ["urllib3>=2.8.0"]
+constraint-dependencies = ["urllib3>=2.8.0", "certifi>=2026.10.23"]
 
 [tool.uv.sources]
 aws-batch-scraper = { path = "../aws-batch-scraper", editable = true }
@@ -32,7 +34,7 @@ dashboard-utils = { path = "../dashboard-utils", editable = true }
 gv-dashboard-etl = "etl.cli:app"
 
 [build-system]
-requires = ["uv_build>=0.12.0,<0.13.0"]
+requires = ["uv_build>=0.13.0,<0.14.0"]
 build-backend = "uv_build"
 
 [dependency-groups]

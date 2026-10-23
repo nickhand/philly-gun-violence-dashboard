@@ -29,7 +29,7 @@ cadence back to GitHub.
 ## Python tooling
 
 - Python is 3.13+ and dependencies are locked independently in each package with `uv`.
-- The repository requires exact `uv 0.12.0`; use `uv run`, `uv add`, `uv lock`, and
+- The repository requires exact `uv 0.13.5`; use `uv run`, `uv add`, `uv lock`, and
   `uv sync`, never bare `pip` or Poetry.
 - Use Ruff for linting and formatting and `ty` for strict type checking. Do not add mypy.
 - Prefer root `just` recipes when one exists. Run `just --list` to discover current names.

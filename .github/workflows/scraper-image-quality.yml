@@ -13,12 +13,14 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.12.0"
+          version: "0.13.5"
+      - name: Update pip certificate bundle
+        run: uv pip install --no-config --exclude-newer-package "pip=0 days" --python "$(python -c 'import sys; print(sys.executable)')" "pip==26.2.2"
       - name: Verify generated Chrome pin consumers
         working-directory: packages/etl
         run: uv run python scripts/render_chrome_lock.py --check
@@ -39,14 +41,14 @@ jobs:
             --image philly-courts-scraper:ci \
             --expected-distro-name ubuntu \
             --expected-distro-version 26.04 \
-            --required-packages "python:playwright=1.63.0,deb:google-chrome-stable=${chrome_package_version},deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8,deb:libx11-6=2:1.8.13-1ubuntu0.1,deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1,deb:libpng16-16t64=1.6.57-1ubuntu0.1,deb:libaom3=3.13.1-2ubuntu0.1,deb:bubblewrap=0.12.0-0philly1,binary:node=24.21.0" \
+            --required-packages "python:playwright=1.64.1,deb:google-chrome-stable=${chrome_package_version},deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8,deb:libx11-6=2:1.8.13-1ubuntu0.1,deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1,deb:libpng16-16t64=1.6.57-1ubuntu0.1,deb:libaom3=3.13.1-2ubuntu0.1,deb:bubblewrap=0.12.0-0philly1,binary:node=24.22.1" \
             --required-chrome-executable-sha256 "sha256:${chrome_executable_sha256}" \
             --forbid-chrome-sandbox \
             --forbid-setuid-setgid-files \
             --output-directory "${RUNNER_TEMP}/scraper-image-scan"
       - name: Preserve scraper SBOM and vulnerability evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: scraper-image-scan-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/scraper-image-scan

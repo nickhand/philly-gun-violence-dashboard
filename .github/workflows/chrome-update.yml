@@ -27,12 +27,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ secrets.CHROME_UPDATE_TOKEN || github.token }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.12.0"
+          version: "0.13.5"
+      - name: Update pip certificate bundle
+        run: uv pip install --no-config --exclude-newer-package "pip=0 days" --python "$(python -c 'import sys; print(sys.executable)')" "pip==26.2.2"
       - name: Resolve the signed stable release
         id: update
         shell: bash
@@ -385,4 +387,26 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run scraper-deploy.yml --repo "${GITHUB_REPOSITORY}" --ref main
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          latest="$(gh run list --repo "${GITHUB_REPOSITORY}" \
+            --workflow etl-quality.yml --branch main --commit "${main_sha}" \
+            --limit 30 --json databaseId,headSha,event,status,conclusion | \
+            jq -c --arg sha "${main_sha}" \
+              '[.[] | select(.headSha == $sha and (.event == "push" or .event == "workflow_dispatch"))] | sort_by(.databaseId) | last // {}')"
+          if [[ "$(jq -r '.databaseId // empty' <<< "${latest}")" == "" ]]; then
+            # A merge made with GITHUB_TOKEN does not emit push workflows.
+            # Explicit dispatch restores validation of the exact current main;
+            # its successful workflow_run event starts deployment afterward.
+            gh workflow run etl-quality.yml --repo "${GITHUB_REPOSITORY}" --ref main
+            echo 'Requested missing ETL quality validation on current main; deployment follows a successful run.' >> "${GITHUB_STEP_SUMMARY}"
+          elif [[ "$(jq -r '.status' <<< "${latest}")" != completed ]]; then
+            echo 'Deployment deferred while current main ETL quality is running.' >> "${GITHUB_STEP_SUMMARY}"
+          elif [[ "$(jq -r '.conclusion' <<< "${latest}")" != success ]]; then
+            echo '::warning::Deployment deferred: current main has not passed its latest ETL quality run.'
+            echo 'Deployment deferred: current main has not passed its latest ETL quality run.' >> "${GITHUB_STEP_SUMMARY}"
+          else
+            gh workflow run scraper-deploy.yml --repo "${GITHUB_REPOSITORY}" --ref main
+          fi
