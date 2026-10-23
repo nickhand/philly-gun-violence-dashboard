@@ -193,7 +193,7 @@ class WorkerConfig(ScraperBaseConfig):
     """
 
     # Required in the framework; subclasses should provide defaults
-    aws_account_id: str = Field(..., description="AWS account ID, e.g. '985454606291'")
+    aws_account_id: str | None = Field(..., description="AWS account ID, e.g. '985454606291'")
     sqs_queue_name: str = Field(..., description="Main SQS queue name")
     sqs_dlq_name: str = Field(..., description="Dead-letter queue name")
 
@@ -205,20 +205,30 @@ class WorkerConfig(ScraperBaseConfig):
     soft_blocked_delay_max: int = 900
     github_repository: str | None = None
 
+    @field_validator("aws_account_id")
+    @classmethod
+    def _require_aws_account_id(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("AWS_ACCOUNT_ID must be set for workers")
+        return value
+
+    @property
+    def required_aws_account_id(self) -> str:
+        """Return the account ID required by worker and submitter validation."""
+        return self._require_aws_account_id(self.aws_account_id)
+
     @property
     def sqs_queue_url(self) -> str:
         """Fully qualified SQS queue URL derived from account, region, and queue name."""
         return (
             f"https://sqs.{self.aws_region}.amazonaws.com"
-            f"/{self.aws_account_id}/{self.sqs_queue_name}"
+            f"/{self.required_aws_account_id}/{self.sqs_queue_name}"
         )
 
     @property
     def sqs_dlq_url(self) -> str:
         """Fully qualified SQS dead-letter queue URL."""
-        return (
-            f"https://sqs.{self.aws_region}.amazonaws.com/{self.aws_account_id}/{self.sqs_dlq_name}"
-        )
+        return f"https://sqs.{self.aws_region}.amazonaws.com/{self.required_aws_account_id}/{self.sqs_dlq_name}"
 
 
 class SubmitterConfig(WorkerConfig):
@@ -332,7 +342,7 @@ class SubmitterConfig(WorkerConfig):
         if self.ecs_expected_image_uri is not None:
             require_exact_ecr_image_uri(
                 self.ecs_expected_image_uri,
-                account_id=self.aws_account_id,
+                account_id=self.required_aws_account_id,
                 region=self.aws_region,
             )
         for value, setting_name in (
@@ -342,13 +352,13 @@ class SubmitterConfig(WorkerConfig):
             if value is not None:
                 require_exact_iam_role_arn(
                     value,
-                    account_id=self.aws_account_id,
+                    account_id=self.required_aws_account_id,
                     setting_name=setting_name,
                 )
         if self.ecs_expected_monitor_secret_arn is not None:
             require_exact_secret_arn(
                 self.ecs_expected_monitor_secret_arn,
-                account_id=self.aws_account_id,
+                account_id=self.required_aws_account_id,
                 region=self.aws_region,
                 setting_name="ECS_EXPECTED_MONITOR_SECRET_ARN",
             )
@@ -359,5 +369,6 @@ class SubmitterConfig(WorkerConfig):
     def ecs_cluster_arn(self) -> str:
         """Fully qualified ECS cluster ARN derived from account, region, and cluster name."""
         return (
-            f"arn:aws:ecs:{self.aws_region}:{self.aws_account_id}:cluster/{self.ecs_cluster_name}"
+            f"arn:aws:ecs:{self.aws_region}:{self.required_aws_account_id}"
+            f":cluster/{self.ecs_cluster_name}"
         )

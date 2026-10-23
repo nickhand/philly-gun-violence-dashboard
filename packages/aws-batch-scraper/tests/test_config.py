@@ -1,8 +1,12 @@
 """Tests for immutable AWS runtime identifiers."""
 
+import os
+
 import pytest
 from aws_batch_scraper.config import (
+    ScraperBaseConfig,
     SubmitterConfig,
+    WorkerConfig,
     require_exact_ecr_image_uri,
     require_exact_fargate_platform,
     require_exact_iam_role_arn,
@@ -302,3 +306,41 @@ def test_github_workflow_target_is_required_and_structured(value: str | None) ->
 @pytest.mark.parametrize("value", ["courts-process.yml", "release_2.yaml"])
 def test_github_workflow_target_is_accepted(value: str) -> None:
     assert require_github_workflow_file(value) == value
+
+
+def test_base_config_keeps_optional_account_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "environ", {})
+    config = ScraperBaseConfig(_env_file=None, s3_bucket="bucket", s3_scraper_prefix="scraper")
+
+    assert config.aws_account_id is None
+
+
+@pytest.mark.parametrize("account_fields", [{}, {"aws_account_id": None}])
+def test_worker_config_requires_non_null_account_id(
+    account_fields: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(os, "environ", {})
+    with pytest.raises(ValidationError, match="aws_account_id"):
+        WorkerConfig(
+            _env_file=None,
+            s3_bucket="bucket",
+            s3_scraper_prefix="scraper",
+            sqs_queue_name="queue",
+            sqs_dlq_name="queue-dlq",
+            **account_fields,
+        )
+
+
+def test_worker_account_id_is_available_for_aws_requests() -> None:
+    config = WorkerConfig(
+        _env_file=None,
+        aws_region="us-east-1",
+        s3_bucket="bucket",
+        s3_scraper_prefix="scraper",
+        aws_account_id="123456789012",
+        sqs_queue_name="queue",
+        sqs_dlq_name="queue-dlq",
+    )
+
+    assert config.aws_account_id == config.required_aws_account_id == "123456789012"
+    assert config.sqs_queue_url == "https://sqs.us-east-1.amazonaws.com/123456789012/queue"
