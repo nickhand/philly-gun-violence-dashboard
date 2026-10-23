@@ -42,8 +42,10 @@ processes retain their old bundles until rebuilt and replaced.
   cross-signing path in the container system trust stores. Image smoke checks
   inspect fingerprints in the actual loaded system and certifi bundles, following the
   [incident remediation guidance](https://emudhra.we-have-a-problem.com/#workarounds).
-  The scraper retains its reviewed Ubuntu snapshot; trust removal happens before
-  apt downloads and applies to both build and runtime stages.
+  The scraper advances to the signature-verified Ubuntu snapshot
+  **20261023T180000Z**, with patched CA/NSS, zlib and XZ packages. Trust removal
+  happens before apt downloads, applies to both build and runtime stages, and
+  is checked again after the runtime upgrade.
 - Update frontend CI Node to **22.23.4** and Playwright's embedded Node to
   **24.22.1**, including the image's SBOM contract. See the
   [Node security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).
@@ -98,6 +100,34 @@ processes retain their old bundles until rebuilt and replaced.
   Correct the annotation and UTC aliases while preserving enum string behavior.
   Both current tools and the exact proposed Ruff/ty versions pass these checks.
   Existing bot PRs must rebase and rerun before their full graphs can be approved.
+
+## Later ECR findings and snapshot repair
+
+The earlier Grype image check passed, but the subsequent
+[ECR deployment scan of commit 1557d76](https://github.com/nickhand/philly-gun-violence-dashboard/actions/runs/40025239217)
+completed on October 23 at 21:19:58 UTC with two High and five Undefined findings.
+The release gate stopped before task registration or promotion. The old October 16
+snapshot lacked the October 20–22 Ubuntu fixes; explicit Python/system CA distrust
+alone did not update NSS or the vulnerable zlib/XZ packages.
+
+The replacement snapshot **20261023T180000Z** requires these exact runtime packages
+in both the Docker build and SBOM contract:
+
+| Package | Fixed version | Advisory |
+| --- | --- | --- |
+| `ca-certificates` | `20260816ubuntu0.26.04.1` | [USN-8944-1](https://ubuntu.com/security/notices/USN-8944-1) |
+| `libnss3` | `2:3.120-1ubuntu2.2` | [USN-8947-1](https://ubuntu.com/security/notices/USN-8947-1) |
+| `liblzma5` | `5.8.3-1ubuntu0.1` | [USN-8945-1](https://ubuntu.com/security/notices/USN-8945-1) |
+| `zlib1g` | `1:1.3.dfsg+really1.3.1-1ubuntu3.2` | [CVE-2026-85091](https://ubuntu.com/security/CVE-2026-85091) |
+
+Canonical's security and updates InRelease signatures, package-index checksums,
+and the six downloaded bootstrap/security package hashes were verified. The
+OpenSSL bootstrap artifact is unchanged; the new CA artifact is pinned by its
+signed-index SHA-256. Chrome, Playwright/Node and the prior runtime fixes retain
+their reviewed versions. Grype and ECR retain their existing blocking severity
+policies, including Undefined findings. This source repair still requires a new
+hosted image build and passing release checks; the earlier immutable image tag
+cannot be reused as evidence for the repaired image.
 
 ## Activation and verification
 
