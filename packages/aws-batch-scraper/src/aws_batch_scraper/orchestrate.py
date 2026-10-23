@@ -325,7 +325,7 @@ def _base_env_vars(config: SubmitterConfig, run_id: str) -> list[KeyValuePairTyp
     return [
         {"name": "ENV", "value": "prod"},
         {"name": "RUN_ID", "value": run_id},
-        {"name": "AWS_ACCOUNT_ID", "value": config.aws_account_id},
+        {"name": "AWS_ACCOUNT_ID", "value": config.required_aws_account_id},
         {"name": "AWS_REGION", "value": str(config.aws_region)},
         {"name": "S3_BUCKET", "value": config.s3_bucket},
         {"name": "S3_SCRAPER_PREFIX", "value": config.s3_scraper_prefix},
@@ -340,22 +340,22 @@ def _monitor_env_vars(config: SubmitterConfig, run_id: str) -> list[KeyValuePair
     """Build a complete submitter config for the clean monitor task definition."""
     expected_image = require_exact_ecr_image_uri(
         config.ecs_expected_image_uri,
-        account_id=config.aws_account_id,
+        account_id=config.required_aws_account_id,
         region=config.aws_region,
     )
     expected_task_role = require_exact_iam_role_arn(
         config.ecs_expected_task_role_arn,
-        account_id=config.aws_account_id,
+        account_id=config.required_aws_account_id,
         setting_name="ECS_EXPECTED_TASK_ROLE_ARN",
     )
     expected_execution_role = require_exact_iam_role_arn(
         config.ecs_expected_execution_role_arn,
-        account_id=config.aws_account_id,
+        account_id=config.required_aws_account_id,
         setting_name="ECS_EXPECTED_EXECUTION_ROLE_ARN",
     )
     expected_monitor_secret = require_exact_secret_arn(
         config.ecs_expected_monitor_secret_arn,
-        account_id=config.aws_account_id,
+        account_id=config.required_aws_account_id,
         region=config.aws_region,
         setting_name="ECS_EXPECTED_MONITOR_SECRET_ARN",
     )
@@ -605,22 +605,22 @@ def resolve_split_task_definitions(
     )
     expected_image = require_exact_ecr_image_uri(
         config.ecs_expected_image_uri,
-        account_id=config.aws_account_id,
+        account_id=config.required_aws_account_id,
         region=config.aws_region,
     )
     expected_task_role = require_exact_iam_role_arn(
         config.ecs_expected_task_role_arn,
-        account_id=config.aws_account_id,
+        account_id=config.required_aws_account_id,
         setting_name="ECS_EXPECTED_TASK_ROLE_ARN",
     )
     expected_execution_role = require_exact_iam_role_arn(
         config.ecs_expected_execution_role_arn,
-        account_id=config.aws_account_id,
+        account_id=config.required_aws_account_id,
         setting_name="ECS_EXPECTED_EXECUTION_ROLE_ARN",
     )
     expected_monitor_secret = require_exact_secret_arn(
         config.ecs_expected_monitor_secret_arn,
-        account_id=config.aws_account_id,
+        account_id=config.required_aws_account_id,
         region=config.aws_region,
         setting_name="ECS_EXPECTED_MONITOR_SECRET_ARN",
     )

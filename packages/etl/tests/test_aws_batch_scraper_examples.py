@@ -26,8 +26,8 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
     assert re.search(expected_base, source, re.MULTILINE)
-    assert "ARG UBUNTU_SNAPSHOT=20261016T180000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20261016T180000Z"' in source
+    assert "ARG UBUNTU_SNAPSHOT=20261023T180000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20261023T180000Z"' in source
     assert "20260819T170000Z" not in source
     assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 5
     assert 'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update' in source
@@ -41,6 +41,16 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     for version in ("2:1.8.13-1ubuntu0.1", "2.61.3+dfsg-3ubuntu0.1", "1.6.57-1ubuntu0.1"):
         assert f' = "{version}"' in source
     assert ' = "3.13.1-2ubuntu0.1"' in source
+    for package, version in (
+        ("ca-certificates", "20260816ubuntu0.26.04.1"),
+        ("libnss3", "2:3.120-1ubuntu2.2"),
+        ("liblzma5", "5.8.3-1ubuntu0.1"),
+        ("zlib1g", "1:1.3.dfsg+really1.3.1-1ubuntu3.2"),
+    ):
+        assert f"${{Version}}' {package})" in source
+        assert f' = "{version}"' in source
+    for root in ("emSign_ECC_Root_CA_-_G3", "Comodo_AAA_Services_root"):
+        assert source.rindex(f"test ! -e /etc/ssl/certs/{root}.pem") > source.index("full-upgrade")
     assert ' = "0.12.0-0philly1"' in source
     assert "FROM ubuntu-base AS bubblewrap-build" in source
     assert "COPY --from=bubblewrap-build /bubblewrap.deb /tmp/bubblewrap.deb" in source
@@ -56,10 +66,10 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
         "ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621"
     ) in source
     assert (
-        "ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90"
+        "ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd"
     ) in source
     assert "openssl_3.5.5-1ubuntu3.7_amd64.deb" in source
-    assert "ca-certificates_20260601~26.04.1_all.deb" in source
+    assert "ca-certificates_20260816ubuntu0.26.04.1_all.deb" in source
     assert expected_chrome in source
     assert PINNED_CHROME_FILENAME in source
     assert f'= "{PINNED_CHROME_VERSION}"' in source
@@ -227,6 +237,10 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
         "deb:libx11-6=2:1.8.13-1ubuntu0.1",
         "deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1",
         "deb:libpng16-16t64=1.6.57-1ubuntu0.1",
+        "deb:ca-certificates=20260816ubuntu0.26.04.1",
+        "deb:libnss3=2:3.120-1ubuntu2.2",
+        "deb:liblzma5=5.8.3-1ubuntu0.1",
+        "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
     ):
         assert package in source
     assert "root:root:755" not in source
@@ -251,6 +265,10 @@ def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
         "deb:libx11-6=2:1.8.13-1ubuntu0.1",
         "deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1",
         "deb:libpng16-16t64=1.6.57-1ubuntu0.1",
+        "deb:ca-certificates=20260816ubuntu0.26.04.1",
+        "deb:libnss3=2:3.120-1ubuntu2.2",
+        "deb:liblzma5=5.8.3-1ubuntu0.1",
+        "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
     ):
         assert package in justfile
     assert "scraper-check-browser-lock:" in recipe

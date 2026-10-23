@@ -6,16 +6,16 @@ FROM docker.io/library/ubuntu:26.04@sha256:88a381d5b5eeb2b35d3ad70925a362c37ce56
 # Ubuntu 26.04's stock deb822 sources use Canonical's signed archive and support
 # apt snapshots. Validate the build argument before every apt transaction so a
 # caller cannot silently replace the reviewed package set with another date.
-ARG UBUNTU_SNAPSHOT=20261016T180000Z
+ARG UBUNTU_SNAPSHOT=20261023T180000Z
 
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
 # HTTPS. Bootstrap the exact CA dependency pair recorded in Canonical's signed
 # resolute-security Packages index for this snapshot before the first apt call.
 ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621 \
-    https://snapshot.ubuntu.com/ubuntu/20261016T180000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb \
+    https://snapshot.ubuntu.com/ubuntu/20261023T180000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb \
     /tmp/openssl.deb
-ADD --checksum=sha256:6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90 \
-    https://snapshot.ubuntu.com/ubuntu/20261016T180000Z/pool/main/c/ca-certificates/ca-certificates_20260601~26.04.1_all.deb \
+ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd \
+    https://snapshot.ubuntu.com/ubuntu/20261023T180000Z/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb \
     /tmp/ca-certificates.deb
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
@@ -23,7 +23,7 @@ RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
     && test "$(dpkg-query --show --showformat='${Version}' openssl)" \
         = "3.5.5-1ubuntu3.7" \
     && test "$(dpkg-query --show --showformat='${Version}' ca-certificates)" \
-        = "20260601~26.04.1" \
+        = "20260816ubuntu0.26.04.1" \
     && test -s /etc/ssl/certs/ca-certificates.crt \
     && rm -f /tmp/openssl.deb /tmp/ca-certificates.deb
 
@@ -44,12 +44,14 @@ FROM ubuntu-base AS bubblewrap-build
 ADD --checksum=sha256:9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314 \
     https://github.com/containers/bubblewrap/releases/download/v0.12.0/bubblewrap-0.12.0.tar.xz \
     /tmp/bubblewrap.tar.xz
-RUN test "$UBUNTU_SNAPSHOT" = "20261016T180000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20261023T180000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
     && DEBIAN_FRONTEND=noninteractive apt-get -S "$UBUNTU_SNAPSHOT" \
         --yes --no-install-recommends install \
         build-essential meson pkg-config libcap-dev libselinux1-dev xz-utils \
+    && test "$(dpkg-query --show --showformat='${Version}' xz-utils)" \
+        = "5.8.3-1ubuntu0.1" \
     && mkdir /build \
     && python3 -c \
         "import tarfile; tarfile.open('/tmp/bubblewrap.tar.xz').extractall('/build', filter='data')" \
@@ -93,14 +95,14 @@ ADD --checksum=sha256:6c92cd22e90c6e3e255d782991543fa2091db8614e8536a971a7433a5c
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
-# The October 16 snapshot includes Canonical's security backports for
-# libcurl, libX11, librsvg, and libpng, alongside the earlier runtime fixes.
+# The October 23 snapshot includes the CA/NSS distrust updates and patched
+# zlib/XZ packages, while retaining the earlier libcurl/X11/rsvg/png fixes.
 # Assert their versions so stale packages cannot silently return to the image.
 #
 # Fargate's default seccomp profile cannot start Chrome's nested namespace
 # sandbox. The courts worker therefore disables that sandbox, so the runtime
 # image removes the otherwise unused privilege-bearing helper entirely.
-RUN test "$UBUNTU_SNAPSHOT" = "20261016T180000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20261023T180000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
     && for suite in resolute resolute-updates resolute-backports resolute-security; do \
@@ -133,6 +135,16 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261016T180000Z" \
         = "1.6.57-1ubuntu0.1" \
     && test "$(dpkg-query --show --showformat='${Version}' libaom3)" \
         = "3.13.1-2ubuntu0.1" \
+    && test "$(dpkg-query --show --showformat='${Version}' ca-certificates)" \
+        = "20260816ubuntu0.26.04.1" \
+    && test "$(dpkg-query --show --showformat='${Version}' libnss3)" \
+        = "2:3.120-1ubuntu2.2" \
+    && test "$(dpkg-query --show --showformat='${Version}' liblzma5)" \
+        = "5.8.3-1ubuntu0.1" \
+    && test "$(dpkg-query --show --showformat='${Version}' zlib1g)" \
+        = "1:1.3.dfsg+really1.3.1-1ubuntu3.2" \
+    && test ! -e /etc/ssl/certs/emSign_ECC_Root_CA_-_G3.pem \
+    && test ! -e /etc/ssl/certs/Comodo_AAA_Services_root.pem \
     && test "$(dpkg-query --show --showformat='${Version}' bubblewrap)" \
         = "0.12.0-0philly1" \
     && test "$(bwrap --version)" = "bubblewrap 0.12.0" \

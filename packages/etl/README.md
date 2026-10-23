@@ -221,8 +221,9 @@ The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
 same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
-date. The `20261016T180000Z` snapshot includes Canonical's security updates for
-libcurl, libX11, librsvg, and libpng, alongside the earlier runtime fixes.
+date. The `20261023T180000Z` snapshot includes Canonical's October 20–22
+CA/NSS distrust updates and zlib/XZ fixes, while retaining the earlier updates
+for libcurl, libX11, librsvg, and libpng.
 The image build and SBOM gate assert `libcurl3t64-gnutls=8.18.0-1ubuntu2.8`,
 `libx11-6=2:1.8.13-1ubuntu0.1`, `librsvg2-2=2.61.3+dfsg-3ubuntu0.1`,
 `libpng16-16t64=1.6.57-1ubuntu0.1`, and `libaom3=3.13.1-2ubuntu0.1`.
@@ -230,6 +231,15 @@ These cover the ECR release blockers [CVE-2026-92392](https://ubuntu.com/securit
 [CVE-2026-88806](https://ubuntu.com/security/CVE-2026-88806),
 [CVE-2026-96889](https://ubuntu.com/security/CVE-2026-96889), and
 [USN-8899-1](https://ubuntu.com/security/notices/USN-8899-1).
+
+The build and SBOM gate also require `ca-certificates=20260816ubuntu0.26.04.1`,
+`libnss3=2:3.120-1ubuntu2.2`, `liblzma5=5.8.3-1ubuntu0.1`, and
+`zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2`. These address
+[USN-8944-1](https://ubuntu.com/security/notices/USN-8944-1),
+[USN-8947-1](https://ubuntu.com/security/notices/USN-8947-1),
+[USN-8945-1](https://ubuntu.com/security/notices/USN-8945-1), and
+[CVE-2026-85091](https://ubuntu.com/security/CVE-2026-85091).
+The build-only `xz-utils` package is also asserted at `5.8.3-1ubuntu0.1`.
 
 GTK's image-loader dependencies require Bubblewrap. Ubuntu reverted its
 CVE-2026-87766 fix in [USN-8779-2](https://ubuntu.com/security/notices/USN-8779-2),
@@ -349,11 +359,14 @@ implicitly.
 The minimal Ubuntu base does not initially contain CA roots. Before its first
 apt transaction, the build bootstraps `openssl` 3.5.5-1ubuntu3.7 (SHA-256
 `6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621`)
-and `ca-certificates` 20260601~26.04.1 (SHA-256
-`6077d27c6b6f8b23590cb01ff877ed8c804a67a5442cc32b5a33da10d2bd0e90`)
+and `ca-certificates` 20260816ubuntu0.26.04.1 (SHA-256
+`5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd`)
 from exact Canonical snapshot URLs. Those artifacts and hashes come from the
 Ubuntu `resolute-security` Packages index whose InRelease is signed by the
-Ubuntu archive key. The build clears inherited package lists, treats any
+Ubuntu archive key `F6ECB3762474EDA9D21B7022871920D1991BC93C`. Both the
+security and updates indexes and all six reviewed bootstrap/security package
+downloads were verified against that signed metadata. The build clears inherited
+package lists, treats any
 snapshot update warning as an error, and verifies indexes for every configured
 suite before upgrading or installing packages. This prevents apt from silently
 falling back to live indexes when the requested snapshot is unavailable.

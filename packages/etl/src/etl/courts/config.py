@@ -1,6 +1,7 @@
 """UJS courts scraper configuration with UJS-specific defaults."""
 
-from aws_batch_scraper.config import SubmitterConfig, WorkerConfig
+from aws_batch_scraper.config import SubmitterConfig, WorkerConfig, require_github_workflow_file
+from pydantic import field_validator
 
 
 class CourtsWorkerConfig(WorkerConfig):
@@ -24,4 +25,9 @@ class CourtsSubmitterConfig(CourtsWorkerConfig, SubmitterConfig):
     ecs_cluster_name: str = "ujs-scraper"
     ecs_container_name: str = "ujs-scraper"
     ecs_task_count: int = 9
-    github_workflow_file: str = "courts-process.yml"
+    github_workflow_file: str | None = "courts-process.yml"
+
+    @field_validator("github_workflow_file")
+    @classmethod
+    def _valid_github_workflow_file(cls, value: str | None) -> str:
+        return require_github_workflow_file(value)
