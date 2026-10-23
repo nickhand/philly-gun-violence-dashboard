@@ -36,20 +36,20 @@
     "test:dependency-security": "node --test tests/dependency-security.test.mjs tests/audit-dependencies.test.mjs tests/braces-security.test.mjs"
   },
   "dependencies": {
-    "@nuxtjs/sitemap": "8.6.1",
+    "@nuxtjs/sitemap": "8.6.2",
     "@unhead/vue": "^2.1.1",
     "@uswds/uswds": "^3.14.0",
-    "maplibre-gl": "^6.12.0",
+    "maplibre-gl": "^6.14.0",
     "nuxt": "^4.6.2",
-    "posthog-js": "^1.434.17",
+    "posthog-js": "^1.438.12",
     "vue": "3.5.44",
     "vue-router": "5.4.0",
     "node-forge": "file:vendor/node-forge-1.4.1-philly.1.tgz",
     "braces": "file:vendor/braces-3.0.4-philly.1.tgz"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.63.0",
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
     "@types/geojson": "^7946.0.14",
     "@types/node": "^20.19.43",
     "@vitejs/plugin-vue": "^6.0.9",
@@ -57,12 +57,12 @@
     "@vue/test-utils": "^2.5.1",
     "jsdom": "^26.1.0",
     "lighthouse": "13.5.0",
-    "sass-embedded": "^1.105.1",
+    "sass-embedded": "^1.105.2",
     "typescript": "^5.5.3",
     "vite": "^7.3.7",
     "vitest": "^4.1.12",
-    "vue-tsc": "^3.3.12",
-    "wrangler": "4.150.0"
+    "vue-tsc": "^3.3.13",
+    "wrangler": "4.151.1"
   },
   "overrides": {
     "node-forge": "$node-forge",

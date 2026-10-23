@@ -3,6 +3,7 @@ import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { z } from 'zod';
 
 const require = createRequire(import.meta.url);
 const forge = require('node-forge');
@@ -19,6 +20,21 @@ const digest = createHash('sha256').update(message).digest('latin1');
 const asn1 = forge.asn1;
 const element = (type, constructed, value) =>
   asn1.create(asn1.Class.UNIVERSAL, type, constructed, value);
+
+test('Zod rejects oversized collections before visiting their elements', () => {
+  // GHSA-mrhx-c7xc-m3w5: reject on size before allocating per-element issues.
+  let visited = 0;
+  const schema = z.array(z.number().transform((value) => {
+    visited += 1;
+    return value;
+  })).max(1);
+  const result = schema.safeParse([1, 2, 3]);
+  assert.equal(result.success, false);
+  assert.equal(result.error.issues[0].code, 'too_big');
+  assert.equal(visited, 0);
+  assert.deepEqual(schema.parse([1]), [1]);
+  assert.equal(visited, 1);
+});
 
 function signature({ parameters = true, extraAlgorithm = false, extraDigestInfo = false } = {}) {
   const algorithm = [element(asn1.Type.OID, false, asn1.oidToDer(forge.pki.oids.sha256).getBytes())];
