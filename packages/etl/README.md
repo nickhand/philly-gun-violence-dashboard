@@ -243,9 +243,9 @@ neither scanner's vulnerability threshold is relaxed. Revisit this temporary
 package when Canonical supplies a complete supported fix.
 <!-- BEGIN GENERATED: chrome-lock-product-version -->
 It full-upgrades that snapshot before installing Ubuntu's native Python
-(3.13 or newer) and a checksum-pinned Google Chrome 155.0.8059.84 package.
+(3.13 or newer) and a checksum-pinned Google Chrome 156.0.8078.47 package.
 <!-- END GENERATED: chrome-lock-product-version -->
-The Playwright client is pinned to 1.63.0, launches the system `chrome` channel
+The Playwright client is pinned to 1.64.1, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly
 sets `chromium_sandbox=False`: Fargate's default seccomp profile does not permit
 the namespace operations required by Chrome's nested sandbox. This exception is
@@ -643,3 +643,10 @@ Required configuration:
 
 AWS credentials are resolved through boto3's default credential chain. Use
 `AWS_PROFILE` locally; GitHub Actions and ECS should use OIDC or task roles.
+
+### Local TLS toolchain
+
+Use uv 0.13.5 and the locked Playwright 1.64.1 security release, which includes
+Node 24.22.1. Run `uv sync --locked` after updating the checkout. See the
+[October security review](../../docs/security-hardening-2026-10-23.md) for
+certificate-store updates and container rollout requirements.

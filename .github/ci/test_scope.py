@@ -76,6 +76,8 @@ class TriggerContracts(unittest.TestCase):
             ("api", "packages/api/tests/test_startup.py"): {"checks"},
             ("api", "packages/api/.python-version"): {"checks"},
             ("api", "packages/api/Dockerfile"): {"image"},
+            ("api", ".github/ci/check_tls_trust.py"): {"image"},
+            ("etl", ".github/ci/check_tls_trust.py"): {"image"},
             ("api", "README.md"): set(),
             ("etl", "packages/etl/src/etl/cli.py"): {"etl", "image"},
             ("etl", "packages/etl/tests/test_query.py"): {"etl"},

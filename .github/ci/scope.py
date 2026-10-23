@@ -38,6 +38,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "ty.toml",
         "uv.toml",
         ".github/workflows/api-quality.yml",
+        ".github/ci/check_tls_trust.py",
         ROUTER_PATH,
     ),
     "etl": (
@@ -56,6 +57,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         ".github/ci/build_scraper_image.py",
         ".github/ci/deploy_scraper.py",
         ".github/ci/smoke_scraper_image.sh",
+        ".github/ci/check_tls_trust.py",
         ".github/workflows/scraper-deploy.yml",
         ".github/workflows/production-smoke.yml",
         ROUTER_PATH,
@@ -128,6 +130,7 @@ GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
             "uv.toml",
         ),
         "image": (
+            ".github/ci/check_tls_trust.py",
             "packages/api/app/**",
             "packages/api/scripts/**",
             "packages/api/Dockerfile",
@@ -191,6 +194,7 @@ GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "image": (
             ".github/ci/smoke_scraper_image.sh",
+            ".github/ci/check_tls_trust.py",
             ".github/workflows/scraper-image-quality.yml",
             ".github/ci/build_scraper_image.py",
             "packages/etl/src/**",

@@ -12,6 +12,7 @@ const advisory = (name, severity, ghsa) => ({
 });
 
 const report = (...vias) => ({
+  auditReportVersion: 2,
   vulnerabilities: Object.fromEntries(
     vias.map((via) => [via.name, { name: via.name, via: [via] }]).concat([
       // Transitive entries only point at other packages and must not count twice.
@@ -21,6 +22,26 @@ const report = (...vias) => ({
 });
 
 const exception = { id: 'GHSA-aaaa-bbbb-cccc', package: 'dep', expires: '2026-10-14', reason: 'test' };
+
+test('registry failures and incomplete reports cannot pass as clean audits', () => {
+  for (const invalid of [
+    { message: 'getaddrinfo ENOTFOUND registry.npmjs.org', error: { summary: '', detail: '' } },
+    { ...report(), error: { code: 'E503', summary: 'Registry unavailable' } },
+    {},
+    null,
+    { auditReportVersion: 2, vulnerabilities: null },
+    { auditReportVersion: 2, vulnerabilities: [] },
+    { auditReportVersion: 3, vulnerabilities: {} },
+  ]) {
+    assert.throws(() => evaluateAudit(invalid), /dependency security was not verified/);
+  }
+});
+
+test('accepts a successful audit with no vulnerabilities', () => {
+  assert.deepEqual(evaluateAudit({ auditReportVersion: 2, vulnerabilities: {} }, []), {
+    blocking: [], excused: [], stale: [],
+  });
+});
 
 test('blocks high and critical advisories without an exception', () => {
   const { blocking } = evaluateAudit(

@@ -164,6 +164,114 @@ class ChromeUpdateValidationTests(unittest.TestCase):
         )
 
 
+class ChromeDeploymentReconciliationTests(unittest.TestCase):
+    def run_reconciliation(
+        self, runs: list[dict[str, object]]
+    ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], str]:
+        step = WORKFLOW.read_text().split(
+            "      - name: Reconcile the merged Chrome ECS deployment\n", maxsplit=1
+        )[1]
+        script = textwrap.dedent(step.split("        run: |\n", maxsplit=1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            gh = root / "gh"
+            gh.write_text(
+                f"#!{sys.executable}\n"
+                + textwrap.dedent("""\
+                    import json, os, sys
+                    args = sys.argv[1:]
+                    with open(os.environ["TEST_CALLS"], "a") as output:
+                        output.write(json.dumps(args) + "\\n")
+                    if args[0] == "api":
+                        print("current-main")
+                    elif args[:2] == ["run", "list"]:
+                        print(os.environ["TEST_RUNS"])
+                    elif args[:2] != ["workflow", "run"]:
+                        sys.exit(2)
+                """)
+            )
+            gh.chmod(0o755)
+            calls = root / "calls"
+            summary = root / "summary"
+            result = subprocess.run(
+                ["bash", "--noprofile", "--norc", "-c", script],
+                env={
+                    **os.environ,
+                    "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                    "GITHUB_REPOSITORY": "owner/repository",
+                    "GITHUB_STEP_SUMMARY": str(summary),
+                    "TEST_CALLS": str(calls),
+                    "TEST_RUNS": json.dumps(runs),
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            return (
+                result,
+                [json.loads(line) for line in calls.read_text().splitlines()],
+                summary.read_text() if summary.exists() else "",
+            )
+
+    def test_dispatches_missing_main_validation_after_an_unrelated_bot_merge(self) -> None:
+        # An API-Docker-only bot merge can advance main without a push run.
+        # Neither an older main success nor a current-head PR success qualifies.
+        result, calls, summary = self.run_reconciliation(
+            [
+                {
+                    "databaseId": number,
+                    "headSha": sha,
+                    "event": event,
+                    "status": "completed",
+                    "conclusion": "success",
+                }
+                for number, sha, event in (
+                    (1, "older-main", "push"),
+                    (2, "current-main", "pull_request"),
+                )
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        dispatches = [call for call in calls if call[:2] == ["workflow", "run"]]
+        self.assertEqual(
+            dispatches,
+            [["workflow", "run", "etl-quality.yml", "--repo", "owner/repository", "--ref", "main"]],
+        )
+        self.assertIn("Requested missing ETL quality validation", summary)
+
+    def test_latest_exact_main_run_controls_deployment(self) -> None:
+        for status, conclusion, expected in (
+            ("queued", "", None),
+            ("in_progress", "", None),
+            ("completed", "failure", None),
+            ("completed", "cancelled", None),
+            ("completed", "success", "scraper-deploy.yml"),
+        ):
+            with self.subTest(status=status, conclusion=conclusion):
+                result, calls, _summary = self.run_reconciliation(
+                    [
+                        {
+                            "databaseId": 2,
+                            "headSha": "current-main",
+                            "event": "workflow_dispatch",
+                            "status": status,
+                            "conclusion": conclusion,
+                        },
+                        {
+                            "databaseId": 1,
+                            "headSha": "current-main",
+                            "event": "push",
+                            "status": "completed",
+                            "conclusion": "success",
+                        },
+                    ]
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                dispatches = [call[2] for call in calls if call[:2] == ["workflow", "run"]]
+                self.assertEqual(dispatches, [expected] if expected else [])
+
+
 class ChromeUpdateRefreshTests(unittest.TestCase):
     def test_clears_only_the_existing_auto_merge_before_the_branch_push(self) -> None:
         source = WORKFLOW.read_text()

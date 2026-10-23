@@ -56,7 +56,9 @@ _MAX_INRELEASE_BYTES: Final = 1_000_000
 _MAX_PACKAGES_BYTES: Final = 10_000_000
 _MAX_PACKAGES_UNCOMPRESSED_BYTES: Final = 50_000_000
 _MAX_DEB_BYTES: Final = 500_000_000
-_MAX_EXECUTABLE_BYTES: Final = 300_000_000
+# Chrome 156's executable exceeds 300 MB. Keep a finite expansion bound while
+# hashing in chunks so a larger authenticated browser does not inflate memory.
+_MAX_EXECUTABLE_BYTES: Final = 500_000_000
 _DOWNLOAD_TIMEOUT_SECONDS: Final = 30.0
 _COMMAND_TIMEOUT_SECONDS: Final = 30.0
 # Chrome Stable normally republishes within a weekly cadence.  Fourteen days
@@ -704,16 +706,27 @@ def _chrome_executable_sha256(deb: bytes) -> str:
                 )
             member = matches[0]
             if member.size < 1 or member.size > _MAX_EXECUTABLE_BYTES:
-                raise ChromeReleaseError("Chrome executable had an invalid size")
+                raise ChromeReleaseError(
+                    f"Chrome executable size {member.size} is outside the allowed "
+                    f"range 1..{_MAX_EXECUTABLE_BYTES} bytes"
+                )
             extracted = archive.extractfile(member)
             if extracted is None:
                 raise ChromeReleaseError("Chrome executable could not be read")
-            executable = extracted.read(_MAX_EXECUTABLE_BYTES + 1)
+            digest = hashlib.sha256()
+            size = 0
+            while chunk := extracted.read(1024 * 1024):
+                size += len(chunk)
+                if size > member.size:
+                    raise ChromeReleaseError(
+                        "Chrome executable size did not match its archive entry"
+                    )
+                digest.update(chunk)
     except (tarfile.TarError, EOFError, OSError) as exc:
         raise ChromeReleaseError("Chrome package data archive was invalid") from exc
-    if len(executable) != member.size:
+    if size != member.size:
         raise ChromeReleaseError("Chrome executable size did not match its archive entry")
-    return hashlib.sha256(executable).hexdigest()
+    return digest.hexdigest()
 
 
 def resolve_current_chrome_lock(

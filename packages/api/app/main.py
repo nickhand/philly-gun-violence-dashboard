@@ -1,7 +1,7 @@
 """FastAPI application setup for the Gun Violence Dashboard API."""
 
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -29,7 +29,7 @@ from dashboard_utils.aws import make_s3_client
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Load S3-backed datasets into application state on startup.
 
     Parameters

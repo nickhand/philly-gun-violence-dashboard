@@ -9,8 +9,9 @@ test "${image_entrypoint}" = "null" || test "${image_entrypoint}" = "[]"
 test "$(docker inspect --format '{{json .Config.Volumes}}' "${image}")" = '{"/tmp":{}}'
 runtime_flags=(--rm --read-only --cap-drop ALL --tmpfs "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m")
 inspection_runtime_flags=(--rm --read-only --network none --tmpfs "/tmp:rw,nosuid,nodev,noexec,mode=1777,size=512m")
+docker run -i "${inspection_runtime_flags[@]}" "${image}" python - < .github/ci/check_tls_trust.py
 test "$(docker run "${runtime_flags[@]}" "${image}" sh -c 'printf %s "$HOME"')" = "/tmp/app-home"
-docker run "${runtime_flags[@]}" "${image}" python -c "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.63.0'"
+docker run "${runtime_flags[@]}" "${image}" python -c "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.64.1'"
 test "$(docker run "${runtime_flags[@]}" "${image}" google-chrome --product-version)" = "${chrome_product_version}"
 docker run "${runtime_flags[@]}" "${image}" sh -ceu 'test ! -e /opt/google/chrome/chrome-sandbox; test ! -e /ms-playwright; test ! -e /usr/bin/pebble; test ! -e /etc/apt/sources.list.d/google-chrome.list; test ! -e /etc/cron.daily/google-chrome; test ! -e /etc/default/google-chrome; test ! -e /usr/share/keyrings/google-linux-signing-keyring.gpg; test ! -e /opt/google/chrome/cron'
 docker run "${runtime_flags[@]}" "${image}" sh -ceu 'test -x /bin/false'
