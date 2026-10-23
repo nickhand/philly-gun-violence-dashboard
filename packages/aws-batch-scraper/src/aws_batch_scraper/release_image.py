@@ -21,16 +21,18 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import certifi
+
 FULL_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 AWS_ACCOUNT_ID_PATTERN = re.compile(r"^[0-9]{12}$")
 ECR_REPOSITORY_PATTERN = re.compile(r"^(?=.{2,256}$)[a-z0-9]+(?:[._/-][a-z0-9]+)*$")
 AWS_REGION_PATTERN = re.compile(r"^[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+$")
 REVISION_LABEL = "org.opencontainers.image.revision"
-GRYPE_VERSION = "0.116.1"
+GRYPE_VERSION = "0.121.0"
 GRYPE_IMAGE = (
     "docker.io/anchore/grype@"
-    "sha256:1e71065c0a4cff3e6bd3b8add525ffac4343eb4971694eb90a31cf6d4d3e85db"
+    "sha256:621d56d1d68106b787022c81546f7e0a36202a25d1239f0c20195fab8c16f7ea"
 )
 GRYPE_DB_SCHEMA_MAJOR = 6
 GRYPE_DB_MAX_AGE = timedelta(hours=24)
@@ -1489,7 +1491,8 @@ def scan_local_image(
         scratch = root / "scratch"
         sbom_output = root / "sbom-output"
         report_output = root / "report-output"
-        for directory in (cache, scratch, sbom_output, report_output):
+        empty_cert_directory = root / "empty-cert-directory"
+        for directory in (cache, scratch, sbom_output, report_output, empty_cert_directory):
             directory.mkdir()
 
         grype_config = root / "grype.yaml"
@@ -1498,8 +1501,16 @@ def scan_local_image(
         db_command = _scanner_run_prefix(
             GRYPE_IMAGE,
             network_none=False,
-            mounts=((cache, "/cache", False),),
+            mounts=(
+                (cache, "/cache", False),
+                (Path(certifi.where()), "/trust/cacert.pem", True),
+                (empty_cert_directory, "/trust/empty", True),
+            ),
             environment=(
+                # Go loads both a CA file and CA directories. Override both so
+                # the scanner image cannot reintroduce distrusted system roots.
+                ("SSL_CERT_FILE", "/trust/cacert.pem"),
+                ("SSL_CERT_DIR", "/trust/empty"),
                 ("GRYPE_DB_CACHE_DIR", "/cache/db"),
                 ("GRYPE_DB_AUTO_UPDATE", "true"),
                 ("GRYPE_DB_REQUIRE_UPDATE_CHECK", "true"),

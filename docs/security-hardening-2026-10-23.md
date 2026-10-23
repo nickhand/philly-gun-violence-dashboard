@@ -51,6 +51,16 @@ processes retain their old bundles until rebuilt and replaced.
   whose official wheel includes that patched Node. This also covers local runs
   and the daily homicide workflow. The running driver version is asserted during
   the build and image scan.
+- Update the digest-pinned Grype scanner to **0.121.0**, which fixes five
+  `golang.org/x/net` advisories including critical
+  [GO-2026-6612](https://github.com/anchore/grype/releases/tag/v0.121.0), while
+  retaining database schema 6 and every release gate. Its official image still
+  reports Go **1.26.8**, so the version update alone does not fix eMudhra trust.
+  The only networked scanner step, database download, now mounts the locked
+  certifi bundle read-only and sets both `SSL_CERT_FILE` and `SSL_CERT_DIR` to
+  prevent loading the image's older roots. The reviewed Syft **1.50.0** pin and
+  schema **16.1.10** remain; Syft and vulnerability matching run with networking
+  disabled and no Docker socket or registry credentials.
 - Update DOMPurify to **3.4.17**, Nuxt to **4.6.2**, and Vitest/coverage to **4.1.12**;
   align Vue and Vue Router with Nuxt's runtime requirements. Reject unavailable or
   malformed npm audit responses instead of treating missing results as clean.
@@ -123,5 +133,9 @@ Homebrew's Python 3.14 formula became versioned. Its documented `libexec/bin`
 path was added to the login-shell configuration to preserve `python3`/`pip3` on
 3.14 rather than falling back to Apple's Python. Older interpreter installations
 were retained for other projects that pin them; those environments were not
-blanket-rewritten. Native macOS trust and unrelated apps were not independently
-verified or changed.
+blanket-rewritten. The uv Python stdlib initially loaded Apple's older `/private/etc/ssl/cert.pem`.
+A guarded login-shell `SSL_CERT_FILE` default now selects Homebrew's maintained
+`/opt/homebrew/etc/ca-certificates/cert.pem`, preserving existing overrides.
+Fresh-login checks confirm G3/AAA absence across the active Python installations
+and repository environments. Native macOS verifier policy and unrelated apps
+were not independently verified or changed; Apple-managed files were untouched.

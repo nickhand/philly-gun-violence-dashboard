@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
+import certifi
 import pytest
 from aws_batch_scraper import release_image
 from aws_batch_scraper.release_image import (
@@ -80,6 +81,56 @@ class StubRunner:
         returncode, stdout = output[:2]
         stderr = output[2] if len(output) == 3 else ""
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+
+def test_database_download_uses_only_reviewed_certificate_trust() -> None:
+    """Do not merge the scanner image's older roots into the patched bundle."""
+    identity_runner = StubRunner(
+        (0, f"Version: {release_image.GRYPE_VERSION}"),
+        (0, f"Version: {release_image.SYFT_VERSION}"),
+        (0, json.dumps([{"Id": IMAGE_ID, "Os": "linux", "Architecture": "amd64"}])),
+    )
+    database_calls: list[list[str]] = []
+
+    def runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        if list(command[-2:]) != ["db", "update"]:
+            return identity_runner(command)
+        database_calls.append(list(command))
+        environment = {
+            command[index + 1].partition("=")[0]: command[index + 1].partition("=")[2]
+            for index, argument in enumerate(command)
+            if argument == "--env"
+        }
+        mounts = [
+            command[index + 1] for index, argument in enumerate(command) if argument == "--mount"
+        ]
+        assert environment["SSL_CERT_FILE"] == "/trust/cacert.pem"
+        assert environment["SSL_CERT_DIR"] == "/trust/empty"
+        assert (
+            f"type=bind,src={Path(certifi.where()).resolve()},dst=/trust/cacert.pem,readonly"
+            in mounts
+        )
+        empty_mounts = [mount for mount in mounts if ",dst=/trust/empty,readonly" in mount]
+        assert len(empty_mounts) == 1
+        empty_directory = Path(empty_mounts[0].split(",src=", 1)[1].split(",dst=", 1)[0])
+        assert empty_directory.is_dir() and not list(empty_directory.iterdir())
+        assert len(mounts) == 3  # Cache and trust only; no target image or Docker socket.
+        assert "--read-only" in command
+        assert "--network" not in command
+        # Stop before exporting an image; the trust contract is exercised above.
+        return subprocess.CompletedProcess(command, 1, "", "intentional stop after trust check")
+
+    with pytest.raises(ReleaseIntegrityError, match="Grype database update command failed"):
+        release_image.scan_local_image(
+            "test-image:latest",
+            requirements=(PackageRequirement("python", "example", "1.0.0"),),
+            expected_distro_name="ubuntu",
+            expected_distro_version="26.04",
+            runner=runner,
+        )
+
+    assert len(database_calls) == 1
+    assert all("--network" in command for command in identity_runner.calls[:2])
 
 
 def _target() -> ReleaseTarget:

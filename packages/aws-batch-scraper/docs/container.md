@@ -91,6 +91,10 @@ Before the push, configure the ECR repository with immutable tags and automatic
 scanning. The guarded recipe first downloads a fresh Grype database in a
 container that cannot see the target, saves the exact local image as an archive,
 and runs digest-pinned Syft and Grype containers with networking disabled.
+The database download uses the project's patched certifi bundle through a
+read-only mount. Both Go trust settings are explicit: `SSL_CERT_FILE` selects
+that bundle and `SSL_CERT_DIR` selects an empty read-only directory, preventing
+the scanner image's older system roots from being added back.
 Neither scanner receives the Docker socket or registry credentials. The gate
 validates tool/schema identity, database hash and age, provider timestamps,
 image identity, and repo-controlled package/file contracts. It rejects every
