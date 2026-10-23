@@ -6,9 +6,10 @@ import json
 import subprocess
 import tarfile
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+import certifi
 import pytest
 from aws_batch_scraper import release_image
 from aws_batch_scraper.release_image import (
@@ -35,12 +36,12 @@ IMAGE_PUSHED_AT = "2026-08-19T14:00:00+00:00"
 IMAGE_ID = "sha256:" + "c" * 64
 MANIFEST_DIGEST = "sha256:" + "d" * 64
 # BEGIN GENERATED: chrome-lock-test-constants
-CHROME_PACKAGE_VERSION = "155.0.8059.84-1"
-CHROME_VERSION = "155.0.8059.84"
-CHROME_SHA256 = "sha256:cb19b59995072b86cc7f887b3b1c7ab1f63518a7f2ed9f0d33249e1a040e2c76"
+CHROME_PACKAGE_VERSION = "156.0.8078.47-1"
+CHROME_VERSION = "156.0.8078.47"
+CHROME_SHA256 = "sha256:95dc9473b4f904cb3ab0800fc7206081fcae12abc094a088bd741a13f1747b72"
 # END GENERATED: chrome-lock-test-constants
 CHROME_SANDBOX_SHA256 = "sha256:18391bf9d217ddbde9956347cbb1346d2808a73ade4baa3f88a610447cf946b4"
-NOW = datetime(2026, 8, 19, 14, 30, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 19, 14, 30, tzinfo=UTC)
 
 
 def _manifest_text(*, config_digest: str = IMAGE_ID) -> str:
@@ -80,6 +81,56 @@ class StubRunner:
         returncode, stdout = output[:2]
         stderr = output[2] if len(output) == 3 else ""
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+
+def test_database_download_uses_only_reviewed_certificate_trust() -> None:
+    """Do not merge the scanner image's older roots into the patched bundle."""
+    identity_runner = StubRunner(
+        (0, f"Version: {release_image.GRYPE_VERSION}"),
+        (0, f"Version: {release_image.SYFT_VERSION}"),
+        (0, json.dumps([{"Id": IMAGE_ID, "Os": "linux", "Architecture": "amd64"}])),
+    )
+    database_calls: list[list[str]] = []
+
+    def runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        if list(command[-2:]) != ["db", "update"]:
+            return identity_runner(command)
+        database_calls.append(list(command))
+        environment = {
+            command[index + 1].partition("=")[0]: command[index + 1].partition("=")[2]
+            for index, argument in enumerate(command)
+            if argument == "--env"
+        }
+        mounts = [
+            command[index + 1] for index, argument in enumerate(command) if argument == "--mount"
+        ]
+        assert environment["SSL_CERT_FILE"] == "/trust/cacert.pem"
+        assert environment["SSL_CERT_DIR"] == "/trust/empty"
+        assert (
+            f"type=bind,src={Path(certifi.where()).resolve()},dst=/trust/cacert.pem,readonly"
+            in mounts
+        )
+        empty_mounts = [mount for mount in mounts if ",dst=/trust/empty,readonly" in mount]
+        assert len(empty_mounts) == 1
+        empty_directory = Path(empty_mounts[0].split(",src=", 1)[1].split(",dst=", 1)[0])
+        assert empty_directory.is_dir() and not list(empty_directory.iterdir())
+        assert len(mounts) == 3  # Cache and trust only; no target image or Docker socket.
+        assert "--read-only" in command
+        assert "--network" not in command
+        # Stop before exporting an image; the trust contract is exercised above.
+        return subprocess.CompletedProcess(command, 1, "", "intentional stop after trust check")
+
+    with pytest.raises(ReleaseIntegrityError, match="Grype database update command failed"):
+        release_image.scan_local_image(
+            "test-image:latest",
+            requirements=(PackageRequirement("python", "example", "1.0.0"),),
+            expected_distro_name="ubuntu",
+            expected_distro_version="26.04",
+            runner=runner,
+        )
+
+    assert len(database_calls) == 1
+    assert all("--network" in command for command in identity_runner.calls[:2])
 
 
 def _target() -> ReleaseTarget:
@@ -791,6 +842,11 @@ def test_verify_scan_cli_failure_is_nonzero_and_prints_no_uri(
 
 
 def _local_release_evidence(directory: Path) -> Path:
+    cpe = f"cpe:2.3:a:google:chrome:{CHROME_VERSION}:*:*:*:*:*:*:*"
+    chrome_payload = _grype_payload(source={"type": "cpe", "target": cpe}, distro="")
+    chrome_report = validate_chrome_grype_report(
+        chrome_payload, cpe=cpe, now=NOW, scanner_returncode=0
+    )
     artifacts: dict[str, str] = {}
     for name in (
         "filesystem-audit.json",
@@ -801,6 +857,8 @@ def _local_release_evidence(directory: Path) -> Path:
         "grype.chrome-control.json",
     ):
         content = f"evidence:{name}\n"
+        if name == "grype.chrome.json":
+            content = json.dumps(chrome_payload)
         (directory / name).write_text(content)
         artifacts[name] = f"sha256:{hashlib.sha256(content.encode()).hexdigest()}"
     receipt = directory / "receipt.json"
@@ -836,13 +894,14 @@ def _local_release_evidence(directory: Path) -> Path:
                     "setuid_setgid_policy": "forbidden",
                 },
                 "chrome": {
+                    "cpe": cpe,
                     "sandbox_policy": "forbidden",
                     "sandbox_present": False,
                     "sandbox_sha256": None,
                 },
                 "scans": {
                     "image": {"severity_counts": {"Critical": 0, "High": 0, "Unknown": 0}},
-                    "chrome": {"severity_counts": {"Critical": 0, "High": 0, "Unknown": 0}},
+                    "chrome": chrome_report,
                     "chrome_coverage_control": {
                         "severity_counts": {"Critical": 1, "High": 1, "Unknown": 0}
                     },
@@ -883,6 +942,7 @@ def test_verified_release_receipt_supports_reviewed_setuid_sandbox_policy(
     local_receipt = _local_release_evidence(tmp_path)
     payload = json.loads(local_receipt.read_text())
     payload["chrome"] = {
+        "cpe": payload["chrome"]["cpe"],
         "sandbox_policy": "setuid",
         "sandbox_present": True,
         "sandbox_sha256": "sha256:" + "e" * 64,
@@ -989,9 +1049,9 @@ def test_push_recipe_cannot_mask_scan_cli_failure_with_a_later_echo() -> None:
 
 def _required_packages() -> tuple[PackageRequirement, ...]:
     return parse_package_requirements(
-        "python:playwright=1.63.0,"
+        "python:playwright=1.64.1,"
         f"deb:google-chrome-stable={CHROME_PACKAGE_VERSION},"
-        "binary:node=24.21.0"
+        "binary:node=24.22.1"
     )
 
 
@@ -1010,9 +1070,9 @@ def _syft_payload() -> dict[str, object]:
         "artifacts": [
             {
                 "name": "playwright",
-                "version": "1.63.0",
+                "version": "1.64.1",
                 "type": "python",
-                "purl": "pkg:pypi/playwright@1.63.0",
+                "purl": "pkg:pypi/playwright@1.64.1",
                 "locations": [{"path": "/app/.venv/playwright/METADATA"}],
             },
             {
@@ -1033,10 +1093,10 @@ def _syft_payload() -> dict[str, object]:
             },
             {
                 "name": "node",
-                "version": "24.21.0",
+                "version": "24.22.1",
                 "type": "binary",
-                "purl": "pkg:generic/node@24.21.0",
-                "cpes": [{"cpe": "cpe:2.3:a:nodejs:node.js:24.21.0:*:*:*:*:*:*:*"}],
+                "purl": "pkg:generic/node@24.22.1",
+                "cpes": [{"cpe": "cpe:2.3:a:nodejs:node.js:24.22.1:*:*:*:*:*:*:*"}],
                 "locations": [
                     {"path": ("/app/.venv/lib/python3.14/site-packages/playwright/driver/node")}
                 ],
@@ -1130,14 +1190,14 @@ def _clone(payload: dict[str, object]) -> dict[str, object]:
 
 def test_package_contract_requires_actual_system_chrome_and_playwright_node() -> None:
     assert {requirement.canonical for requirement in _required_packages()} == {
-        "python:playwright=1.63.0",
+        "python:playwright=1.64.1",
         f"deb:google-chrome-stable={CHROME_PACKAGE_VERSION}",
-        "binary:node=24.21.0",
+        "binary:node=24.22.1",
     }
 
     with pytest.raises(ValueError, match="google-chrome-stable"):
         parse_package_requirements(
-            f"python:playwright=1.63.0,binary:chrome={CHROME_VERSION},binary:node=24.21.0"
+            f"python:playwright=1.64.1,binary:chrome={CHROME_VERSION},binary:node=24.22.1"
         )
 
 
@@ -1544,6 +1604,218 @@ def test_chrome_cpe_report_requires_exact_source_and_live_coverage_control() -> 
     ]
     validated = validate_chrome_control_report(control, now=NOW, scanner_returncode=2)
     assert validated["severity_counts"]["Critical"] == 1
+
+
+def _chrome_typo_payload(*, now: datetime = NOW) -> dict[str, object]:
+    cpe = "cpe:2.3:a:google:chrome:156.0.8078.47:*:*:*:*:*:*:*"
+    payload = _grype_payload(source={"type": "cpe", "target": cpe}, distro="")
+    payload["descriptor"]["timestamp"] = now.isoformat()
+    payload["descriptor"]["db"]["status"]["built"] = now.isoformat()
+    payload["descriptor"]["db"]["providers"]["nvd"]["captured"] = now.isoformat()
+    payload["matches"] = [
+        {
+            "vulnerability": {
+                "id": "CVE-2026-113344",
+                "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2026-113344",
+                "namespace": "nvd:cpe",
+                "severity": "High",
+                "fix": {"versions": ["156.0.8087.47"], "state": "fixed"},
+            },
+            "relatedVulnerabilities": [],
+            "matchDetails": [
+                {
+                    "type": "cpe-match",
+                    "matcher": "stock-matcher",
+                    "searchedBy": {
+                        "namespace": "nvd:cpe",
+                        "cpes": [cpe],
+                        "package": {"name": "chrome", "version": "156.0.8078.47"},
+                    },
+                    "found": {
+                        "vulnerabilityID": "CVE-2026-113344",
+                        "versionConstraint": "< 156.0.8087.47 (unknown)",
+                        "cpes": ["cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*"],
+                    },
+                    "fix": {"suggestedVersion": "156.0.8087.47"},
+                }
+            ],
+            "artifact": {
+                "name": "chrome",
+                "version": "156.0.8078.47",
+                "type": "",
+                "cpes": [cpe],
+                "purl": "",
+            },
+        }
+    ]
+    return payload
+
+
+def test_chrome_nvd_correction_preserves_raw_evidence_and_exact_provenance() -> None:
+    payload = _chrome_typo_payload()
+    original = _clone(payload)
+    result = validate_chrome_grype_report(
+        payload, cpe=payload["source"]["target"], now=NOW, scanner_returncode=2
+    )
+    assert payload == original
+    assert result["raw_severity_counts"]["High"] == 1
+    assert result["severity_counts"]["High"] == 0
+    correction = result["adjudications"][0]
+    assert correction["id"] == "CVE-2026-113344"
+    assert correction["fixed_version"] == "156.0.8078.47"
+    assert correction["reported_fix_version"] == "156.0.8087.47"
+    assert correction["expires_at"] == "2026-11-06T00:00:00+00:00"
+    assert "https://cveawg.mitre.org/api/cve/CVE-2026-113344" in correction["sources"]
+    assert (
+        correction["match_sha256"]
+        == "sha256:"
+        + hashlib.sha256(
+            json.dumps(payload["matches"][0], sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    )
+    with pytest.raises(ReleaseIntegrityError, match="exit status disagreed"):
+        validate_chrome_grype_report(
+            payload, cpe=payload["source"]["target"], now=NOW, scanner_returncode=0
+        )
+
+
+def test_chrome_nvd_correction_does_not_apply_to_the_image_scan() -> None:
+    payload = _grype_payload(
+        source={
+            "type": "image",
+            "target": {"imageID": IMAGE_ID, "manifestDigest": MANIFEST_DIGEST},
+        },
+        distro="ubuntu",
+    )
+    payload["matches"] = _chrome_typo_payload()["matches"]
+    with pytest.raises(ReleaseIntegrityError, match="blocked release"):
+        validate_grype_report(
+            payload,
+            image_id=IMAGE_ID,
+            manifest_digest=MANIFEST_DIGEST,
+            expected_distro_name="ubuntu",
+            expected_distro_version="26.04",
+            now=NOW,
+            scanner_returncode=2,
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("vulnerability", "id"), "CVE-2026-999999"),
+        (("vulnerability", "dataSource"), "https://unreviewed.example/advisory"),
+        (("vulnerability", "namespace"), "github:language:javascript"),
+        (("vulnerability", "severity"), "Critical"),
+        (("vulnerability", "severity"), "Unknown"),
+        (("vulnerability", "fix", "versions"), ["156.0.8078.48"]),
+        (("vulnerability", "fix", "state"), "not-fixed"),
+        (("relatedVulnerabilities",), [{"id": "CVE-2026-999999"}]),
+        (("matchDetails", 0, "found", "versionConstraint"), "< 156.0.8078.48 (unknown)"),
+        (("matchDetails", 0, "searchedBy", "namespace"), "unreviewed"),
+        (("artifact", "name"), "chromium"),
+        (("artifact", "version"), "156.0.8078.46"),
+        (("artifact", "cpes"), ["cpe:2.3:a:google:chrome:155:*:*:*:*:*:*:*"]),
+    ],
+)
+def test_chrome_nvd_correction_rejects_every_unreviewed_tuple(path: tuple, value: object) -> None:
+    payload = _chrome_typo_payload()
+    target = payload["matches"][0]
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    with pytest.raises(ReleaseIntegrityError):
+        validate_chrome_grype_report(
+            payload, cpe=payload["source"]["target"], now=NOW, scanner_returncode=2
+        )
+
+
+@pytest.mark.parametrize("severity", ["High", "Critical", "Unknown"])
+def test_chrome_nvd_correction_never_waives_other_findings(severity: str) -> None:
+    payload = _chrome_typo_payload()
+    payload["matches"].append({"vulnerability": {"id": "CVE-OTHER", "severity": severity}})
+    with pytest.raises(ReleaseIntegrityError, match="blocked release"):
+        validate_chrome_grype_report(
+            payload, cpe=payload["source"]["target"], now=NOW, scanner_returncode=2
+        )
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "older-cpe", "ignored", "vex", "expiry"])
+def test_chrome_nvd_correction_cannot_bypass_scan_guards(mutation: str) -> None:
+    now = NOW if mutation != "expiry" else datetime(2026, 11, 6, tzinfo=UTC)
+    payload = _chrome_typo_payload(now=now)
+    if mutation == "duplicate":
+        payload["matches"].append(_clone(payload["matches"][0]))
+    elif mutation == "older-cpe":
+        payload["source"]["target"] = "cpe:2.3:a:google:chrome:156.0.8078.46:*:*:*:*:*:*:*"
+    elif mutation == "ignored":
+        payload["ignoredMatches"] = [payload["matches"][0]]
+    elif mutation == "vex":
+        payload["descriptor"]["configuration"]["vex-documents"] = ["review.json"]
+    with pytest.raises(ReleaseIntegrityError):
+        validate_chrome_grype_report(
+            payload, cpe=payload["source"]["target"], now=now, scanner_returncode=2
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "none",
+        "expired",
+        "metadata",
+        "raw-finding",
+        "missing",
+        "hidden-correction",
+        "hidden-expired-correction",
+        "cpe",
+    ],
+)
+def test_release_receipt_rechecks_chrome_correction(tmp_path: Path, mutation: str) -> None:
+    scanned_at = datetime(2026, 11, 5, 23, 30, tzinfo=UTC)
+    raw = _chrome_typo_payload(now=scanned_at)
+    receipt_path = _local_release_evidence(tmp_path)
+    receipt = json.loads(receipt_path.read_text())
+    receipt["chrome"]["cpe"] = raw["source"]["target"]
+    receipt["scans"]["chrome"] = validate_chrome_grype_report(
+        raw, cpe=raw["source"]["target"], now=scanned_at, scanner_returncode=2
+    )
+    if mutation == "metadata":
+        receipt["scans"]["chrome"]["adjudications"][0]["sources"] = []
+    elif mutation == "raw-finding":
+        raw["matches"][0]["vulnerability"]["id"] = "CVE-OTHER"
+    elif mutation == "missing":
+        del receipt["scans"]["chrome"]["adjudications"]
+        del receipt["scans"]["chrome"]["raw_severity_counts"]
+    elif mutation in {"hidden-correction", "hidden-expired-correction"}:
+        receipt["scans"]["chrome"]["adjudications"] = []
+        receipt["scans"]["chrome"]["raw_severity_counts"] = receipt["scans"]["chrome"][
+            "severity_counts"
+        ].copy()
+    elif mutation == "cpe":
+        receipt["chrome"]["cpe"] = "cpe:2.3:a:google:chrome:156.0.8078.46:*:*:*:*:*:*:*"
+    artifact = tmp_path / "grype.chrome.json"
+    artifact.write_text(json.dumps(raw))
+    receipt["artifacts"]["grype.chrome.json"] = release_image._sha256_file(artifact)
+    receipt_path.write_text(json.dumps(receipt))
+    released_at = (
+        datetime(2026, 11, 6, tzinfo=UTC)
+        if mutation in {"expired", "hidden-expired-correction"}
+        else scanned_at
+    )
+    kwargs = dict(
+        target=_target(), digest=DIGEST, expected_image_id=IMAGE_ID, clock=lambda: released_at
+    )
+    if mutation == "none":
+        release_image.write_verified_release_receipt(
+            receipt_path, tmp_path / "release.json", **kwargs
+        )
+    else:
+        with pytest.raises(ReleaseIntegrityError):
+            release_image.write_verified_release_receipt(
+                receipt_path, tmp_path / "release.json", **kwargs
+            )
+        assert not (tmp_path / "release.json").exists()
 
 
 def test_push_recipe_scans_and_pushes_exact_id_then_binds_remote_config() -> None:

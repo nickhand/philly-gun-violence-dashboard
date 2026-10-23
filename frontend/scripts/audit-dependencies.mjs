@@ -16,8 +16,15 @@ export function advisoryId(advisory) {
 
 // Returns blocking advisories, those excused by a live exception, and stale exceptions.
 export function evaluateAudit(report, exceptions = EXCEPTIONS, today = new Date().toISOString().slice(0, 10)) {
+  // npm also prints JSON for registry/network errors. Those are not successful
+  // audits and must never turn a missing vulnerabilities map into a clean bill.
+  if (report?.error || report?.auditReportVersion !== 2
+      || !report.vulnerabilities || typeof report.vulnerabilities !== 'object'
+      || Array.isArray(report.vulnerabilities)) {
+    throw new Error('npm audit failed or returned an unsupported report; dependency security was not verified.');
+  }
   const advisories = new Map();
-  for (const vulnerability of Object.values(report.vulnerabilities ?? {})) {
+  for (const vulnerability of Object.values(report.vulnerabilities)) {
     for (const via of vulnerability.via) {
       if (typeof via !== 'object' || !BLOCKING.has(via.severity)) continue;
       advisories.set(advisoryId(via), { ...via, package: via.name ?? vulnerability.name });
@@ -39,7 +46,7 @@ function runAudit() {
     return execFileSync('npm', ['audit', '--package-lock-only', '--json'], { encoding: 'utf8' });
   } catch (error) {
     // npm audit exits non-zero when it finds anything; the JSON report is still on stdout.
-    if (error.stdout) return error.stdout;
+    if (error.status === 1 && error.stdout) return error.stdout;
     throw error;
   }
 }

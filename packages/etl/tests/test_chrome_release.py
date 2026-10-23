@@ -369,6 +369,42 @@ def _chrome_deb(executable: bytes) -> bytes:
     )
 
 
+@pytest.mark.parametrize("size", [0, 25])
+def test_executable_rejects_sizes_outside_the_expansion_bound(
+    size: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(chrome_release, "_MAX_EXECUTABLE_BYTES", 24)
+    with pytest.raises(ChromeReleaseError, match=rf"size {size}.*1\.\.24 bytes"):
+        chrome_release._chrome_executable_sha256(_chrome_deb(b"x" * size))
+
+
+def test_executable_hashes_the_exact_size_limit_in_bounded_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = b"x" * (2 * 1024 * 1024 + 3)
+    monkeypatch.setattr(chrome_release, "_MAX_EXECUTABLE_BYTES", len(executable))
+    original_extractfile = tarfile.TarFile.extractfile
+    read_sizes: list[int] = []
+
+    class BoundedReader(io.BytesIO):
+        def read(self, size: int = -1) -> bytes:
+            assert 0 < size <= 1024 * 1024
+            read_sizes.append(size)
+            return super().read(size)
+
+    def extractfile(archive: tarfile.TarFile, member: tarfile.TarInfo) -> BoundedReader:
+        extracted = original_extractfile(archive, member)
+        assert extracted is not None
+        return BoundedReader(extracted.read())
+
+    monkeypatch.setattr(tarfile.TarFile, "extractfile", extractfile)
+    assert (
+        chrome_release._chrome_executable_sha256(_chrome_deb(executable))
+        == hashlib.sha256(executable).hexdigest()
+    )
+    assert len(read_sizes) == 4
+
+
 def test_updater_authenticates_downloads_hashes_and_writes_only_when_changed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

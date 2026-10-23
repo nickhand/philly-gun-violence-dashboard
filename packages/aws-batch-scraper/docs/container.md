@@ -91,11 +91,21 @@ Before the push, configure the ECR repository with immutable tags and automatic
 scanning. The guarded recipe first downloads a fresh Grype database in a
 container that cannot see the target, saves the exact local image as an archive,
 and runs digest-pinned Syft and Grype containers with networking disabled.
+The database download uses the project's patched certifi bundle through a
+read-only mount. Both Go trust settings are explicit: `SSL_CERT_FILE` selects
+that bundle and `SSL_CERT_DIR` selects an empty read-only directory, preventing
+the scanner image's older system roots from being added back.
 Neither scanner receives the Docker socket or registry credentials. The gate
 validates tool/schema identity, database hash and age, provider timestamps,
 image identity, and repo-controlled package/file contracts. It rejects every
-Critical, High, or Unknown local result, including unfixed findings, and rejects
-ignore rules, VEX, path exclusions, malformed reports, and stale databases.
+unresolved Critical, High, or Unknown local result, including unfixed findings,
+and rejects ignore rules, VEX, path exclusions, malformed reports, and stale databases.
+One reviewed NVD version-range typo for CVE-2026-113344 has an exact Chrome
+156.0.8078.47 correction, expiring November 6, 2026 UTC. Its Google source
+references, raw finding hash, original counts, and effective counts are recorded
+in the receipt; raw scanner reports remain unchanged. Release verification
+rechecks the preserved finding and expiry. See the
+[security review](../../../docs/security-hardening-2026-10-23.md).
 
 Successful optional `--output-directory` evidence contains Syft and CycloneDX
 SBOMs, Grype reports, and `receipt.json`. The receipt binds their SHA-256 digests
@@ -179,8 +189,8 @@ aws_batch_scraper_cli_group := "courts"
 aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
 aws_batch_scraper_browser_lock_script := "etl/scripts/render_chrome_lock.py"
 # BEGIN GENERATED: chrome-lock-release-contract
-aws_batch_scraper_required_sbom_packages := "python:playwright=1.63.0,deb:google-chrome-stable=155.0.8059.84-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8,deb:libx11-6=2:1.8.13-1ubuntu0.1,deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1,deb:libpng16-16t64=1.6.57-1ubuntu0.1,binary:node=24.21.0"
-aws_batch_scraper_chrome_executable_sha256 := "sha256:cb19b59995072b86cc7f887b3b1c7ab1f63518a7f2ed9f0d33249e1a040e2c76"
+aws_batch_scraper_required_sbom_packages := "python:playwright=1.64.1,deb:google-chrome-stable=156.0.8078.47-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8,deb:libx11-6=2:1.8.13-1ubuntu0.1,deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1,deb:libpng16-16t64=1.6.57-1ubuntu0.1,binary:node=24.22.1"
+aws_batch_scraper_chrome_executable_sha256 := "sha256:95dc9473b4f904cb3ab0800fc7206081fcae12abc094a088bd741a13f1747b72"
 # END GENERATED: chrome-lock-release-contract
 aws_batch_scraper_chrome_sandbox_scan_args := "--forbid-chrome-sandbox --forbid-setuid-setgid-files"
 aws_batch_scraper_release_evidence_root := ".artifacts/aws-batch-scraper/releases"

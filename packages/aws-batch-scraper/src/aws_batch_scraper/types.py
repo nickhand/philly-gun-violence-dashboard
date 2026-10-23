@@ -59,7 +59,8 @@ def _validate_json_value(
         active.remove(identity)
 
 
-class ScrapeStatus(str, Enum):
+# Keep the public Enum string/format representation; StrEnum returns only the value.
+class ScrapeStatus(str, Enum):  # noqa: UP042
     """High-level outcome of a single scrape attempt.
 
     Attributes

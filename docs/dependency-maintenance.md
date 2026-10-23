@@ -36,6 +36,10 @@ The options follow GitHub's [Dependabot reference](https://docs.github.com/en/co
 Deferring an ordinary major upgrade does not disable the daily dependency and scraper image audits
 or the daily Chrome updater.
 
+The [October 23 security review](security-hardening-2026-10-23.md) records the
+eMudhra trust-store repairs, toolchain versions, CI failure causes, and deployment
+work needed to activate the fixes.
+
 ## Enforced merge checks
 
 The Fly scheduler dispatches dependency security checks daily at 07:17 UTC,
@@ -144,7 +148,7 @@ compatibility work; they are not outstanding review assignments:
 | pandas and pandas-stubs 2.x to 3.x | #9, #12, #43, #44 | Keep the runtime, shared package, and typing contracts aligned. |
 | Vite 7 to 8 | #40 | Requires a compatible frontend toolchain migration. |
 | Node type definitions 20 to 26 | #41 | Requires coordinated runtime and type compatibility. |
-| setup-uv 8 to 10 | #28 | A separate action runtime migration; uv itself stays pinned to 0.12.0. |
+| setup-uv 8 to 10 | #28 | Completed with setup-uv 10.3.2 and uv 0.13.5 in the October 23 security repair. |
 
 GitHub reported no open Dependabot vulnerability alerts when this inventory was
 recorded. Closing these version proposals does not dismiss any security alert.

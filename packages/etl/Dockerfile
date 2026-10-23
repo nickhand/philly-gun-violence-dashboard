@@ -27,6 +27,16 @@ RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
     && test -s /etc/ssl/certs/ca-certificates.crt \
     && rm -f /tmp/openssl.deb /tmp/ca-certificates.deb
 
+# Distrust both the compromised emSign root and its AAA cross-signing path.
+# https://emudhra.we-have-a-problem.com/#workarounds
+RUN sed -i \
+        -e 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt|!&|' \
+        -e 's|^mozilla/Comodo_AAA_Services_root.crt|!&|' \
+        /etc/ca-certificates.conf \
+    && update-ca-certificates --fresh \
+    && test ! -e /etc/ssl/certs/emSign_ECC_Root_CA_-_G3.pem \
+    && test ! -e /etc/ssl/certs/Comodo_AAA_Services_root.pem
+
 # Canonical reverted its CVE-2026-87766 backport (USN-8779-2). Build the
 # checksum-pinned upstream fix as a real replacement package in a separate stage;
 # keep package ownership/version evidence and omit all build tools from runtime.
@@ -78,8 +88,8 @@ COPY --from=bubblewrap-build /bubblewrap.deb /tmp/bubblewrap.deb
 # Installing the local deb through apt lets Ubuntu resolve its runtime libraries
 # from the same signed snapshot as the rest of the image.
 # BEGIN GENERATED: chrome-lock-package
-ADD --checksum=sha256:8fbd2ae69cdf7ee98b7513c3396a7b5e06f974f8625fdd590df3091dd0c3e9de \
-    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.84-1_amd64.deb \
+ADD --checksum=sha256:6c92cd22e90c6e3e255d782991543fa2091db8614e8536a971a7433a5c4d7ac8 \
+    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.47-1_amd64.deb \
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
@@ -112,7 +122,7 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261016T180000Z" \
         tzdata \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
-        = "155.0.8059.84-1" \
+        = "156.0.8078.47-1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
         = "8.18.0-1ubuntu2.8" \
     && test "$(dpkg-query --show --showformat='${Version}' libx11-6)" \
@@ -127,7 +137,7 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261016T180000Z" \
         = "0.12.0-0philly1" \
     && test "$(bwrap --version)" = "bubblewrap 0.12.0" \
     && test -z "$(dpkg --audit)" \
-    && test "$(google-chrome --product-version)" = "155.0.8059.84" \
+    && test "$(google-chrome --product-version)" = "156.0.8078.47" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
@@ -142,7 +152,7 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261016T180000Z" \
     && rm -rf /opt/google/chrome/cron \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.0@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /bin/
 
 # Install the project into `/app`.
 WORKDIR /app
@@ -195,10 +205,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/dashboard-utils --locked \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
-        "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.63.0'" \
-    && test "$(google-chrome --product-version)" = "155.0.8059.84" \
+        "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.64.1'" \
+    && test "$(google-chrome --product-version)" = "156.0.8078.47" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
+
+# Assert the actual Node runtime used by Playwright has the eMudhra fix.
+RUN /app/.venv/bin/python -c "from pathlib import Path; import playwright, subprocess; driver = Path(playwright.__file__).parent / 'driver' / 'node'; assert subprocess.check_output([driver, '--version'], text=True).strip() == 'v24.22.1'"
 
 # Place executables in the environment at the front of the path.
 ENV PATH="/app/.venv/bin:$PATH"

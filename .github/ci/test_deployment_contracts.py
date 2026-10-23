@@ -177,6 +177,23 @@ class DeploymentContracts(unittest.TestCase):
             len(versions), 1, "coordinate security repairs across all independent locks"
         )
 
+    def test_python_locks_exclude_the_distrusted_emsign_roots(self) -> None:
+        versions = set()
+        for name in ("api", "etl", "dashboard-utils", "aws-batch-scraper"):
+            package = REPOSITORY_ROOT / "packages" / name
+            manifest = tomllib.loads((package / "pyproject.toml").read_text())
+            lock = tomllib.loads((package / "uv.lock").read_text())
+            with self.subTest(package=name):
+                self.assertIn(
+                    "certifi>=2026.10.23", manifest["tool"]["uv"]["constraint-dependencies"]
+                )
+                certificates = [item for item in lock["package"] if item["name"] == "certifi"]
+                self.assertEqual(len(certificates), 1)
+                version = certificates[0]["version"]
+                self.assertGreaterEqual(tuple(map(int, version.split("."))), (2026, 10, 23))
+                versions.add(version)
+        self.assertEqual(len(versions), 1, "update every application trust bundle together")
+
     def test_courts_schedule_defaults_to_full_run_deduplication(self) -> None:
         source = (WORKFLOWS / "courts-scrape.yml").read_text()
 
@@ -325,7 +342,15 @@ class DeploymentContracts(unittest.TestCase):
         self.assertIn("release: ${{ steps.scope.outputs.release }}", source)
         self.assertIn("Package the exact production Cloudflare artifact", source)
         self.assertIn("frontend-cloudflare-production-${{ github.run_id }}", source)
-        self.assertIn("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", source)
+        # Dependabot may update the release; the security contract is an
+        # immutable commit pin, not a permanently frozen action version.
+        downloads = [
+            reference
+            for reference in _action_references(source)
+            if reference.startswith("actions/download-artifact@")
+        ]
+        self.assertEqual(len(downloads), 1)
+        self.assertRegex(downloads[0], r"^actions/download-artifact@[0-9a-f]{40}$")
         self.assertIn("group: frontend-production", source)
         self.assertIn("'main-release'", source)
         self.assertIn("queue: max", source)

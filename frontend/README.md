@@ -19,8 +19,12 @@ retained Cloudflare Worker versions.
 
 ## Prerequisites
 
-- Node.js 22.22.3+, 24.15+, or 26+ (CI uses 22.23.3)
+- Node.js 22.23.4+, 24.22.1+, or 26.12.1+ (CI uses 22.23.4)
 - npm 11.18.0 (the exact version in `packageManager`)
+
+These Node.js minimums include the [October 21, 2026 security
+release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases),
+including the updated certificate trust store for the eMudhra incident.
 
 ## Getting Started
 
