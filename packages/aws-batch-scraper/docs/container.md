@@ -98,8 +98,14 @@ the scanner image's older system roots from being added back.
 Neither scanner receives the Docker socket or registry credentials. The gate
 validates tool/schema identity, database hash and age, provider timestamps,
 image identity, and repo-controlled package/file contracts. It rejects every
-Critical, High, or Unknown local result, including unfixed findings, and rejects
-ignore rules, VEX, path exclusions, malformed reports, and stale databases.
+unresolved Critical, High, or Unknown local result, including unfixed findings,
+and rejects ignore rules, VEX, path exclusions, malformed reports, and stale databases.
+One reviewed NVD version-range typo for CVE-2026-113344 has an exact Chrome
+156.0.8078.47 correction, expiring November 6, 2026 UTC. Its Google source
+references, raw finding hash, original counts, and effective counts are recorded
+in the receipt; raw scanner reports remain unchanged. Release verification
+rechecks the preserved finding and expiry. See the
+[security review](../../../docs/security-hardening-2026-10-23.md).
 
 Successful optional `--output-directory` evidence contains Syft and CycloneDX
 SBOMs, Grype reports, and `receipt.json`. The receipt binds their SHA-256 digests

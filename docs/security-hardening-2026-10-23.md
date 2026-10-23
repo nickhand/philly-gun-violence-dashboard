@@ -114,6 +114,19 @@ update and regenerates all lock consumers. Future automatic milestone updates
 continue to require review. No deployment check, vulnerability severity threshold,
 or certificate verification was disabled.
 
+The first full image scan on this branch found one false-positive Chrome match:
+**CVE-2026-113344**. The October 23 Grype database inherits an
+[NVD CPE range](https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-113344)
+that transposes the fixed build number to `156.0.8087.47`, whereas both
+[Google's release announcement](https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02018666648.html)
+and [Google's authoritative CVE record](https://cveawg.mitre.org/api/cve/CVE-2026-113344)
+identify `156.0.8078.47` as fixed. The Chrome report validator narrowly adjudicates
+that exact CVE, installed version, provider, and erroneous version constraint,
+with an expiry of November 6, 2026 UTC. Original scanner reports and raw severity
+counts remain preserved alongside the correction evidence. Other findings,
+different match metadata, expired corrections, and the known-vulnerable Chrome
+control remain subject to the existing blocking rules.
+
 Run `uv sync --locked` in an existing ETL environment after updating the checkout
 to replace the Playwright wheel and its embedded Node runtime.
 

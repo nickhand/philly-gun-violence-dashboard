@@ -1172,6 +1172,31 @@ def _grype_severity_counts(
     return severity_counts
 
 
+def _require_grype_exit_status(
+    severity_counts: dict[str, int],
+    *,
+    scanner_returncode: int,
+    label: str,
+) -> None:
+    critical = severity_counts["Critical"]
+    high = severity_counts["High"]
+    if scanner_returncode not in {0, 2}:
+        raise ReleaseIntegrityError(f"{label} command failed before a policy result")
+    if (scanner_returncode == 2) != bool(critical or high):
+        raise ReleaseIntegrityError(f"{label} exit status disagreed with its severity threshold")
+
+
+def _require_no_blocking_grype_findings(severity_counts: dict[str, int], *, label: str) -> None:
+    critical = severity_counts["Critical"]
+    high = severity_counts["High"]
+    unknown = severity_counts["Unknown"]
+    if critical or high or unknown:
+        raise ReleaseIntegrityError(
+            f"{label} blocked release: "
+            f"{critical} Critical, {high} High, and {unknown} Unknown findings"
+        )
+
+
 def _validate_grype_matches(
     payload: dict[str, Any],
     *,
@@ -1179,21 +1204,88 @@ def _validate_grype_matches(
     label: str,
 ) -> dict[str, int]:
     severity_counts = _grype_severity_counts(payload, label=label)
-
-    critical = severity_counts["Critical"]
-    high = severity_counts["High"]
-    unknown = severity_counts["Unknown"]
-    blocked = bool(critical or high or unknown)
-    if scanner_returncode not in {0, 2}:
-        raise ReleaseIntegrityError(f"{label} command failed before a policy result")
-    if (scanner_returncode == 2) != bool(critical or high):
-        raise ReleaseIntegrityError(f"{label} exit status disagreed with its severity threshold")
-    if blocked:
-        raise ReleaseIntegrityError(
-            f"{label} blocked release: "
-            f"{critical} Critical, {high} High, and {unknown} Unknown findings"
-        )
+    _require_grype_exit_status(severity_counts, scanner_returncode=scanner_returncode, label=label)
+    _require_no_blocking_grype_findings(severity_counts, label=label)
     return severity_counts
+
+
+def _chrome_nvd_range_correction(
+    payload: dict[str, Any], *, cpe: str, now: datetime
+) -> dict[str, Any] | None:
+    """Correct one reviewed NVD digit transposition, never a general CVE waiver."""
+    version = "156.0.8078.47"
+    reported_fix = "156.0.8087.47"
+    vulnerability_id = "CVE-2026-113344"
+    expected_cpe = f"cpe:2.3:a:google:chrome:{version}:*:*:*:*:*:*:*"
+    if cpe != expected_cpe:
+        return None
+    candidates = [
+        record
+        for record in payload["matches"]
+        if isinstance(record.get("vulnerability"), dict)
+        and record["vulnerability"].get("id") == vulnerability_id
+    ]
+    if len(candidates) != 1:
+        return None
+    record = candidates[0]
+    vulnerability = record["vulnerability"]
+    fix = vulnerability.get("fix")
+    artifact = record.get("artifact")
+    expected_details = [
+        {
+            "type": "cpe-match",
+            "matcher": "stock-matcher",
+            "searchedBy": {
+                "namespace": "nvd:cpe",
+                "cpes": [expected_cpe],
+                "package": {"name": "chrome", "version": version},
+            },
+            "found": {
+                "vulnerabilityID": vulnerability_id,
+                "versionConstraint": f"< {reported_fix} (unknown)",
+                "cpes": ["cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*"],
+            },
+            "fix": {"suggestedVersion": reported_fix},
+        }
+    ]
+    if (
+        vulnerability.get("namespace") != "nvd:cpe"
+        or vulnerability.get("dataSource") != f"https://nvd.nist.gov/vuln/detail/{vulnerability_id}"
+        or vulnerability.get("severity") != "High"
+        or not isinstance(fix, dict)
+        or fix.get("state") != "fixed"
+        or fix.get("versions") != [reported_fix]
+        or record.get("relatedVulnerabilities") != []
+        or record.get("matchDetails") != expected_details
+        or not isinstance(artifact, dict)
+        or artifact.get("name") != "chrome"
+        or artifact.get("version") != version
+        or artifact.get("cpes") != [expected_cpe]
+        or artifact.get("type") != ""
+        or artifact.get("purl") != ""
+    ):
+        return None
+    expires = datetime(2026, 11, 6, tzinfo=UTC)
+    if now >= expires:
+        raise ReleaseIntegrityError("Reviewed Chrome NVD range correction expired")
+    # Google lists this CVE as fixed in Linux 156.0.8078.47; the Google CNA
+    # record independently says lessThan 156.0.8078.47. Preserve the raw report.
+    return {
+        "id": vulnerability_id,
+        "reason": "NVD fixed-version digit transposition confirmed by Google CNA",
+        "fixed_version": version,
+        "reported_fix_version": reported_fix,
+        "expires_at": expires.isoformat(),
+        "sources": [
+            "https://chromereleases.googleblog.com/2026/10/"
+            "stable-channel-update-for-desktop_02018666648.html",
+            "https://cveawg.mitre.org/api/cve/CVE-2026-113344",
+        ],
+        "match_sha256": "sha256:"
+        + hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+    }
 
 
 def validate_grype_report(
@@ -1258,7 +1350,7 @@ def validate_chrome_grype_report(
     now: datetime,
     scanner_returncode: int,
 ) -> dict[str, Any]:
-    """Require a fresh, unsuppressed NVD scan of the exact validated Chrome CPE."""
+    """Require a fresh Chrome scan, retaining any narrowly reviewed data correction."""
     _require_grype_configuration(payload)
     descriptor = payload["descriptor"]
     scan_time = _require_fresh_timestamp(
@@ -1278,15 +1370,23 @@ def validate_chrome_grype_report(
         required_providers={"nvd"},
         now=now,
     )
-    severity_counts = _validate_grype_matches(
-        payload,
+    raw_counts = _grype_severity_counts(payload, label="Grype Chrome CPE report")
+    _require_grype_exit_status(
+        raw_counts,
         scanner_returncode=scanner_returncode,
         label="Grype Chrome CPE report",
     )
+    correction = _chrome_nvd_range_correction(payload, cpe=cpe, now=now)
+    severity_counts = raw_counts.copy()
+    if correction is not None:
+        severity_counts["High"] -= 1
+    _require_no_blocking_grype_findings(severity_counts, label="Grype Chrome CPE report")
     return {
         "scan_time": scan_time.isoformat(),
         "database": database,
         "severity_counts": severity_counts,
+        "raw_severity_counts": raw_counts,
+        "adjudications": [correction] if correction is not None else [],
         "cpe": cpe,
         "provider": "nvd",
     }
@@ -2216,6 +2316,26 @@ def write_verified_release_receipt(
         ):
             raise ReleaseIntegrityError(f"Local scan artifact {name} failed receipt validation")
     verified_at = _clock_time(clock)
+    chrome_scan = scans["chrome"]
+    chrome_cpe = chrome.get("cpe")
+    if not isinstance(chrome_cpe, str) or not chrome_cpe:
+        raise ReleaseIntegrityError("Chrome receipt omitted its validated CPE")
+    # Always replay the preserved report, even when the receipt claims no
+    # adjudication. Otherwise removing correction metadata and zeroing summary
+    # counts could hide a raw finding or bypass the correction's deadline.
+    raw_chrome = _load_json_file(
+        local_scan_receipt.parent / "grype.chrome.json", label="Chrome report"
+    )
+    raw_counts = _grype_severity_counts(raw_chrome, label="Chrome report")
+    expected_returncode = 2 if raw_counts["High"] or raw_counts["Critical"] else 0
+    chrome_report = validate_chrome_grype_report(
+        raw_chrome,
+        cpe=chrome_cpe,
+        now=verified_at,
+        scanner_returncode=expected_returncode,
+    )
+    if chrome_report != chrome_scan:
+        raise ReleaseIntegrityError("Chrome receipt did not retain exact adjudication evidence")
     if _sha256_file(local_scan_receipt) != local_receipt_sha256:
         raise ReleaseIntegrityError("Local scan receipt changed during release verification")
     _write_new_json_file(
