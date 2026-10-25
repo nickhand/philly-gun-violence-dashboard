@@ -73,6 +73,9 @@
     "simple-git": "4.0.2",
     "seroval": "1.6.7",
     "postcss-selector-parser": "7.1.6",
+    "miniflare": {
+      "undici": "7.30.1"
+    },
     "braces": "$braces"
   }
 }
