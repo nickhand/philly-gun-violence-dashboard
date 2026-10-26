@@ -1,7 +1,7 @@
 # Use an ECR-supported LTS userspace and pin its exact linux/amd64 manifest.
 # Resolve multiarch index updates to their linux/amd64 child before changing this pin.
 # Docker Hub serves the identical manifest without ECR Public's shared CI quota.
-FROM docker.io/library/ubuntu:26.04@sha256:88a381d5b5eeb2b35d3ad70925a362c37ce569daf43ede89ff818ec20e4d3794 AS ubuntu-base
+FROM docker.io/library/ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944 AS ubuntu-base
 
 # Ubuntu 26.04's stock deb822 sources use Canonical's signed archive and support
 # apt snapshots. Validate the build argument before every apt transaction so a
