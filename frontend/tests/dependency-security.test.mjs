@@ -3,6 +3,7 @@ import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { fromCrossJSON, fromJSON, SerovalMalformedNodeError, toCrossJSON, toJSON } from 'seroval';
 import { z } from 'zod';
 
 const require = createRequire(import.meta.url);
@@ -20,6 +21,57 @@ const digest = createHash('sha256').update(message).digest('latin1');
 const asn1 = forge.asn1;
 const element = (type, constructed, value) =>
   asn1.create(asn1.Class.UNIVERSAL, type, constructed, value);
+
+test('Seroval rejects array-like element lists in both JSON decoders', () => {
+  // GHSA-wp97-x4hv-qvhp: even a harmless zero-length object must be rejected;
+  // using it here detects the missing guard without risking an unbounded loop.
+  const json = toJSON([1]);
+  json.t.a = { length: 0 };
+  assert.throws(() => fromJSON(json), (error) => error.cause instanceof SerovalMalformedNodeError);
+  const cross = toCrossJSON([1]);
+  cross.a = { length: 0 };
+  assert.throws(() => fromCrossJSON(cross, { refs: new Map() }));
+  assert.deepEqual(fromJSON(toJSON([1, 2])), [1, 2]);
+  assert.deepEqual(fromCrossJSON(toCrossJSON([1, 2]), { refs: new Map() }), [1, 2]);
+});
+
+test('Seroval rejects invalid sequence termination metadata before returning an iterator', () => {
+  // GHSA-97r2-qh9m-474h: decode only; consuming a regressed iterator could hang.
+  const source = { *[Symbol.iterator]() { yield 1; } };
+  for (const field of ['s', 'l']) {
+    for (const invalid of ['never', null, -2, 1.5, 100]) {
+      const json = toJSON(source);
+      json.t.p.v[0].a[1][field] = invalid;
+      assert.throws(() => fromJSON(json), (error) => error.cause instanceof SerovalMalformedNodeError);
+    }
+  }
+  assert.deepEqual([...fromJSON(toJSON(source))], [1]);
+});
+
+test('Seroval rejects an async iterator source that reuses a genuine stream node ID', () => {
+  // GHSA-7rv5-mrxv-xcr9: node IDs cannot turn plain data into internal streams.
+  // Wire node IDs follow the upstream iterator-source regression fixture.
+  const json = {
+    t: {
+      t: 10, i: 0, o: 0,
+      p: {
+        k: ['stream', { t: 17, i: 1, s: 0 }],
+        v: [
+          { t: 31, i: 3, a: [], f: { t: 26, i: 5, s: 4 } },
+          {
+            t: 30,
+            a: [
+              { t: 29, i: 2, a: [{ t: 26, i: 6, s: 1 }, { t: 4, i: 1 }] },
+              { t: 10, i: 3, o: 0, p: { k: [], v: [] } },
+            ],
+          },
+        ],
+      },
+    },
+    f: 127, m: [1],
+  };
+  assert.throws(() => fromJSON(json), (error) => error.cause instanceof SerovalMalformedNodeError);
+});
 
 test('Zod rejects oversized collections before visiting their elements', () => {
   // GHSA-mrhx-c7xc-m3w5: reject on size before allocating per-element issues.

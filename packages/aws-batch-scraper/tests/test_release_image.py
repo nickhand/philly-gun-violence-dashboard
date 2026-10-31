@@ -36,9 +36,9 @@ IMAGE_PUSHED_AT = "2026-08-19T14:00:00+00:00"
 IMAGE_ID = "sha256:" + "c" * 64
 MANIFEST_DIGEST = "sha256:" + "d" * 64
 # BEGIN GENERATED: chrome-lock-test-constants
-CHROME_PACKAGE_VERSION = "156.0.8078.47-1"
-CHROME_VERSION = "156.0.8078.47"
-CHROME_SHA256 = "sha256:95dc9473b4f904cb3ab0800fc7206081fcae12abc094a088bd741a13f1747b72"
+CHROME_PACKAGE_VERSION = "156.0.8078.79-1"
+CHROME_VERSION = "156.0.8078.79"
+CHROME_SHA256 = "sha256:da143614d917f346b02c1b29587cc13bf891d4b73faf2bea7b20cbd8fa61510f"
 # END GENERATED: chrome-lock-test-constants
 CHROME_SANDBOX_SHA256 = "sha256:18391bf9d217ddbde9956347cbb1346d2808a73ade4baa3f88a610447cf946b4"
 NOW = datetime(2026, 8, 19, 14, 30, tzinfo=UTC)
@@ -1604,6 +1604,65 @@ def test_chrome_cpe_report_requires_exact_source_and_live_coverage_control() -> 
     ]
     validated = validate_chrome_control_report(control, now=NOW, scanner_returncode=2)
     assert validated["severity_counts"]["Critical"] == 1
+
+
+@pytest.mark.parametrize(
+    ("severities", "accepted"),
+    [
+        (("Critical", "High", "Unknown"), True),
+        (("High", "Unknown"), False),
+        (("Critical", "Unknown"), False),
+        (("Unknown",), False),
+    ],
+)
+def test_chrome_control_unrated_findings_do_not_replace_required_coverage(
+    severities: tuple[str, ...],
+    accepted: bool,
+) -> None:
+    control = _grype_payload(
+        source={"type": "cpe", "target": release_image._CHROME_CPE_CONTROL},
+        distro="",
+    )
+    # The October 30 NVD feed adds unrated CVEs to the old Chrome control while
+    # continuing to detect hundreds of Critical and High vulnerabilities.
+    control["matches"] = [
+        {"vulnerability": {"id": f"CVE-{severity}", "severity": severity}}
+        for severity in severities
+    ]
+    if not accepted:
+        with pytest.raises(ReleaseIntegrityError, match="Critical/High NVD coverage"):
+            validate_chrome_control_report(control, now=NOW, scanner_returncode=2)
+    else:
+        validated = validate_chrome_control_report(control, now=NOW, scanner_returncode=2)
+        assert validated["severity_counts"]["Unknown"] == 1
+
+
+@pytest.mark.parametrize("report_kind", ["image", "chrome"])
+def test_actual_image_and_chrome_reports_still_block_unknown_findings(report_kind: str) -> None:
+    cpe = f"cpe:2.3:a:google:chrome:{CHROME_VERSION}:*:*:*:*:*:*:*"
+    source = (
+        {"type": "cpe", "target": cpe}
+        if report_kind == "chrome"
+        else {
+            "type": "image",
+            "target": {"imageID": IMAGE_ID, "manifestDigest": MANIFEST_DIGEST},
+        }
+    )
+    payload = _grype_payload(source=source, distro="" if report_kind == "chrome" else "ubuntu")
+    payload["matches"] = [{"vulnerability": {"id": "CVE-UNRATED", "severity": "Unknown"}}]
+    with pytest.raises(ReleaseIntegrityError, match="1 Unknown findings"):
+        if report_kind == "chrome":
+            validate_chrome_grype_report(payload, cpe=cpe, now=NOW, scanner_returncode=0)
+        else:
+            validate_grype_report(
+                payload,
+                image_id=IMAGE_ID,
+                manifest_digest=MANIFEST_DIGEST,
+                expected_distro_name="ubuntu",
+                expected_distro_version="26.04",
+                now=NOW,
+                scanner_returncode=0,
+            )
 
 
 def _chrome_typo_payload(*, now: datetime = NOW) -> dict[str, object]:

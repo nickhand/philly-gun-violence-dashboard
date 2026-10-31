@@ -1425,7 +1425,10 @@ def validate_chrome_control_report(
     counts = _grype_severity_counts(payload, label="Grype Chrome control report")
     if scanner_returncode != 2:
         raise ReleaseIntegrityError("Grype Chrome control did not trigger its severity gate")
-    if counts["Critical"] < 1 or counts["High"] < 1 or counts["Unknown"]:
+    # This intentionally vulnerable control proves that both severity classes
+    # are detected. Additional unrated NVD records do not invalidate that proof;
+    # the actual image and Chrome reports still reject every Unknown finding.
+    if counts["Critical"] < 1 or counts["High"] < 1:
         raise ReleaseIntegrityError(
             "Grype Chrome control did not prove current Critical/High NVD coverage"
         )

@@ -71,7 +71,7 @@
     "devalue": "5.9.3",
     "dompurify": "3.4.17",
     "simple-git": "4.0.2",
-    "seroval": "1.6.7",
+    "seroval": "1.6.12",
     "postcss-selector-parser": "7.1.6",
     "miniflare": {
       "undici": "7.30.1"

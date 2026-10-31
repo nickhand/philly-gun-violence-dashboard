@@ -221,9 +221,9 @@ The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
 same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
-date. The `20261023T180000Z` snapshot includes Canonical's October 20–22
-CA/NSS distrust updates and zlib/XZ fixes, while retaining the earlier updates
-for libcurl, libX11, librsvg, and libpng.
+date. The `20261030T000000Z` snapshot includes Canonical's October 26 Brotli
+security fix and retains the October 20–22 CA/NSS distrust updates and zlib/XZ
+fixes, plus the earlier updates for libcurl, libX11, librsvg, and libpng.
 The image build and SBOM gate assert `libcurl3t64-gnutls=8.18.0-1ubuntu2.8`,
 `libx11-6=2:1.8.13-1ubuntu0.1`, `librsvg2-2=2.61.3+dfsg-3ubuntu0.1`,
 `libpng16-16t64=1.6.57-1ubuntu0.1`, and `libaom3=3.13.1-2ubuntu0.1`.
@@ -240,6 +240,9 @@ The build and SBOM gate also require `ca-certificates=20260816ubuntu0.26.04.1`,
 [USN-8945-1](https://ubuntu.com/security/notices/USN-8945-1), and
 [CVE-2026-85091](https://ubuntu.com/security/CVE-2026-85091).
 The build-only `xz-utils` package is also asserted at `5.8.3-1ubuntu0.1`.
+The runtime and SBOM gate require `libbrotli1=1.2.0-3ubuntu0.1`, fixing
+[CVE-2026-111497](https://ubuntu.com/security/CVE-2026-111497) as published in
+[USN-8956-1](https://ubuntu.com/security/notices/USN-8956-1).
 
 GTK's image-loader dependencies require Bubblewrap. Ubuntu reverted its
 CVE-2026-87766 fix in [USN-8779-2](https://ubuntu.com/security/notices/USN-8779-2),
@@ -253,7 +256,7 @@ neither scanner's vulnerability threshold is relaxed. Revisit this temporary
 package when Canonical supplies a complete supported fix.
 <!-- BEGIN GENERATED: chrome-lock-product-version -->
 It full-upgrades that snapshot before installing Ubuntu's native Python
-(3.13 or newer) and a checksum-pinned Google Chrome 156.0.8078.47 package.
+(3.13 or newer) and a checksum-pinned Google Chrome 156.0.8078.79 package.
 <!-- END GENERATED: chrome-lock-product-version -->
 The Playwright client is pinned to 1.64.1, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly
