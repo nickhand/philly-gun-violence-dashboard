@@ -41,7 +41,7 @@ jobs:
             --image philly-courts-scraper:ci \
             --expected-distro-name ubuntu \
             --expected-distro-version 26.04 \
-            --required-packages "python:playwright=1.64.1,deb:google-chrome-stable=${chrome_package_version},deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8,deb:libx11-6=2:1.8.13-1ubuntu0.1,deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1,deb:libpng16-16t64=1.6.57-1ubuntu0.1,deb:libaom3=3.13.1-2ubuntu0.1,deb:bubblewrap=0.12.0-0philly1,deb:ca-certificates=20260816ubuntu0.26.04.1,deb:libnss3=2:3.120-1ubuntu2.2,deb:liblzma5=5.8.3-1ubuntu0.1,deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2,binary:node=24.22.1" \
+            --required-packages "python:playwright=1.64.1,deb:google-chrome-stable=${chrome_package_version},deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8,deb:libx11-6=2:1.8.13-1ubuntu0.1,deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1,deb:libpng16-16t64=1.6.57-1ubuntu0.1,deb:libaom3=3.13.1-2ubuntu0.1,deb:bubblewrap=0.12.0-0philly1,deb:ca-certificates=20260816ubuntu0.26.04.1,deb:libnss3=2:3.120-1ubuntu2.2,deb:liblzma5=5.8.3-1ubuntu0.1,deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2,deb:libbrotli1=1.2.0-3ubuntu0.1,binary:node=24.22.1" \
             --required-chrome-executable-sha256 "sha256:${chrome_executable_sha256}" \
             --forbid-chrome-sandbox \
             --forbid-setuid-setgid-files \

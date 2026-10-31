@@ -26,8 +26,8 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
     assert re.search(expected_base, source, re.MULTILINE)
-    assert "ARG UBUNTU_SNAPSHOT=20261023T180000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20261023T180000Z"' in source
+    assert "ARG UBUNTU_SNAPSHOT=20261030T000000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20261030T000000Z"' in source
     assert "20260819T170000Z" not in source
     assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 5
     assert 'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update' in source
@@ -46,6 +46,7 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
         ("libnss3", "2:3.120-1ubuntu2.2"),
         ("liblzma5", "5.8.3-1ubuntu0.1"),
         ("zlib1g", "1:1.3.dfsg+really1.3.1-1ubuntu3.2"),
+        ("libbrotli1", "1.2.0-3ubuntu0.1"),
     ):
         assert f"${{Version}}' {package})" in source
         assert f' = "{version}"' in source
@@ -241,6 +242,7 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
         "deb:libnss3=2:3.120-1ubuntu2.2",
         "deb:liblzma5=5.8.3-1ubuntu0.1",
         "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
+        "deb:libbrotli1=1.2.0-3ubuntu0.1",
     ):
         assert package in source
     assert "root:root:755" not in source
@@ -269,6 +271,7 @@ def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
         "deb:libnss3=2:3.120-1ubuntu2.2",
         "deb:liblzma5=5.8.3-1ubuntu0.1",
         "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
+        "deb:libbrotli1=1.2.0-3ubuntu0.1",
     ):
         assert package in justfile
     assert "scraper-check-browser-lock:" in recipe
