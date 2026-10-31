@@ -1606,6 +1606,65 @@ def test_chrome_cpe_report_requires_exact_source_and_live_coverage_control() -> 
     assert validated["severity_counts"]["Critical"] == 1
 
 
+@pytest.mark.parametrize(
+    ("severities", "accepted"),
+    [
+        (("Critical", "High", "Unknown"), True),
+        (("High", "Unknown"), False),
+        (("Critical", "Unknown"), False),
+        (("Unknown",), False),
+    ],
+)
+def test_chrome_control_unrated_findings_do_not_replace_required_coverage(
+    severities: tuple[str, ...],
+    accepted: bool,
+) -> None:
+    control = _grype_payload(
+        source={"type": "cpe", "target": release_image._CHROME_CPE_CONTROL},
+        distro="",
+    )
+    # The October 30 NVD feed adds unrated CVEs to the old Chrome control while
+    # continuing to detect hundreds of Critical and High vulnerabilities.
+    control["matches"] = [
+        {"vulnerability": {"id": f"CVE-{severity}", "severity": severity}}
+        for severity in severities
+    ]
+    if not accepted:
+        with pytest.raises(ReleaseIntegrityError, match="Critical/High NVD coverage"):
+            validate_chrome_control_report(control, now=NOW, scanner_returncode=2)
+    else:
+        validated = validate_chrome_control_report(control, now=NOW, scanner_returncode=2)
+        assert validated["severity_counts"]["Unknown"] == 1
+
+
+@pytest.mark.parametrize("report_kind", ["image", "chrome"])
+def test_actual_image_and_chrome_reports_still_block_unknown_findings(report_kind: str) -> None:
+    cpe = f"cpe:2.3:a:google:chrome:{CHROME_VERSION}:*:*:*:*:*:*:*"
+    source = (
+        {"type": "cpe", "target": cpe}
+        if report_kind == "chrome"
+        else {
+            "type": "image",
+            "target": {"imageID": IMAGE_ID, "manifestDigest": MANIFEST_DIGEST},
+        }
+    )
+    payload = _grype_payload(source=source, distro="" if report_kind == "chrome" else "ubuntu")
+    payload["matches"] = [{"vulnerability": {"id": "CVE-UNRATED", "severity": "Unknown"}}]
+    with pytest.raises(ReleaseIntegrityError, match="1 Unknown findings"):
+        if report_kind == "chrome":
+            validate_chrome_grype_report(payload, cpe=cpe, now=NOW, scanner_returncode=0)
+        else:
+            validate_grype_report(
+                payload,
+                image_id=IMAGE_ID,
+                manifest_digest=MANIFEST_DIGEST,
+                expected_distro_name="ubuntu",
+                expected_distro_version="26.04",
+                now=NOW,
+                scanner_returncode=0,
+            )
+
+
 def _chrome_typo_payload(*, now: datetime = NOW) -> dict[str, object]:
     cpe = "cpe:2.3:a:google:chrome:156.0.8078.47:*:*:*:*:*:*:*"
     payload = _grype_payload(source={"type": "cpe", "target": cpe}, distro="")
