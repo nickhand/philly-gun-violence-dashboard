@@ -6,16 +6,16 @@ FROM docker.io/library/ubuntu:26.04@sha256:88a381d5b5eeb2b35d3ad70925a362c37ce56
 # Ubuntu 26.04's stock deb822 sources use Canonical's signed archive and support
 # apt snapshots. Validate the build argument before every apt transaction so a
 # caller cannot silently replace the reviewed package set with another date.
-ARG UBUNTU_SNAPSHOT=20261023T180000Z
+ARG UBUNTU_SNAPSHOT=20261030T000000Z
 
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
 # HTTPS. Bootstrap the exact CA dependency pair recorded in Canonical's signed
 # resolute-security Packages index for this snapshot before the first apt call.
 ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621 \
-    https://snapshot.ubuntu.com/ubuntu/20261023T180000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb \
+    https://snapshot.ubuntu.com/ubuntu/20261030T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb \
     /tmp/openssl.deb
 ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd \
-    https://snapshot.ubuntu.com/ubuntu/20261023T180000Z/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb \
+    https://snapshot.ubuntu.com/ubuntu/20261030T000000Z/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb \
     /tmp/ca-certificates.deb
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
@@ -44,7 +44,7 @@ FROM ubuntu-base AS bubblewrap-build
 ADD --checksum=sha256:9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314 \
     https://github.com/containers/bubblewrap/releases/download/v0.12.0/bubblewrap-0.12.0.tar.xz \
     /tmp/bubblewrap.tar.xz
-RUN test "$UBUNTU_SNAPSHOT" = "20261023T180000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20261030T000000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
     && DEBIAN_FRONTEND=noninteractive apt-get -S "$UBUNTU_SNAPSHOT" \
@@ -90,19 +90,19 @@ COPY --from=bubblewrap-build /bubblewrap.deb /tmp/bubblewrap.deb
 # Installing the local deb through apt lets Ubuntu resolve its runtime libraries
 # from the same signed snapshot as the rest of the image.
 # BEGIN GENERATED: chrome-lock-package
-ADD --checksum=sha256:6c92cd22e90c6e3e255d782991543fa2091db8614e8536a971a7433a5c4d7ac8 \
-    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.47-1_amd64.deb \
+ADD --checksum=sha256:be1a1e161419f5c8272432f6860912550d8e29985e925913fa800493a0d0c955 \
+    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.79-1_amd64.deb \
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
-# The October 23 snapshot includes the CA/NSS distrust updates and patched
-# zlib/XZ packages, while retaining the earlier libcurl/X11/rsvg/png fixes.
+# The October 30 snapshot includes the Brotli security fix and retains the
+# CA/NSS distrust updates and earlier zlib/XZ/libcurl/X11/rsvg/png fixes.
 # Assert their versions so stale packages cannot silently return to the image.
 #
 # Fargate's default seccomp profile cannot start Chrome's nested namespace
 # sandbox. The courts worker therefore disables that sandbox, so the runtime
 # image removes the otherwise unused privilege-bearing helper entirely.
-RUN test "$UBUNTU_SNAPSHOT" = "20261023T180000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20261030T000000Z" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
     && for suite in resolute resolute-updates resolute-backports resolute-security; do \
@@ -124,7 +124,7 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261023T180000Z" \
         tzdata \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
-        = "156.0.8078.47-1" \
+        = "156.0.8078.79-1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
         = "8.18.0-1ubuntu2.8" \
     && test "$(dpkg-query --show --showformat='${Version}' libx11-6)" \
@@ -143,13 +143,15 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261023T180000Z" \
         = "5.8.3-1ubuntu0.1" \
     && test "$(dpkg-query --show --showformat='${Version}' zlib1g)" \
         = "1:1.3.dfsg+really1.3.1-1ubuntu3.2" \
+    && test "$(dpkg-query --show --showformat='${Version}' libbrotli1)" \
+        = "1.2.0-3ubuntu0.1" \
     && test ! -e /etc/ssl/certs/emSign_ECC_Root_CA_-_G3.pem \
     && test ! -e /etc/ssl/certs/Comodo_AAA_Services_root.pem \
     && test "$(dpkg-query --show --showformat='${Version}' bubblewrap)" \
         = "0.12.0-0philly1" \
     && test "$(bwrap --version)" = "bubblewrap 0.12.0" \
     && test -z "$(dpkg --audit)" \
-    && test "$(google-chrome --product-version)" = "156.0.8078.47" \
+    && test "$(google-chrome --product-version)" = "156.0.8078.79" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
@@ -218,7 +220,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
         "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.64.1'" \
-    && test "$(google-chrome --product-version)" = "156.0.8078.47" \
+    && test "$(google-chrome --product-version)" = "156.0.8078.79" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
 
