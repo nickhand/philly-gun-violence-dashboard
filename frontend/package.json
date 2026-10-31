@@ -39,9 +39,9 @@
     "@nuxtjs/sitemap": "8.6.2",
     "@unhead/vue": "^2.1.1",
     "@uswds/uswds": "^3.14.0",
-    "maplibre-gl": "^6.14.0",
+    "maplibre-gl": "^6.15.0",
     "nuxt": "^4.6.2",
-    "posthog-js": "^1.438.12",
+    "posthog-js": "^1.438.21",
     "vue": "3.5.44",
     "vue-router": "5.4.0",
     "node-forge": "file:vendor/node-forge-1.4.1-philly.1.tgz",
@@ -57,12 +57,12 @@
     "@vue/test-utils": "^2.5.1",
     "jsdom": "^26.1.0",
     "lighthouse": "13.5.0",
-    "sass-embedded": "^1.105.2",
+    "sass-embedded": "^1.106.1",
     "typescript": "^5.5.3",
     "vite": "^7.3.7",
     "vitest": "^4.1.12",
     "vue-tsc": "^3.3.13",
-    "wrangler": "4.151.1"
+    "wrangler": "4.152.0"
   },
   "overrides": {
     "node-forge": "$node-forge",
