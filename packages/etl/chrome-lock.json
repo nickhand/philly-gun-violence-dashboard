@@ -8,13 +8,13 @@
   "package": {
     "name": "google-chrome-stable",
     "architecture": "amd64",
-    "version": "156.0.8078.79-1",
-    "product_version": "156.0.8078.79",
-    "filename": "pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.79-1_amd64.deb",
-    "sha256": "be1a1e161419f5c8272432f6860912550d8e29985e925913fa800493a0d0c955"
+    "version": "157.0.8103.38-1",
+    "product_version": "157.0.8103.38",
+    "filename": "pool/main/g/google-chrome-stable/google-chrome-stable_157.0.8103.38-1_amd64.deb",
+    "sha256": "a62b277dc03da2cff50cc04589deb66f6875be339c066d46adb49b49eedb629d"
   },
   "executable": {
     "path": "/opt/google/chrome/chrome",
-    "sha256": "da143614d917f346b02c1b29587cc13bf891d4b73faf2bea7b20cbd8fa61510f"
+    "sha256": "fa67e06a5bcd0525739996fb8e3ecff449039e6165c15ea7968d3935e59e829e"
   }
 }
