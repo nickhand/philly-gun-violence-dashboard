@@ -28,14 +28,21 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     assert re.search(expected_base, source, re.MULTILINE)
     assert "ARG UBUNTU_SNAPSHOT=20261030T000000Z" in source
     assert 'test "$UBUNTU_SNAPSHOT" = "20261030T000000Z"' in source
-    assert "20260819T170000Z" not in source
-    assert source.count('apt-get -S "$UBUNTU_SNAPSHOT"') == 5
-    assert 'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update' in source
+    # Only the dated snapshot may supply indexes. The ordinary archive can
+    # supply .debs whose hashes have already been authenticated by those indexes.
+    assert (
+        r"https://archive.ubuntu.com/ubuntu/\tpriority:1 type:deb\n"
+        r"https://snapshot.ubuntu.com/ubuntu/%s/\tpriority:2\n"
+    ) in source
+    assert '"URIs: mirror+file:/etc/apt/ubuntu-${UBUNTU_SNAPSHOT}.mirrors"' in source
+    assert "Suites: resolute resolute-updates resolute-backports resolute-security" in source
+    assert "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg" in source
+    assert "> /etc/apt/sources.list.d/ubuntu.sources" in source
+    fresh_indexes = "RUN rm -rf /var/lib/apt/lists/* \\\n    && apt-get --error-on=any update"
+    assert source.count(fresh_indexes) == 2
     assert "--yes --no-install-recommends full-upgrade" in source
-    assert source.index("rm -rf /var/lib/apt/lists/*") < source.index(
-        'apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update'
-    )
-    assert "snapshot.ubuntu.com_ubuntu_${UBUNTU_SNAPSHOT}_dists_${suite}_InRelease" in source
+    assert "ubuntu-${UBUNTU_SNAPSHOT}.mirrors_dists_${suite}_InRelease" in source
+    assert "ubuntu-${UBUNTU_SNAPSHOT}.mirrors_dists_${suite}_*_binary-amd64_Packages.lz4" in source
     assert "libcurl3t64-gnutls" in source
     assert ' = "8.18.0-1ubuntu2.8"' in source
     for version in ("2:1.8.13-1ubuntu0.1", "2.61.3+dfsg-3ubuntu0.1", "1.6.57-1ubuntu0.1"):
@@ -69,8 +76,10 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     assert (
         "ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd"
     ) in source
-    assert "openssl_3.5.5-1ubuntu3.7_amd64.deb" in source
-    assert "ca-certificates_20260816ubuntu0.26.04.1_all.deb" in source
+    assert "https://launchpadlibrarian.net/878823491/openssl_3.5.5-1ubuntu3.7_amd64.deb" in source
+    assert (
+        "https://launchpadlibrarian.net/881832632/ca-certificates_20260816ubuntu0.26.04.1_all.deb"
+    ) in source
     assert expected_chrome in source
     assert PINNED_CHROME_FILENAME in source
     assert f'= "{PINNED_CHROME_VERSION}"' in source

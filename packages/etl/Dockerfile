@@ -3,19 +3,17 @@
 # Docker Hub serves the identical manifest without ECR Public's shared CI quota.
 FROM docker.io/library/ubuntu:26.04@sha256:88a381d5b5eeb2b35d3ad70925a362c37ce569daf43ede89ff818ec20e4d3794 AS ubuntu-base
 
-# Ubuntu 26.04's stock deb822 sources use Canonical's signed archive and support
-# apt snapshots. Validate the build argument before every apt transaction so a
-# caller cannot silently replace the reviewed package set with another date.
+# Use one reviewed snapshot for both the build tools and the runtime packages.
 ARG UBUNTU_SNAPSHOT=20261030T000000Z
 
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
-# HTTPS. Bootstrap the exact CA dependency pair recorded in Canonical's signed
-# resolute-security Packages index for this snapshot before the first apt call.
+# HTTPS. Bootstrap the two Launchpad artifacts whose hashes were verified in
+# the signed resolute-security Packages index before the first apt call.
 ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621 \
-    https://snapshot.ubuntu.com/ubuntu/20261030T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb \
+    https://launchpadlibrarian.net/878823491/openssl_3.5.5-1ubuntu3.7_amd64.deb \
     /tmp/openssl.deb
 ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd \
-    https://snapshot.ubuntu.com/ubuntu/20261030T000000Z/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb \
+    https://launchpadlibrarian.net/881832632/ca-certificates_20260816ubuntu0.26.04.1_all.deb \
     /tmp/ca-certificates.deb
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
@@ -37,6 +35,20 @@ RUN sed -i \
     && test ! -e /etc/ssl/certs/emSign_ECC_Root_CA_-_G3.pem \
     && test ! -e /etc/ssl/certs/Comodo_AAA_Services_root.pem
 
+# Only the dated snapshot can supply indexes. For the .debs named and hashed
+# in those indexes, try the main archive first, then the snapshot for versions
+# the archive no longer carries. APT mirror metadata follows a literal tab.
+RUN test "$UBUNTU_SNAPSHOT" = "20261030T000000Z" \
+    && printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1 type:deb\nhttps://snapshot.ubuntu.com/ubuntu/%s/\tpriority:2\n' \
+        "$UBUNTU_SNAPSHOT" > "/etc/apt/ubuntu-${UBUNTU_SNAPSHOT}.mirrors" \
+    && printf '%s\n' \
+        'Types: deb' \
+        "URIs: mirror+file:/etc/apt/ubuntu-${UBUNTU_SNAPSHOT}.mirrors" \
+        'Suites: resolute resolute-updates resolute-backports resolute-security' \
+        'Components: main restricted universe multiverse' \
+        'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+        > /etc/apt/sources.list.d/ubuntu.sources
+
 # Canonical reverted its CVE-2026-87766 backport (USN-8779-2). Build the
 # checksum-pinned upstream fix as a real replacement package in a separate stage;
 # keep package ownership/version evidence and omit all build tools from runtime.
@@ -44,10 +56,9 @@ FROM ubuntu-base AS bubblewrap-build
 ADD --checksum=sha256:9760d007363e3abba7c747489910f9f82d9fca53ba3bd3282e396fa3c97a3314 \
     https://github.com/containers/bubblewrap/releases/download/v0.12.0/bubblewrap-0.12.0.tar.xz \
     /tmp/bubblewrap.tar.xz
-RUN test "$UBUNTU_SNAPSHOT" = "20261030T000000Z" \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
-    && DEBIAN_FRONTEND=noninteractive apt-get -S "$UBUNTU_SNAPSHOT" \
+RUN rm -rf /var/lib/apt/lists/* \
+    && apt-get --error-on=any update \
+    && DEBIAN_FRONTEND=noninteractive apt-get \
         --yes --no-install-recommends install \
         build-essential meson pkg-config libcap-dev libselinux1-dev xz-utils \
     && test "$(dpkg-query --show --showformat='${Version}' xz-utils)" \
@@ -90,8 +101,8 @@ COPY --from=bubblewrap-build /bubblewrap.deb /tmp/bubblewrap.deb
 # Installing the local deb through apt lets Ubuntu resolve its runtime libraries
 # from the same signed snapshot as the rest of the image.
 # BEGIN GENERATED: chrome-lock-package
-ADD --checksum=sha256:be1a1e161419f5c8272432f6860912550d8e29985e925913fa800493a0d0c955 \
-    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_156.0.8078.79-1_amd64.deb \
+ADD --checksum=sha256:a62b277dc03da2cff50cc04589deb66f6875be339c066d46adb49b49eedb629d \
+    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_157.0.8103.38-1_amd64.deb \
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
@@ -102,21 +113,19 @@ ADD --checksum=sha256:be1a1e161419f5c8272432f6860912550d8e29985e925913fa800493a0
 # Fargate's default seccomp profile cannot start Chrome's nested namespace
 # sandbox. The courts worker therefore disables that sandbox, so the runtime
 # image removes the otherwise unused privilege-bearing helper entirely.
-RUN test "$UBUNTU_SNAPSHOT" = "20261030T000000Z" \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get -S "$UBUNTU_SNAPSHOT" --error-on=any update \
+RUN rm -rf /var/lib/apt/lists/* \
+    && apt-get --error-on=any update \
     && for suite in resolute resolute-updates resolute-backports resolute-security; do \
-        test -f \
-            "/var/lib/apt/lists/snapshot.ubuntu.com_ubuntu_${UBUNTU_SNAPSHOT}_dists_${suite}_InRelease" \
+        test -f /var/lib/apt/lists/*"ubuntu-${UBUNTU_SNAPSHOT}.mirrors_dists_${suite}_InRelease" \
             || exit 1; \
         find /var/lib/apt/lists -maxdepth 1 -type f \
-            -name "snapshot.ubuntu.com_ubuntu_${UBUNTU_SNAPSHOT}_dists_${suite}_*_binary-amd64_Packages.lz4" \
+            -name "*ubuntu-${UBUNTU_SNAPSHOT}.mirrors_dists_${suite}_*_binary-amd64_Packages.lz4" \
             -print -quit | grep -q . \
             || exit 1; \
     done \
-    && DEBIAN_FRONTEND=noninteractive apt-get -S "$UBUNTU_SNAPSHOT" \
+    && DEBIAN_FRONTEND=noninteractive apt-get \
         --yes --no-install-recommends full-upgrade \
-    && DEBIAN_FRONTEND=noninteractive apt-get -S "$UBUNTU_SNAPSHOT" \
+    && DEBIAN_FRONTEND=noninteractive apt-get \
         --yes --no-install-recommends install \
         ca-certificates \
         netbase \
@@ -124,7 +133,7 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261030T000000Z" \
         tzdata \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
-        = "156.0.8078.79-1" \
+        = "157.0.8103.38-1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
         = "8.18.0-1ubuntu2.8" \
     && test "$(dpkg-query --show --showformat='${Version}' libx11-6)" \
@@ -151,7 +160,7 @@ RUN test "$UBUNTU_SNAPSHOT" = "20261030T000000Z" \
         = "0.12.0-0philly1" \
     && test "$(bwrap --version)" = "bubblewrap 0.12.0" \
     && test -z "$(dpkg --audit)" \
-    && test "$(google-chrome --product-version)" = "156.0.8078.79" \
+    && test "$(google-chrome --product-version)" = "157.0.8103.38" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
@@ -220,7 +229,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
         "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.64.1'" \
-    && test "$(google-chrome --product-version)" = "156.0.8078.79" \
+    && test "$(google-chrome --product-version)" = "157.0.8103.38" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
 
