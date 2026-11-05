@@ -108,7 +108,7 @@ just data-sync
 2. **API** loads and validates a complete S3 release, then atomically swaps one frozen in-memory snapshot.
 3. **Frontend** fetches metadata, then loads content-addressed year-specific NDJSON data on demand.
 4. **A Fly scheduler** dispatches GitHub Actions ETL, production-smoke, and
-   weekly dependency-security workflows. During the guarded scheduler cutover,
+   daily production security monitoring, including a weekly clean image build. During the guarded scheduler cutover,
    GitHub remains the sole owner of the weekly frontend-quality schedule until
    a separate phase-2 handoff, so a deploy cannot create a monitoring gap.
 5. **Nuxt** owns crawler-visible HTML, robots, and sitemaps on Cloudflare while `/stats.json` supplies its server-rendered figures.

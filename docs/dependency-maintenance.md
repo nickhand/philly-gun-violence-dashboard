@@ -33,8 +33,7 @@ major upgrade. Major/security exceptions still need a deliberate upgrade or repa
 failed checks are never overridden to clear the queue.
 
 The options follow GitHub's [Dependabot reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).
-Deferring an ordinary major upgrade does not disable the daily dependency and scraper image audits
-or the daily Chrome updater.
+Production scraper monitoring and the signed Chrome updater run daily.
 
 The [October 23 security review](security-hardening-2026-10-23.md) records the
 eMudhra trust-store repairs, toolchain versions, CI failure causes, and deployment
@@ -42,13 +41,33 @@ work needed to activate the fixes.
 
 ## Enforced merge checks
 
-The Fly scheduler dispatches dependency security checks daily at 07:17 UTC,
-one hour before the Chrome updater. Every scheduled/manual audit also rebuilds,
-smoke-tests, and scans the full scraper image using the same reusable workflow
-as ETL PR validation. This catches Ubuntu snapshot drift and new advisories even
-when Chrome and lockfiles have not changed. Failed scans retain their SBOM and
-vulnerability reports for 30 days. Deploy the updated scheduler image to activate
-a crontab change; a source merge alone does not update the running scheduler.
+The Fly scheduler dispatches `security-quality.yml` on `main` at 07:17 UTC.
+Each run reads the courts production release pointer and pulls its exact ECR
+digest using a read-only AWS session. The monitor verifies the image identity
+and deployed Chrome lock, generates a fresh package inventory, and scans both
+the image and the browser with a current vulnerability database. A
+known-vulnerable Chrome control checks that browser advisories are being
+detected. The monitor rechecks the release pointer before publishing a result.
+
+* **Production findings** open one GitHub issue per affected package. The issue
+  lists the blocker severities, advisories, available fixed versions and
+  deployed digest. New production and coverage issues are assigned to the
+  repository owner, or to the GitHub login set in `SECURITY_MAINTAINER`. Repeat findings reuse the issue. A verified observation of
+  the active image closes issues for resolved packages.
+* **Missing coverage** preserves open findings. An independent GitHub check
+  runs every six hours and maintains one overdue issue when 48 hours pass
+  without verified evidence. The next freshness check closes it after recovery.
+* **Weekly maintenance** runs on Wednesday at 07:17 UTC. It audits all five
+  dependency groups and performs a clean scraper build, browser smoke test
+  and image scan. Failed checks appear in the weekly issue queue. Eligible
+  dependency fixes continue through Dependabot. Public health and freshness
+  monitoring keep their own alerts.
+
+To request both the deployed scan and the weekly checks immediately, run
+`gh workflow run security-quality.yml --ref main -f full_audit=true`.
+On other branches a manual dispatch runs the candidate audits and full image
+build. Required pull request and release gates keep their existing thresholds.
+Scan evidence is retained for 30 days.
 
 Security repairs must cover all four independent Python locks. The shared
 urllib3 constraint prevents a routine resolution from returning below 2.8.0,
@@ -101,10 +120,11 @@ bypass nor approves PRs on the maintainer's behalf.
 ## Chrome updates and production
 
 The [Chrome updater](../.github/workflows/chrome-update.yml) retains its signed
-release checks, same-milestone policy, and exact head/base guards. It explicitly
-dispatches and waits for all required quality workflows and the policy status,
-so it also works when its GitHub token does not trigger PR workflows. Chrome
-milestone upgrades remain exceptions.
+release checks and exact head/base guards. Strictly newer Chrome-only updates,
+including milestones, can merge after their checks pass. Same-version
+republishes need maintainer review. Before promotion, the candidate worker
+must complete a live synthetic court lookup and its monitor must pass the
+health probe. The release process retains its conditional rollback.
 
 Automatic merging updates source control. It does not bypass immutable image
 promotion, Fargate smoke, or deployment gates. Native auto-merge uses the built-in

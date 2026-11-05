@@ -21,6 +21,11 @@ on:
       - ".github/workflows/security-quality.yml"
       - ".github/ci/scope.py"
   workflow_dispatch:
+    inputs:
+      full_audit:
+        description: Also run the weekly dependency audits and clean image build today
+        type: boolean
+        default: false
 
 concurrency:
   group: security-quality-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
@@ -31,9 +36,14 @@ permissions:
 
 jobs:
   changes:
+    permissions:
+      contents: read
+      actions: read
     name: Route dependency audits
     runs-on: ubuntu-24.04
     outputs:
+      deployed: ${{ steps.cadence.outputs.deployed }}
+      image: ${{ steps.cadence.outputs.image }}
       api: ${{ steps.scope.outputs.api }}
       etl: ${{ steps.scope.outputs.etl }}
       dashboard: ${{ steps.scope.outputs.dashboard }}
@@ -43,6 +53,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Select daily monitoring and weekly clean builds
+        id: cadence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULL_AUDIT: ${{ inputs.full_audit || false }}
+        run: |
+          set -euo pipefail
+          deployed=false
+          image=false
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            image=true
+            if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+              deployed=true
+              # Keep the original Wednesday selection when re-running an old job.
+              created=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)
+              weekday=$(date -u -d "${created:?Missing GitHub run creation time}" +%u)
+              if [[ "$FULL_AUDIT" != true && "$weekday" != 3 ]]; then
+                image=false
+              fi
+            fi
+          fi
+          printf 'deployed=%s\nimage=%s\n' "$deployed" "$image" >> "$GITHUB_OUTPUT"
       - name: Classify changed paths
         id: scope
         env:
@@ -50,6 +82,10 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          if [[ "${{ steps.cadence.outputs.deployed }}" == true && "${{ steps.cadence.outputs.image }}" == false ]]; then
+            printf '%s=false\n' api etl dashboard scraper frontend >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
           python3 .github/ci/scope.py \
             --workflow security \
             --event "${GITHUB_EVENT_NAME}" \
@@ -168,15 +204,19 @@ jobs:
       - run: npm run audit:dependencies
 
   image:
-    name: Daily scraper image security audit
+    name: Clean scraper image security audit
     needs: changes
-    if: github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.image == 'true'
     uses: ./.github/workflows/scraper-image-quality.yml
 
   gate:
     name: Dependency security gate
     needs: [changes, api, etl, dashboard, scraper, frontend, image]
-    if: always()
+    # The daily production observation reports through its own jobs. This gate
+    # certifies candidate audits only, including failed routing on any event.
+    if: >-
+      always() && (needs.changes.result != 'success' ||
+      needs.changes.outputs.deployed != 'true' || needs.changes.outputs.image == 'true')
     runs-on: ubuntu-24.04
     env:
       CHANGES_RESULT: ${{ needs.changes.result }}
@@ -184,7 +224,7 @@ jobs:
       ETL_SELECTED: ${{ needs.changes.outputs.etl }}
       DASHBOARD_SELECTED: ${{ needs.changes.outputs.dashboard }}
       SCRAPER_SELECTED: ${{ needs.changes.outputs.scraper }}
-      IMAGE_SELECTED: ${{ github.event_name == 'workflow_dispatch' }}
+      IMAGE_SELECTED: ${{ needs.changes.outputs.image }}
       IMAGE_RESULT: ${{ needs.image.result }}
       FRONTEND_SELECTED: ${{ needs.changes.outputs.frontend }}
       API_RESULT: ${{ needs.api.result }}
@@ -209,3 +249,49 @@ jobs:
           require_routed_job "${SCRAPER_SELECTED}" "${SCRAPER_RESULT}" "scraper"
           require_routed_job "${FRONTEND_SELECTED}" "${FRONTEND_RESULT}" "frontend"
           require_routed_job "${IMAGE_SELECTED}" "${IMAGE_RESULT}" "image"
+
+  deployed:
+    name: Daily deployed scraper audit
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.deployed == 'true'
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      issues: write
+    uses: ./.github/workflows/deployed-scraper-audit.yml
+
+  weekly-review:
+    name: Track unresolved maintenance work
+    needs: [changes, api, etl, dashboard, scraper, frontend, image]
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.deployed == 'true' &&
+      needs.changes.outputs.image == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: weekly-security-issues
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Update the weekly review queue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_RESULTS: >-
+            {"api":"${{ needs.api.result }}","etl":"${{ needs.etl.result }}",
+             "dashboard":"${{ needs.dashboard.result }}","scraper":"${{ needs.scraper.result }}",
+             "frontend":"${{ needs.frontend.result }}","image":"${{ needs.image.result }}"}
+        run: |
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$current" == "$GITHUB_SHA" ]]; then
+            python3 .github/ci/security_issues.py weekly
+          else
+            echo 'Main advanced during this audit. Preserving the weekly queue.' >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -43,7 +43,7 @@ class DockerInputContracts(unittest.TestCase):
         ADD . /app
         """
         self.assertEqual(
-            CHECKER._local_docker_sources(source),
+            CHECKER.local_docker_sources(source),
             ("packages/api/app/", "packages/api/README.md", "."),
         )
         self.assertEqual(
@@ -60,7 +60,7 @@ class DockerInputContracts(unittest.TestCase):
         ADD --checksum=sha256:abc https://example.test/archive.tgz /tmp/archive.tgz
         COPY --from=builder /app/bin /usr/local/bin/app
         """
-        self.assertEqual(CHECKER._local_docker_sources(source), ())
+        self.assertEqual(CHECKER.local_docker_sources(source), ())
 
     def test_malformed_or_ambiguous_copy_fails_closed(self) -> None:
         cases = (
@@ -70,11 +70,11 @@ class DockerInputContracts(unittest.TestCase):
         )
         for source in cases:
             with self.subTest(source=source), self.assertRaises(CHECKER.ConfigurationError):
-                CHECKER._local_docker_sources(source)
+                CHECKER.local_docker_sources(source)
 
     def test_only_literal_cache_run_mounts_are_allowed(self) -> None:
         self.assertEqual(
-            CHECKER._local_docker_sources("RUN --mount=type=cache,target=/root/.cache true"),
+            CHECKER.local_docker_sources("RUN --mount=type=cache,target=/root/.cache true"),
             (),
         )
         for mount in (
@@ -86,7 +86,7 @@ class DockerInputContracts(unittest.TestCase):
                 self.subTest(mount=mount),
                 self.assertRaisesRegex(CHECKER.ConfigurationError, "only literal cache RUN mounts"),
             ):
-                CHECKER._local_docker_sources(f"RUN {mount} true")
+                CHECKER.local_docker_sources(f"RUN {mount} true")
 
     def test_non_default_docker_escape_directive_is_rejected(self) -> None:
         source = """# escape=`
@@ -94,7 +94,7 @@ class DockerInputContracts(unittest.TestCase):
           /app/api/app/
         """
         with self.assertRaisesRegex(CHECKER.ConfigurationError, "escape directives"):
-            CHECKER._local_docker_sources(source)
+            CHECKER.local_docker_sources(source)
 
     def test_every_current_local_docker_input_selects_its_image_job(self) -> None:
         cases = (
@@ -103,7 +103,7 @@ class DockerInputContracts(unittest.TestCase):
         )
         for workflow, relative_path in cases:
             source = (CHECKER.REPOSITORY_ROOT / relative_path).read_text()
-            for local_input in CHECKER._local_docker_sources(source):
+            for local_input in CHECKER.local_docker_sources(source):
                 candidate = (
                     f"{local_input}ci-routing-probe.py"
                     if local_input.endswith("/")

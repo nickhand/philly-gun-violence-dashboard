@@ -1,0 +1,32 @@
+name: Deployed security scan freshness
+
+on:
+  workflow_dispatch:
+  # Independent of Fly. This still checks coverage if a daily dispatch is missed.
+  schedule:
+    - cron: "37 */6 * * *"
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: deployed-security-coverage
+  cancel-in-progress: false
+
+jobs:
+  coverage:
+    name: Check age of the last verified observation
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Track a coverage gap after 48 hours
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SECURITY_MAINTAINER: ${{ vars.SECURITY_MAINTAINER || github.repository_owner }}
+        run: python3 .github/ci/security_issues.py coverage

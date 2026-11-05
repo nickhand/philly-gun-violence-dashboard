@@ -15,6 +15,7 @@ permissions:
 jobs:
   update:
     name: Resolve signed release and open update
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -43,8 +44,6 @@ jobs:
           lock="packages/etl/chrome-lock.json"
           default_branch="${{ github.event.repository.default_branch }}"
           old_version="$(jq -er '.package.version' "${lock}")"
-          old_product_version="$(jq -er '.package.product_version' "${lock}")"
-          old_milestone="${old_product_version%%.*}"
           base_sha="$(git rev-parse HEAD)"
 
           git switch --force-create "${UPDATE_BRANCH}" "origin/${default_branch}"
@@ -56,8 +55,6 @@ jobs:
             python packages/etl/scripts/render_chrome_lock.py --check
 
           new_version="$(jq -er '.package.version' "${lock}")"
-          new_product_version="$(jq -er '.package.product_version' "${lock}")"
-          new_milestone="${new_product_version%%.*}"
           changed=false
           automatic_update=false
           if git diff --quiet; then
@@ -71,15 +68,13 @@ jobs:
               exit 1
             fi
             changed=true
-            if [[ "${old_version}" != "${new_version}" && "${old_milestone}" == "${new_milestone}" ]]; then
+            if dpkg --compare-versions "${new_version}" gt "${old_version}"; then
               automatic_update=true
             fi
           fi
           {
             printf 'old_version=%s\n' "${old_version}"
             printf 'new_version=%s\n' "${new_version}"
-            printf 'old_milestone=%s\n' "${old_milestone}"
-            printf 'new_milestone=%s\n' "${new_milestone}"
             printf 'base_sha=%s\n' "${base_sha}"
             printf 'changed=%s\n' "${changed}"
             printf 'automatic_update=%s\n' "${automatic_update}"
@@ -98,8 +93,7 @@ jobs:
             echo 'More than one Chrome update pull request is open.' >&2
             exit 1
           fi
-          # An old same-milestone request must never carry over to a new
-          # milestone or republished package when this branch is refreshed.
+          # Any queued merge applies only to the previously tested candidate.
           pr_number="$(jq -r '.[0] | select(.auto_merge != null) | .number // empty' <<< "${matching_pulls}")"
           if [[ -n "${pr_number}" ]]; then
             gh pr merge "${pr_number}" --repo "${GITHUB_REPOSITORY}" --disable-auto
@@ -116,33 +110,26 @@ jobs:
           if [[ -n "${remote_sha}" ]]; then
             git fetch --no-tags origin \
               "refs/heads/${UPDATE_BRANCH}:refs/remotes/origin/${UPDATE_BRANCH}"
-            if git diff --quiet "refs/remotes/origin/${UPDATE_BRANCH}" --; then
+            remote_sha="$(git rev-parse "refs/remotes/origin/${UPDATE_BRANCH}")"
+            remote_base="$(git merge-base HEAD "${remote_sha}")"
+            # A branch already merged into main has an empty range. Check all
+            # other commits before either reusing or replacing the candidate.
+            bot_email='41898282+github-actions[bot]@users.noreply.github.com'
+            unexpected_identities="$(git log --format='%ae|%ce' "${remote_base}..${remote_sha}" | \
+              grep -Fvx "${bot_email}|${bot_email}" || true)"
+            unexpected_remote_paths="$(git diff --name-only "${remote_base}..${remote_sha}" | \
+              grep -Ev \
+                '^(Justfile|packages/etl/chrome-lock\.json|packages/etl/Dockerfile|packages/etl/README\.md|packages/aws-batch-scraper/docs/container\.md|packages/aws-batch-scraper/tests/test_release_image\.py)$' || true)"
+            if [[ -n "${unexpected_identities}" || -n "${unexpected_remote_paths}" ]]; then
+              echo 'Refusing to use a Chrome update branch containing human or out-of-scope changes.' >&2
+              exit 1
+            fi
+            if [[ "${remote_base}" == "$(git rev-parse HEAD)" ]] && git diff --quiet "${remote_sha}" --; then
               reused=true
               head_sha="${remote_sha}"
             fi
           fi
           if [[ "${reused}" != true ]]; then
-            if [[ -n "${remote_sha}" ]]; then
-              remote_base="$(git merge-base \
-                "origin/${{ github.event.repository.default_branch }}" \
-                "refs/remotes/origin/${UPDATE_BRANCH}")"
-              # A branch already merged into main has an empty range. It is
-              # safe to refresh because it contains no unmerged work to lose.
-              bot_email='41898282+github-actions[bot]@users.noreply.github.com'
-              unexpected_identities="$(git log \
-                --format='%ae|%ce' \
-                "${remote_base}..refs/remotes/origin/${UPDATE_BRANCH}" | \
-                grep -Fvx "${bot_email}|${bot_email}" || true)"
-              unexpected_remote_paths="$(git diff --name-only \
-                "${remote_base}..refs/remotes/origin/${UPDATE_BRANCH}" | \
-                grep -Ev \
-                  '^(Justfile|packages/etl/chrome-lock\.json|packages/etl/Dockerfile|packages/etl/README\.md|packages/aws-batch-scraper/docs/container\.md|packages/aws-batch-scraper/tests/test_release_image\.py)$' || true)"
-              if [[ -n "${unexpected_identities}" || \
-                    -n "${unexpected_remote_paths}" ]]; then
-                printf 'Refusing to overwrite a Chrome update branch containing human or out-of-scope changes.\n' >&2
-                exit 1
-              fi
-            fi
             git config user.name "github-actions[bot]"
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add -- \
@@ -174,12 +161,12 @@ jobs:
         run: |
           set -euo pipefail
           default_branch="${{ github.event.repository.default_branch }}"
-          policy="Strictly newer same-milestone updates merge automatically after both validation workflows pass. Milestone changes and same-version republishes remain open for review."
+          policy="Signed Chrome version upgrades, including new milestones, merge after the exact candidate passes all required checks. Same-version republishes require review."
           body="$(printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
             'This automated change authenticated Google Chrome stable through its signed APT metadata, verified the package digest, derived the installed browser executable digest, and regenerated every checked-in consumer.' \
             "- Previous package: ${{ steps.update.outputs.old_version }}" \
             "- Candidate package: ${{ steps.update.outputs.new_version }}" \
-            "- Validation: ETL quality and repository configuration quality on commit ${{ steps.push.outputs.head_sha }}" \
+            "- Validation: required checks, including the scraper image build, smoke test, and scan, on commit ${{ steps.push.outputs.head_sha }}" \
             "${policy}")"
           matching_pulls="$(gh api \
             --method GET \
@@ -325,7 +312,7 @@ jobs:
           gh run watch "${frontend_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
           gh run watch "${security_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
           gh run watch "${policy_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
-      - name: Merge a validated same-milestone update
+      - name: Merge a validated Chrome upgrade
         if: >-
           steps.update.outputs.changed == 'true' &&
           steps.update.outputs.automatic_update == 'true'
@@ -362,27 +349,21 @@ jobs:
           merge_state="$(gh pr view "${{ steps.pull_request.outputs.number }}" \
             --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
           if [[ "${merge_state}" == MERGED ]]; then
-            printf 'Same-milestone update passed validation and was merged.\n' >> "${GITHUB_STEP_SUMMARY}"
+            printf 'Chrome upgrade passed validation and was merged.\n' >> "${GITHUB_STEP_SUMMARY}"
           else
-            printf 'Same-milestone update passed validation; native auto-merge is waiting for the required pull-request checks.\n' >> "${GITHUB_STEP_SUMMARY}"
+            printf 'Chrome upgrade passed validation. Native auto-merge is waiting for the required pull-request checks.\n' >> "${GITHUB_STEP_SUMMARY}"
             if [[ "${HAS_CHROME_UPDATE_TOKEN}" != true ]]; then
               echo '::warning::Approve the Chrome pull request workflows to finish this update. Configure a repository-scoped CHROME_UPDATE_TOKEN for future unattended updates; GITHUB_TOKEN-created pull requests require approval.'
             fi
           fi
-      - name: Report a milestone update
+      - name: Report a republished Chrome package
         if: >-
           steps.update.outputs.changed == 'true' &&
           steps.update.outputs.automatic_update != 'true'
         shell: bash
         run: |
-          if [[ '${{ steps.update.outputs.old_version }}' == '${{ steps.update.outputs.new_version }}' ]]; then
-            reason='the signed package identity changed without a version change'
-          else
-            reason='the Chrome milestone changed'
-          fi
-          printf 'Pull request #%s is awaiting review because %s.\n' \
-            '${{ steps.pull_request.outputs.number }}' \
-            "${reason}" >> "${GITHUB_STEP_SUMMARY}"
+          printf 'Pull request #%s requires review because the signed package changed without a version increase.\n' \
+            '${{ steps.pull_request.outputs.number }}' >> "${GITHUB_STEP_SUMMARY}"
       - name: Reconcile the merged Chrome ECS deployment
         if: ${{ !cancelled() }}
         env:

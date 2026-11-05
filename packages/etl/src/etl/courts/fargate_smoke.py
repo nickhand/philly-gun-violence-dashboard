@@ -15,10 +15,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
+from aws_batch_scraper.types import ScrapeStatus, WorkItem
+
 from etl.courts.scraper.core import SEARCH_BY_DROPDOWN, UJSPortalScraper
 
 FARGATE_SMOKE_SUCCESS_MARKER = "COURTS_FARGATE_SMOKE_OK_V1"
 
+# A synthetic DC number exercises the live incident-search form without
+# depending on a real person's court record. The portal explicitly returns no matches.
+_PROBE_INCIDENT_NUMBER = "209900000000"
 _CHROME_SANDBOX = "/opt/google/chrome/chrome-sandbox"
 _DISPATCH_TOKEN = "GITHUB_DISPATCH_TOKEN"
 _PROC_STATUS = Path("/proc/self/status")
@@ -473,7 +478,7 @@ def _assert_chrome_no_sandbox(proc_root: Path = _PROC_ROOT) -> None:
 
 
 def run_fargate_smoke() -> None:
-    """Prove the live task boundary and courts browser launch without AWS writes."""
+    """Prove the live task boundary and a read-only court lookup before promotion."""
     _assert_app_identity()
     _assert_process_security()
     _assert_mount_contract()
@@ -495,4 +500,9 @@ def run_fargate_smoke() -> None:
             raise FargateSmokeError("UJS landing selector was not visible")
         scraper.assert_portal_origin()
         _assert_chrome_no_sandbox()
+        result = scraper(WorkItem(_PROBE_INCIDENT_NUMBER))
+        if result.status != ScrapeStatus.NO_RESULTS:
+            raise FargateSmokeError(
+                f"Expected zero results from the synthetic court lookup, got {result.status.value}"
+            )
         scraper.assert_portal_origin()

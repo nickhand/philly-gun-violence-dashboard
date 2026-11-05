@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from aws_batch_scraper.types import ScrapeResult, ScrapeStatus, WorkItem
 from typer.testing import CliRunner
 
 from etl.courts import cli
@@ -380,8 +381,12 @@ def test_metadata_endpoint_is_exact_link_local_v4_path() -> None:
         smoke._metadata_path(environment)
 
 
-def test_fargate_smoke_checks_portal_and_chrome_while_browser_is_open(
+@pytest.mark.parametrize(
+    "lookup_status", [ScrapeStatus.NO_RESULTS, ScrapeStatus.FAILED, ScrapeStatus.SUCCESS]
+)
+def test_fargate_smoke_requires_a_conclusive_synthetic_lookup_while_browser_is_open(
     monkeypatch: pytest.MonkeyPatch,
+    lookup_status: ScrapeStatus,
 ) -> None:
     events: list[str] = []
     browser_open = False
@@ -416,6 +421,12 @@ def test_fargate_smoke_checks_portal_and_chrome_while_browser_is_open(
             assert browser_open
             events.append("origin")
 
+        def __call__(self, item: WorkItem) -> ScrapeResult:
+            assert browser_open
+            assert item.item_id == "209900000000"
+            events.append("lookup")
+            return ScrapeResult(status=lookup_status)
+
         def __exit__(self, *_args: object) -> None:
             nonlocal browser_open
             browser_open = False
@@ -428,14 +439,26 @@ def test_fargate_smoke_checks_portal_and_chrome_while_browser_is_open(
     monkeypatch.setattr(smoke, "UJSPortalScraper", FakeScraper)
     monkeypatch.setattr(smoke, "_assert_chrome_no_sandbox", assert_chrome)
 
-    smoke.run_fargate_smoke()
+    if lookup_status == ScrapeStatus.NO_RESULTS:
+        smoke.run_fargate_smoke()
+        assert events[-6:] == [
+            "browser-enter",
+            "origin",
+            "chrome",
+            "lookup",
+            "origin",
+            "browser-exit",
+        ]
+    else:
+        with pytest.raises(smoke.FargateSmokeError, match="synthetic court lookup"):
+            smoke.run_fargate_smoke()
+        assert events[-2:] == ["lookup", "browser-exit"]
 
     page.wait_for_selector.assert_called_once_with(
         "#SearchBy-Control select",
         state="visible",
         timeout=5_000,
     )
-    assert events[-5:] == ["browser-enter", "origin", "chrome", "origin", "browser-exit"]
 
 
 def test_fargate_smoke_cli_emits_marker_once_and_only_after_success(

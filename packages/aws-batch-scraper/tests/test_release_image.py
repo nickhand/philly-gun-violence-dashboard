@@ -1950,3 +1950,130 @@ def test_grype_report_loader_leaves_severity_validation_to_existing_gate(tmp_pat
     assert release_image._load_grype_report(report, label="Grype report", result=result) == payload
     with pytest.raises(ReleaseIntegrityError, match="blocked release"):
         release_image._validate_grype_matches(payload, scanner_returncode=2, label="Grype report")
+
+
+def test_collect_deployed_findings_keeps_image_and_chrome_blockers_together() -> None:
+    findings = []
+    image = _grype_payload(
+        source={
+            "type": "image",
+            "target": {"imageID": IMAGE_ID, "manifestDigest": MANIFEST_DIGEST},
+        },
+        distro="ubuntu",
+    )
+    image["matches"] = [
+        {
+            "artifact": {"name": "libexample", "version": "1.0"},
+            "vulnerability": {"id": "USN-123", "severity": "Unknown"},
+        }
+    ]
+    validate_grype_report(
+        image,
+        image_id=IMAGE_ID,
+        manifest_digest=MANIFEST_DIGEST,
+        expected_distro_name="ubuntu",
+        expected_distro_version="26.04",
+        now=NOW,
+        scanner_returncode=0,
+        observed_findings=findings,
+    )
+    cpe = f"cpe:2.3:a:google:chrome:{CHROME_VERSION}:*:*:*:*:*:*:*"
+    browser = _grype_payload(source={"type": "cpe", "target": cpe}, distro="")
+    browser["matches"] = [
+        {
+            "artifact": {"name": "chrome", "version": CHROME_VERSION},
+            "vulnerability": {
+                "id": "CVE-2099-3",
+                "severity": "Critical",
+                "fix": {"versions": ["158"]},
+            },
+        }
+    ]
+    validate_chrome_grype_report(
+        browser,
+        cpe=cpe,
+        now=NOW,
+        scanner_returncode=2,
+        observed_findings=findings,
+    )
+    assert findings == [
+        {
+            "component": "image",
+            "package": "libexample",
+            "version": "1.0",
+            "advisory": "USN-123",
+            "severity": "Unknown",
+            "fixed_versions": [],
+        },
+        {
+            "component": "chrome",
+            "package": "google-chrome-stable",
+            "version": CHROME_VERSION,
+            "advisory": "CVE-2099-3",
+            "severity": "Critical",
+            "fixed_versions": ["158"],
+        },
+    ]
+    # Collecting observations still requires trustworthy fresh scanner data.
+    browser["descriptor"]["db"]["status"]["valid"] = False
+    with pytest.raises(ReleaseIntegrityError, match="was not valid"):
+        validate_chrome_grype_report(
+            browser,
+            cpe=cpe,
+            now=NOW,
+            scanner_returncode=2,
+            observed_findings=findings,
+        )
+
+
+@pytest.mark.parametrize("result", ["clean", "findings", "lost coverage"])
+def test_deployed_scan_binds_observation_to_digest_without_building_or_publishing(
+    result: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    remote = f"{_target().repository_uri}@{DIGEST}"
+    runner = StubRunner(
+        (0, "pulled"),
+        (0, json.dumps({REVISION_LABEL: COMMIT})),
+        (0, json.dumps([{"Id": IMAGE_ID, "Os": "linux", "Architecture": "amd64"}])),
+        (0, _manifest_payload()),
+        (0, "tagged"),
+    )
+    findings = [{"component": "image", "package": "example", "advisory": "CVE-2099-3"}]
+
+    def scan(image, **kwargs):
+        assert image == runner.calls[-1][-1]
+        assert kwargs["expected_image_id"] == IMAGE_ID
+        assert kwargs["expected_chrome_executable_sha256"] == CHROME_SHA256
+        assert kwargs["forbid_chrome_sandbox"] and kwargs["forbid_setuid_setgid_files"]
+        if result == "lost coverage":
+            raise ReleaseIntegrityError("Grype database was stale")
+        evidence = "receipt.json" if result == "clean" else "FAILED.json"
+        (kwargs["output_directory"] / evidence).write_text(result)
+        if result == "findings":
+            raise release_image._VerifiedFindings(findings)
+
+    monkeypatch.setattr(release_image, "scan_local_image", scan)
+    kwargs = dict(
+        requirements=_required_packages(),
+        expected_distro_name="ubuntu",
+        expected_distro_version="26.04",
+        expected_chrome_executable_sha256=CHROME_SHA256,
+        output_directory=tmp_path,
+        runner=runner,
+        clock=lambda: NOW,
+    )
+    if result == "lost coverage":
+        with pytest.raises(ReleaseIntegrityError, match="Grype database was stale"):
+            release_image.scan_deployed_image(_target(), DIGEST, **kwargs)
+        assert not (tmp_path / "observation.json").exists()
+        return
+    observed = release_image.scan_deployed_image(_target(), DIGEST, **kwargs)
+    assert observed["image"] == remote and observed["image_id"] == IMAGE_ID
+    assert observed["source_sha"] == COMMIT
+    assert observed["findings"] == ([] if result == "clean" else findings)
+    assert json.loads((tmp_path / "observation.json").read_text()) == observed
+    assert runner.calls[0] == ["docker", "pull", "--platform", "linux/amd64", remote]
+    assert runner.calls[-1][0:3] == ["docker", "tag", remote]
+    assert f"imageDigest={DIGEST}" in runner.calls[-2]

@@ -22,6 +22,7 @@ from aws_batch_scraper.health import check_run_health
 from aws_batch_scraper.lease import read_run_lease
 from aws_batch_scraper.orchestrate import _network_config, resolve_split_task_definitions
 from botocore.exceptions import ClientError
+from check_deployment_config import local_docker_sources
 from etl.courts.config import CourtsSubmitterConfig
 from etl.courts.deployment import CourtsRelease, lock_digest, read_release
 
@@ -91,6 +92,28 @@ def require_current_main():
         "The exact main commit must pass ETL quality before deployment",
     )
     return sha
+
+
+def scraper_image_inputs_changed(deployed_sha: str, main_sha: str) -> bool:
+    """Compare the production build inputs across all commits since deployment."""
+    dockerfile = "packages/etl/Dockerfile"
+    inputs = (
+        dockerfile,
+        f"{dockerfile}.dockerignore",
+        ".dockerignore",
+        ":(glob)**/.gitattributes",  # git archive honors export-ignore and export-subst.
+        ".github/ci/build_scraper_image.py",
+        *local_docker_sources((ROOT / dockerfile).read_text()),
+    )
+    diff = subprocess.run(
+        ["git", "diff", "--quiet", "--no-renames", deployed_sha, main_sha, "--", *inputs],
+        cwd=ROOT,
+    )
+    if diff.returncode not in (0, 1):
+        # A legacy release may refer to a commit no longer in the main checkout.
+        # A fully verified rebuild establishes a new, comparable baseline.
+        summary("Could not compare the deployed source to main. Validating a fresh release.")
+    return diff.returncode != 0
 
 
 def verify_probe(task, interfaces, messages, config, role):
@@ -201,8 +224,13 @@ class Deployment:
     def plan(self, verify_only, force=False):
         sha = require_current_main()
         lock = lock_digest((ROOT / "packages/etl/chrome-lock.json").read_bytes())
-        if lock == self.current.chrome_lock_sha256 and not verify_only and not force:
-            summary("The merged Chrome release is already deployed.")
+        if (
+            not verify_only
+            and not force
+            and lock == self.current.chrome_lock_sha256
+            and not scraper_image_inputs_changed(self.current.source_sha, sha)
+        ):
+            summary("The deployed scraper already matches the image inputs on main.")
             output("ready", "false")
             return
         if not self.idle():
