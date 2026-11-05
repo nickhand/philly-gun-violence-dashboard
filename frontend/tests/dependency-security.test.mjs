@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { fromCrossJSON, fromJSON, SerovalMalformedNodeError, toCrossJSON, toJSON } from 'seroval';
 import { z } from 'zod';
@@ -21,6 +23,30 @@ const digest = createHash('sha256').update(message).digest('latin1');
 const asn1 = forge.asn1;
 const element = (type, constructed, value) =>
   asn1.create(asn1.Class.UNIVERSAL, type, constructed, value);
+
+test('build tools can trace, archive, and configure nested files with the patched glob matchers', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'frontend-glob-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'assets', 'nested'), { recursive: true });
+  for (const name of ['public.json', 'internal.json', 'notes.txt']) {
+    writeFileSync(join(root, 'assets', 'nested', name), '{}');
+  }
+  const entry = join(root, 'entry.cjs');
+  writeFileSync(entry, "require('./assets/' + process.argv[2] + '.json');\n");
+  const { fileList } = await require('@vercel/nft').nodeFileTrace([entry], { base: root, processCwd: root });
+  assert.ok(fileList.has(join('assets', 'nested', 'public.json')));
+  assert.ok(!fileList.has(join('assets', 'nested', 'notes.txt')));
+
+  const archived = require('archiver-utils').file.expand(
+    { cwd: root }, ['assets/**/*.json', '!**/internal.json'],
+  );
+  assert.deepEqual(archived, ['assets/nested/public.json']);
+
+  writeFileSync(join(root, '.editorconfig'), 'root = true\n[**/*.{js,json}]\nindent_size = 2\n');
+  const editorconfig = require('editorconfig');
+  assert.equal(editorconfig.parseSync(join(root, 'assets/nested/public.json')).indent_size, 2);
+  assert.equal(editorconfig.parseSync(join(root, 'assets/nested/notes.txt')).indent_size, undefined);
+});
 
 test('Seroval rejects array-like element lists in both JSON decoders', () => {
   // GHSA-wp97-x4hv-qvhp: even a harmless zero-length object must be rejected;
