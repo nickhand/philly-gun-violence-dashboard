@@ -219,9 +219,10 @@ defaults.
 
 The courts container is `packages/etl/Dockerfile`. It is intentionally
 project-specific. The final image starts from an exact `linux/amd64` manifest
-of Ubuntu 26.04 LTS, which ECR scanning supports. Every apt transaction uses the
-same signed, dated Ubuntu snapshot, and the build refuses an overridden snapshot
-date. The `20261030T000000Z` snapshot includes Canonical's October 26 Brotli
+of Ubuntu 26.04 LTS, which ECR scanning supports. APT selects package versions
+and hashes from the signed Ubuntu snapshot. It downloads matching packages from
+the Ubuntu archive first and falls back to the snapshot for superseded versions.
+The `20261030T000000Z` snapshot includes Canonical's October 26 Brotli
 security fix and retains the October 20–22 CA/NSS distrust updates and zlib/XZ
 fixes, plus the earlier updates for libcurl, libX11, librsvg, and libpng.
 The image build and SBOM gate assert `libcurl3t64-gnutls=8.18.0-1ubuntu2.8`,
@@ -359,20 +360,16 @@ nor WebSockets. A newly required origin or WebSocket is therefore a failing
 policy change to investigate and review, not something the worker follows
 implicitly.
 
-The minimal Ubuntu base does not initially contain CA roots. Before its first
-apt transaction, the build bootstraps `openssl` 3.5.5-1ubuntu3.7 (SHA-256
+Before its first APT transaction, the build downloads the TLS certificate bundle
+and its OpenSSL dependency from Launchpad Librarian. Docker verifies
+`openssl` 3.5.5-1ubuntu3.7 (SHA-256
 `6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621`)
 and `ca-certificates` 20260816ubuntu0.26.04.1 (SHA-256
 `5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd`)
-from exact Canonical snapshot URLs. Those artifacts and hashes come from the
-Ubuntu `resolute-security` Packages index whose InRelease is signed by the
-Ubuntu archive key `F6ECB3762474EDA9D21B7022871920D1991BC93C`. Both the
-security and updates indexes and all six reviewed bootstrap/security package
-downloads were verified against that signed metadata. The build clears inherited
-package lists, treats any
-snapshot update warning as an error, and verifies indexes for every configured
-suite before upgrading or installing packages. This prevents apt from silently
-falling back to live indexes when the requested snapshot is unavailable.
+against hashes published in the snapshot's `resolute-security` Packages index.
+The Ubuntu archive key `F6ECB3762474EDA9D21B7022871920D1991BC93C` signs its
+InRelease file. The build clears inherited package lists and requires fresh,
+authenticated indexes for every configured suite before installing packages.
 
 The image defaults to:
 
