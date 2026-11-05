@@ -5,17 +5,17 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import tomllib
 import unittest
 from collections import Counter
 from pathlib import Path
 from types import ModuleType
 
-import tomllib
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
 ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset(
     {
+        "./.github/workflows/deployed-scraper-audit.yml",
         "./.github/workflows/production-smoke.yml",
         "./.github/workflows/scraper-image-quality.yml",
         "./.github/workflows/courts-watchdog.yml",
@@ -142,14 +142,16 @@ class DeploymentContracts(unittest.TestCase):
             crontab,
         )
 
-    def test_daily_security_audit_reuses_the_production_image_gate(self) -> None:
+    def test_weekly_clean_build_reuses_the_production_image_gate(self) -> None:
         security = (WORKFLOWS / "security-quality.yml").read_text()
         etl = (WORKFLOWS / "etl-quality.yml").read_text()
         shared = (WORKFLOWS / "scraper-image-quality.yml").read_text()
         reference = "uses: ./.github/workflows/scraper-image-quality.yml"
         self.assertIn(reference, etl)
         self.assertIn(reference, security)
-        self.assertIn("if: github.event_name == 'workflow_dispatch'", security)
+        self.assertIn("if: needs.changes.outputs.image == 'true'", security)
+        self.assertIn("needs.changes.outputs.deployed == 'true'", security)
+        self.assertIn("uses: ./.github/workflows/deployed-scraper-audit.yml", security)
         self.assertIn("needs: [changes, api, etl, dashboard, scraper, frontend, image]", security)
         self.assertIn('require_routed_job "${IMAGE_SELECTED}" "${IMAGE_RESULT}" "image"', security)
         self.assertIn("workflow_call:", shared)
@@ -282,22 +284,27 @@ class DeploymentContracts(unittest.TestCase):
         self.assertIn("GOOGLE_SIGNING_KEY_FINGERPRINT", resolver)
         self.assertIn('"gpgv"', resolver)
         self.assertIn("older signed stable release", resolver)
-        self.assertIn('"${old_version}" != "${new_version}"', source)
+        self.assertIn(
+            "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)", source
+        )
+        self.assertIn(
+            'if dpkg --compare-versions "${new_version}" gt "${old_version}"; then', source
+        )
         self.assertIn("git diff --name-only", source)
         self.assertIn("git diff --cached --check", source)
         self.assertIn("--force-with-lease=", source)
-        self.assertIn('git diff --quiet "refs/remotes/origin/${UPDATE_BRANCH}"', source)
+        self.assertIn('git diff --quiet "${remote_sha}"', source)
         self.assertIn("printf 'reused=%s", source)
         self.assertIn("unexpected_identities=", source)
         self.assertIn("unexpected_remote_paths=", source)
-        self.assertIn("Refusing to overwrite a Chrome update branch", source)
+        self.assertIn("Refusing to use a Chrome update branch", source)
         self.assertIn("gh pr create", source)
         self.assertIn('--field head="${GITHUB_REPOSITORY_OWNER}:${UPDATE_BRANCH}"', source)
         self.assertIn("--method PATCH", source)
         self.assertIn('"repos/${GITHUB_REPOSITORY}/pulls/${pr_number}"', source)
 
         validation = source.split("- name: Validate the exact update commit", maxsplit=1)[1].split(
-            "- name: Merge a validated same-milestone update", maxsplit=1
+            "- name: Merge a validated Chrome upgrade", maxsplit=1
         )[0]
         self.assertIn('head_sha="${{ steps.push.outputs.head_sha }}"', validation)
         self.assertIn("select(.headSha ==", validation)
@@ -312,10 +319,10 @@ class DeploymentContracts(unittest.TestCase):
         self.assertEqual(validation.count("gh run watch"), 6)
         self.assertEqual(validation.count("--exit-status"), 6)
 
-        merge = source.split("- name: Merge a validated same-milestone update", maxsplit=1)[
-            1
-        ].split("- name: Report a milestone update", maxsplit=1)[0]
-        report = source.split("- name: Report a milestone update", maxsplit=1)[1]
+        merge = source.split("- name: Merge a validated Chrome upgrade", maxsplit=1)[1].split(
+            "- name: Report a republished Chrome package", maxsplit=1
+        )[0]
+        report = source.split("- name: Report a republished Chrome package", maxsplit=1)[1]
         self.assertIn("steps.update.outputs.automatic_update == 'true'", merge)
         self.assertIn("--json headRefOid,baseRefOid", merge)
         self.assertIn('tested_head_sha="${{ steps.push.outputs.head_sha }}"', merge)

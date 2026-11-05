@@ -26,8 +26,8 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
     assert re.search(expected_base, source, re.MULTILINE)
-    assert "ARG UBUNTU_SNAPSHOT=20261030T000000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20261030T000000Z"' in source
+    assert "ARG UBUNTU_SNAPSHOT=20261105T000000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20261105T000000Z"' in source
     # Only the dated snapshot may supply indexes. The ordinary archive can
     # supply .debs whose hashes have already been authenticated by those indexes.
     assert (
@@ -54,6 +54,9 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
         ("liblzma5", "5.8.3-1ubuntu0.1"),
         ("zlib1g", "1:1.3.dfsg+really1.3.1-1ubuntu3.2"),
         ("libbrotli1", "1.2.0-3ubuntu0.1"),
+        ("apt", "3.2.1ubuntu0.1"),
+        ("libapt-pkg7.0", "3.2.1ubuntu0.1"),
+        ("libpcre2-8-0", "10.46-1ubuntu0.1"),
     ):
         assert f"${{Version}}' {package})" in source
         assert f' = "{version}"' in source
@@ -252,6 +255,9 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
         "deb:liblzma5=5.8.3-1ubuntu0.1",
         "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
         "deb:libbrotli1=1.2.0-3ubuntu0.1",
+        "deb:apt=3.2.1ubuntu0.1",
+        "deb:libapt-pkg7.0=3.2.1ubuntu0.1",
+        "deb:libpcre2-8-0=10.46-1ubuntu0.1",
     ):
         assert package in source
     assert "root:root:755" not in source
@@ -281,6 +287,9 @@ def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
         "deb:liblzma5=5.8.3-1ubuntu0.1",
         "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
         "deb:libbrotli1=1.2.0-3ubuntu0.1",
+        "deb:apt=3.2.1ubuntu0.1",
+        "deb:libapt-pkg7.0=3.2.1ubuntu0.1",
+        "deb:libpcre2-8-0=10.46-1ubuntu0.1",
     ):
         assert package in justfile
     assert "scraper-check-browser-lock:" in recipe

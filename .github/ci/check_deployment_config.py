@@ -6,11 +6,10 @@ from __future__ import annotations
 import json
 import shlex
 import sys
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
-
-import tomllib
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -128,7 +127,7 @@ def _local_docker_mappings(source: str) -> tuple[tuple[str, str], ...]:
     return tuple(local_mappings)
 
 
-def _local_docker_sources(source: str) -> tuple[str, ...]:
+def local_docker_sources(source: str) -> tuple[str, ...]:
     """Return every local COPY/ADD source and fail on unsupported syntax."""
     return tuple(item for item, _destination in _local_docker_mappings(source))
 
@@ -209,7 +208,7 @@ def check_runtime_docker_inputs() -> None:
         ("API", api, allowed_api_sources),
         ("scraper", scraper, allowed_scraper_sources),
     ):
-        unexpected = sorted(set(_local_docker_sources(source)) - allowed)
+        unexpected = sorted(set(local_docker_sources(source)) - allowed)
         _require(not unexpected, f"{name} image has untracked local inputs: {unexpected}")
 
     for name, source, required in (

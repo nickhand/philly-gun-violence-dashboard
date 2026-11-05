@@ -227,11 +227,11 @@ daily heartbeat or perform recovery mutations. Activating the hourly cadence
 requires redeploying this scheduler; see the
 [courts recovery and rollout runbook](../aws-batch-scraper/docs/recovery.md).
 
-The same scheduler dispatches `security-quality.yml` daily at 07:17 UTC, before
-the Chrome updater. Dependency and full scraper image audits use a changing
-advisory database, so they run daily even when lockfiles
-are unchanged; keeping this cadence outside GitHub prevents repository
-inactivity from silently disabling the security check.
+The same scheduler dispatches `security-quality.yml` daily at 07:17 UTC. It
+scans the active production scraper image every day. Wednesday's run also
+audits the application locks and builds the scraper from scratch. See the
+[maintenance policy](../../docs/dependency-maintenance.md) for how to find
+open issues or request a full audit between weekly runs.
 
 It also dispatches `chrome-update.yml` every morning. That workflow verifies
 Google's signed stable-channel metadata and maintains one checksum-pinned Chrome

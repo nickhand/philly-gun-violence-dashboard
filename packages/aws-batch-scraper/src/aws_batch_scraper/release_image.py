@@ -93,6 +93,14 @@ class ReleaseIntegrityError(RuntimeError):
     """Raised when an image cannot be proven safe to publish."""
 
 
+class _VerifiedFindings(ReleaseIntegrityError):
+    """The scan completed with release blockers; retain the evidence for monitoring."""
+
+    def __init__(self, findings: list[dict[str, Any]]) -> None:
+        super().__init__(f"Verified image scan blocked release: {len(findings)} blocking matches")
+        self.findings = findings
+
+
 def _current_utc_time() -> datetime:
     return datetime.now(UTC)
 
@@ -1186,14 +1194,59 @@ def _require_grype_exit_status(
         raise ReleaseIntegrityError(f"{label} exit status disagreed with its severity threshold")
 
 
-def _require_no_blocking_grype_findings(severity_counts: dict[str, int], *, label: str) -> None:
+def _check_grype_findings(
+    severity_counts: dict[str, int],
+    *,
+    label: str,
+    component: str,
+    payload: dict[str, Any],
+    observed: list[dict[str, Any]] | None,
+    correction: dict[str, Any] | None = None,
+) -> None:
+    """Enforce the threshold, or accumulate blockers until every scan is verified."""
     critical = severity_counts["Critical"]
     high = severity_counts["High"]
     unknown = severity_counts["Unknown"]
-    if critical or high or unknown:
+    if not (critical or high or unknown):
+        return
+    if observed is None:
         raise ReleaseIntegrityError(
             f"{label} blocked release: "
             f"{critical} Critical, {high} High, and {unknown} Unknown findings"
+        )
+    for match in payload["matches"]:
+        vulnerability = match["vulnerability"]
+        severity = vulnerability["severity"]
+        if severity not in {"Critical", "High", "Unknown"}:
+            continue
+        advisory = vulnerability.get("id")
+        if correction and advisory == correction["id"]:
+            # The adjudication above requires exactly one matching record.
+            continue
+        artifact = match.get("artifact")
+        if not isinstance(artifact, dict):
+            raise ReleaseIntegrityError(f"{label} omitted the affected package")
+        package = artifact.get("name")
+        version = artifact.get("version")
+        if not all(
+            isinstance(value, str) and value.strip() for value in (advisory, package, version)
+        ):
+            raise ReleaseIntegrityError(
+                f"{label} omitted the advisory or affected package identity"
+            )
+        fix = vulnerability.get("fix", {})
+        versions = fix.get("versions", []) if isinstance(fix, dict) else None
+        if not isinstance(versions, list) or not all(isinstance(v, str) for v in versions):
+            raise ReleaseIntegrityError(f"{label} reported malformed fixed versions")
+        observed.append(
+            {
+                "component": component,
+                "package": "google-chrome-stable" if component == "chrome" else package,
+                "version": version,
+                "advisory": advisory,
+                "severity": severity,
+                "fixed_versions": versions,
+            }
         )
 
 
@@ -1202,11 +1255,14 @@ def _validate_grype_matches(
     *,
     scanner_returncode: int,
     label: str,
+    observed_findings: list[dict[str, Any]] | None = None,
 ) -> dict[str, int]:
-    severity_counts = _grype_severity_counts(payload, label=label)
-    _require_grype_exit_status(severity_counts, scanner_returncode=scanner_returncode, label=label)
-    _require_no_blocking_grype_findings(severity_counts, label=label)
-    return severity_counts
+    counts = _grype_severity_counts(payload, label=label)
+    _require_grype_exit_status(counts, scanner_returncode=scanner_returncode, label=label)
+    _check_grype_findings(
+        counts, label=label, component="image", payload=payload, observed=observed_findings
+    )
+    return counts
 
 
 def _chrome_nvd_range_correction(
@@ -1297,8 +1353,9 @@ def validate_grype_report(
     expected_distro_version: str,
     now: datetime,
     scanner_returncode: int,
+    observed_findings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Require an unsuppressed, fresh, identity-bound zero-severity report."""
+    """Validate image findings and immediately reject blockers unless collecting them."""
     _require_grype_configuration(payload)
     descriptor = payload["descriptor"]
     scan_time = _require_fresh_timestamp(
@@ -1331,8 +1388,9 @@ def validate_grype_report(
     )
     severity_counts = _validate_grype_matches(
         payload,
-        scanner_returncode=scanner_returncode,
         label="Grype image report",
+        scanner_returncode=scanner_returncode,
+        observed_findings=observed_findings,
     )
     return {
         "scan_time": scan_time.isoformat(),
@@ -1349,6 +1407,7 @@ def validate_chrome_grype_report(
     cpe: str,
     now: datetime,
     scanner_returncode: int,
+    observed_findings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Require a fresh Chrome scan, retaining any narrowly reviewed data correction."""
     _require_grype_configuration(payload)
@@ -1380,7 +1439,14 @@ def validate_chrome_grype_report(
     severity_counts = raw_counts.copy()
     if correction is not None:
         severity_counts["High"] -= 1
-    _require_no_blocking_grype_findings(severity_counts, label="Grype Chrome CPE report")
+    _check_grype_findings(
+        severity_counts,
+        label="Grype Chrome CPE report",
+        component="chrome",
+        payload=payload,
+        observed=observed_findings,
+        correction=correction,
+    )
     return {
         "scan_time": scan_time.isoformat(),
         "database": database,
@@ -1539,6 +1605,7 @@ def scan_local_image(
     forbid_setuid_setgid_files: bool = False,
     output_directory: Path | None = None,
     expected_platform: str = LOCAL_SCAN_PLATFORM,
+    expected_image_id: str | None = None,
     runner: CommandRunner = _default_runner,
     clock: Clock = _current_utc_time,
 ) -> dict[str, Any]:
@@ -1583,6 +1650,8 @@ def scan_local_image(
         )
 
     image_record = _inspect_local_image(image, runner=runner)
+    if expected_image_id is not None and image_record["image_id"] != expected_image_id:
+        raise ReleaseIntegrityError("Local scan target did not match the deployed image config")
     if image_record["platform"] != expected_platform:
         raise ReleaseIntegrityError(
             f"Local image platform was {image_record['platform']}, expected {expected_platform}"
@@ -1782,6 +1851,7 @@ def scan_local_image(
             raw_artifact_names.append("grype.chrome.json")
         if chrome_control_path is not None:
             raw_artifact_names.append("grype.chrome-control.json")
+        findings: list[dict[str, Any]] = []
         try:
             report = validate_grype_report(
                 _load_grype_report(
@@ -1795,6 +1865,7 @@ def scan_local_image(
                 expected_distro_version=expected_distro_version,
                 now=_clock_time(clock),
                 scanner_returncode=scan_result.returncode,
+                observed_findings=findings,
             )
             chrome_report: dict[str, Any] | None = None
             chrome_control: dict[str, Any] | None = None
@@ -1814,6 +1885,7 @@ def scan_local_image(
                     cpe=chrome_cpe,
                     now=_clock_time(clock),
                     scanner_returncode=chrome_scan_result.returncode,
+                    observed_findings=findings,
                 )
                 chrome_control = validate_chrome_control_report(
                     _load_grype_report(
@@ -1824,6 +1896,18 @@ def scan_local_image(
                     now=_clock_time(clock),
                     scanner_returncode=chrome_control_result.returncode,
                 )
+                if not (
+                    report["database"] == chrome_report["database"] == chrome_control["database"]
+                ):
+                    raise ReleaseIntegrityError(
+                        "Image, Chrome and control scans used different databases"
+                    )
+            if _inspect_local_image(image, runner=runner) != image_record:
+                raise ReleaseIntegrityError(
+                    "Local image identity changed during its vulnerability scan"
+                )
+            if findings:
+                raise _VerifiedFindings(findings)
         except ReleaseIntegrityError as exc:
             if output_directory is not None:
                 _copy_failed_scan_artifacts(
@@ -1833,11 +1917,6 @@ def scan_local_image(
                     message=str(exc),
                 )
             raise
-        final_image_record = _inspect_local_image(image, runner=runner)
-        if final_image_record != image_record:
-            raise ReleaseIntegrityError(
-                "Local image identity changed during its vulnerability scan"
-            )
 
         receipt = {
             "schema_version": 1,
@@ -2008,11 +2087,87 @@ def _require_remote_config_identity(
         )
 
 
+def scan_deployed_image(
+    target: ReleaseTarget,
+    digest: str,
+    *,
+    requirements: Sequence[PackageRequirement],
+    expected_distro_name: str,
+    expected_distro_version: str,
+    expected_chrome_executable_sha256: str,
+    output_directory: Path,
+    runner: CommandRunner = _default_runner,
+    clock: Clock = _current_utc_time,
+) -> dict[str, Any]:
+    """Rescan an authenticated ECR digest. Return blockers only after verifying coverage."""
+    if IMAGE_DIGEST_PATTERN.fullmatch(digest) is None:
+        raise ValueError("Deployed image must be identified by a lowercase SHA-256 digest")
+    if IMAGE_DIGEST_PATTERN.fullmatch(expected_chrome_executable_sha256) is None:
+        raise ValueError("Deployed Chrome executable must have a lowercase SHA-256 digest")
+    if output_directory.is_symlink() or (
+        output_directory.exists()
+        and (not output_directory.is_dir() or any(output_directory.iterdir()))
+    ):
+        raise ValueError("Deployed scan requires an empty evidence directory")
+
+    remote = f"{target.repository_uri}@{digest}"
+    _checked_output(
+        runner,
+        ["docker", "pull", "--platform", LOCAL_SCAN_PLATFORM, remote],
+        label="Deployed image pull by digest",
+    )
+    verify_local_image(remote, target.tag, runner=runner)
+    image_id = _inspect_local_image(remote, runner=runner)["image_id"]
+    _require_remote_config_identity(target, digest, image_id, runner=runner)
+    # Syft's Docker archive evidence includes tags. Give the pulled object a
+    # unique local tag and require its config to match the verified ECR manifest.
+    local = f"deployed-scan:{digest.removeprefix('sha256:')}"
+    _checked_output(runner, ["docker", "tag", remote, local], label="Deployed scan image tag")
+    findings: list[dict[str, Any]] = []
+    try:
+        scan_local_image(
+            local,
+            requirements=requirements,
+            expected_distro_name=expected_distro_name,
+            expected_distro_version=expected_distro_version,
+            expected_chrome_executable_sha256=expected_chrome_executable_sha256,
+            forbid_chrome_sandbox=True,
+            forbid_setuid_setgid_files=True,
+            output_directory=output_directory,
+            expected_image_id=image_id,
+            runner=runner,
+            clock=clock,
+        )
+    except _VerifiedFindings as exc:
+        # Monitors can report a verified exposure. Release callers always fail
+        # closed and no success receipt is minted when the threshold is crossed.
+        findings = exc.findings
+    ecr, ecr_findings = read_ecr_scan_findings(
+        target, digest, now=_clock_time(clock), runner=runner
+    )
+    _write_new_json_file(output_directory / "ecr-basic.json", {**ecr, "findings": ecr_findings})
+    findings.extend(ecr_findings)
+
+    observation = {
+        "schema_version": 1,
+        "source_sha": target.tag,
+        "image": remote,
+        "image_id": image_id,
+        "observed_at": _clock_time(clock).isoformat(),
+        "findings": findings,
+        "ecr": ecr,
+        "artifacts": {path.name: _sha256_file(path) for path in sorted(output_directory.iterdir())},
+    }
+    _write_new_json_file(output_directory / "observation.json", observation)
+    return observation
+
+
 def _scan_findings_payload(
     target: ReleaseTarget,
     digest: str,
     *,
     runner: CommandRunner,
+    next_token: str | None = None,
 ) -> dict[str, Any] | None:
     """Read one scan snapshot, tolerating only initial scan-registration lag."""
     command = target.aws_command(
@@ -2028,6 +2183,10 @@ def _scan_findings_payload(
         "--output",
         "json",
     )
+    if next_token is not None:
+        # AWS CLI's --starting-token is a synthetic paginator token. Pass
+        # the service token as API input so we can verify each response.
+        command.extend(("--cli-input-json", json.dumps({"nextToken": next_token})))
     result = runner(command)
     if result.returncode != 0:
         stderr = result.stderr if isinstance(result.stderr, str) else ""
@@ -2058,6 +2217,20 @@ def _validated_scan_status(
     return status
 
 
+def _ecr_severity_counts(findings: dict[str, Any]) -> dict[str, int]:
+    counts = findings.get("findingSeverityCounts")
+    if not isinstance(counts, dict):
+        raise ReleaseIntegrityError("ECR image scan omitted valid severity counts")
+    for severity, count in counts.items():
+        if not isinstance(severity, str) or severity not in _SCAN_SEVERITIES:
+            raise ReleaseIntegrityError("ECR image scan returned an unknown severity")
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise ReleaseIntegrityError("ECR image scan returned an invalid severity count")
+        if count < 0:
+            raise ReleaseIntegrityError("ECR image scan returned a negative severity count")
+    return counts
+
+
 def _require_clean_scan_findings(
     payload: dict[str, Any],
     *,
@@ -2082,16 +2255,7 @@ def _require_clean_scan_findings(
         now=now,
         max_age=REMOTE_VULNERABILITY_SOURCE_MAX_AGE,
     )
-    counts = findings.get("findingSeverityCounts")
-    if not isinstance(counts, dict):
-        raise ReleaseIntegrityError("ECR image scan omitted valid severity counts")
-    for severity, count in counts.items():
-        if not isinstance(severity, str) or severity not in _SCAN_SEVERITIES:
-            raise ReleaseIntegrityError("ECR image scan returned an unknown severity")
-        if isinstance(count, bool) or not isinstance(count, int):
-            raise ReleaseIntegrityError("ECR image scan returned an invalid severity count")
-        if count < 0:
-            raise ReleaseIntegrityError("ECR image scan returned a negative severity count")
+    counts = _ecr_severity_counts(findings)
     # AWS reports this map as aggregate totals even when detailed findings have
     # a nextToken, so omitted individual High/Critical keys mean zero.
     critical = counts.get("CRITICAL", 0)
@@ -2102,6 +2266,89 @@ def _require_clean_scan_findings(
             "ECR scan blocked release: "
             f"{critical} Critical, {high} High, and {undefined} Undefined findings"
         )
+
+
+def read_ecr_scan_findings(
+    target: ReleaseTarget,
+    digest: str,
+    *,
+    now: datetime,
+    runner: CommandRunner = _default_runner,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Read all findings in the latest completed Basic scan of the exact digest.
+
+    ECR performs a Basic scan on push. Its stored report is supplemental
+    evidence as of the recorded scan and feed times, even on an older release.
+    """
+    metadata: dict[str, Any] = {}
+    findings: list[dict[str, Any]] = []
+    totals: dict[str, int] = {}
+    seen_tokens: set[str] = set()
+    next_token = None
+    while True:
+        page = _scan_findings_payload(target, digest, runner=runner, next_token=next_token)
+        if page is None or _validated_scan_status(page, target, digest) != "COMPLETE":
+            raise ReleaseIntegrityError("No completed Basic ECR scan for the deployed digest")
+        snapshot = page.get("imageScanFindings")
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get("findings"), list):
+            raise ReleaseIntegrityError("Basic ECR scan omitted its detailed findings")
+        if snapshot.get("enhancedFindings"):
+            raise ReleaseIntegrityError("Expected Basic ECR findings for the deployed digest")
+        completed = _aware_timestamp(snapshot.get("imageScanCompletedAt"), label="ECR scan")
+        source = _aware_timestamp(snapshot.get("vulnerabilitySourceUpdatedAt"), label="ECR source")
+        if completed > now + LOCAL_SCAN_CLOCK_SKEW or source > completed + LOCAL_SCAN_CLOCK_SKEW:
+            raise ReleaseIntegrityError("ECR scan or vulnerability-source time was inconsistent")
+        counts = _ecr_severity_counts(snapshot)
+        page_metadata = {
+            "scan_completed_at": completed.isoformat(),
+            "vulnerability_source_updated_at": source.isoformat(),
+            "severity_counts": counts,
+        }
+        if metadata and metadata != page_metadata:
+            raise ReleaseIntegrityError("ECR scan changed during pagination")
+        metadata = page_metadata
+        for finding in snapshot["findings"]:
+            severity = finding.get("severity") if isinstance(finding, dict) else None
+            if not isinstance(severity, str) or severity not in _SCAN_SEVERITIES:
+                raise ReleaseIntegrityError("ECR reported an invalid finding severity")
+            totals[severity] = totals.get(severity, 0) + 1
+            if severity in {"CRITICAL", "HIGH", "UNDEFINED"}:
+                findings.append(_ecr_blocking_finding(finding, severity))
+        next_token = page.get("nextToken")
+        if next_token is None:
+            break
+        if not isinstance(next_token, str) or not next_token or next_token in seen_tokens:
+            raise ReleaseIntegrityError("Invalid or repeated ECR scan pagination token")
+        seen_tokens.add(next_token)
+    if totals != {key: value for key, value in counts.items() if value}:
+        raise ReleaseIntegrityError("Detailed ECR findings did not match aggregate severity counts")
+    return metadata, findings
+
+
+def _ecr_blocking_finding(finding: dict[str, Any], severity: str) -> dict[str, Any]:
+    attributes = finding.get("attributes")
+    if not isinstance(attributes, list):
+        raise ReleaseIntegrityError("ECR blocking finding omitted package attributes")
+    package: dict[str, str] = {}
+    for attribute in attributes:
+        if not isinstance(attribute, dict):
+            raise ReleaseIntegrityError("Malformed ECR finding attribute")
+        key, value = attribute.get("key"), attribute.get("value")
+        if key in ("package_name", "package_version"):
+            if key in package or not isinstance(value, str) or not value.strip():
+                raise ReleaseIntegrityError("Ambiguous ECR package identity")
+            package[key] = value
+    advisory = finding.get("name")
+    if len(package) != 2 or not isinstance(advisory, str) or not advisory.strip():
+        raise ReleaseIntegrityError("ECR blocker omitted its advisory or package identity")
+    return {
+        "component": "ecr",
+        "package": package["package_name"],
+        "version": package["package_version"],
+        "advisory": advisory,
+        "severity": "Unknown" if severity == "UNDEFINED" else severity.title(),
+        "fixed_versions": [],
+    }
 
 
 def verify_remote_scan(

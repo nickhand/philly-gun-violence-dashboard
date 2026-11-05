@@ -4,9 +4,11 @@ import copy
 import importlib.util
 import io
 import json
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from botocore.exceptions import ClientError
@@ -17,7 +19,8 @@ SCRIPT = Path(__file__).resolve().parents[3] / ".github/ci/deploy_scraper.py"
 SPEC = importlib.util.spec_from_file_location("deploy_scraper", SCRIPT)
 assert SPEC and SPEC.loader
 CI = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(CI)
+with patch.object(sys, "path", [str(SCRIPT.parent), *sys.path]):
+    SPEC.loader.exec_module(CI)
 
 
 @pytest.fixture
@@ -283,13 +286,64 @@ def test_busy_courts_defer_without_building_or_writing(operator, monkeypatch):
     operator.s3.put_object.assert_not_called()
 
 
-def test_already_deployed_lock_is_a_noop(operator, monkeypatch):
+def test_plan_compares_against_the_active_release_with_an_unchanged_lock(operator, monkeypatch):
     monkeypatch.setattr(CI, "lock_digest", lambda _: operator.current.chrome_lock_sha256)
+    main_sha = "c" * 40
+    monkeypatch.setattr(CI, "require_current_main", lambda: main_sha)
+    changed = Mock(side_effect=[False, True])
+    monkeypatch.setattr(CI, "scraper_image_inputs_changed", changed)
     emit = Mock()
     monkeypatch.setattr(CI, "output", emit)
     operator.plan(verify_only=False)
+    changed.assert_called_once_with(operator.current.source_sha, main_sha)
     emit.assert_called_once_with("ready", "false")
     operator.idle.assert_not_called()
+    operator.plan(verify_only=False)
+    emit.assert_called_with("ready", "true")
+    assert CI.read("state.json")["source_sha"] == main_sha
+    operator.idle.assert_called_once()
+
+
+def test_scraper_input_diff_tracks_image_sources_and_ignores_unrelated_commits(
+    tmp_path, monkeypatch
+):
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path, text=True).strip()
+
+    def commit_file(path, content):
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        git("add", "--", path)
+        git("-c", "user.name=CI", "-c", "user.email=ci@example.org", "commit", "-qm", "test")
+        return git("rev-parse", "HEAD")
+
+    monkeypatch.setattr(CI, "ROOT", tmp_path)
+    monkeypatch.setattr(CI, "summary", Mock())
+    git("init", "-q")
+    deployed = commit_file(
+        "packages/etl/Dockerfile", (SCRIPT.parents[2] / "packages/etl/Dockerfile").read_text()
+    )
+    commit_file("packages/etl/tests/test_scraper.py", "# test")
+    commit_file(".github/workflows/scraper-deploy.yml", "# workflow")
+    docs = commit_file("packages/etl/README.md", "docs")
+    assert not CI.scraper_image_inputs_changed(deployed, docs)
+
+    for path in (
+        "packages/aws-batch-scraper/uv.lock",
+        "packages/dashboard-utils/src/dashboard_utils/util.py",
+        "packages/etl/pyproject.toml",
+        ".dockerignore",
+        "packages/etl/Dockerfile",
+    ):
+        before = git("rev-parse", "HEAD")
+        after = commit_file(path, "# patched")
+        assert CI.scraper_image_inputs_changed(before, after)
+    # A later docs commit must not hide unpromoted image changes. Missing legacy
+    # commits require a fresh verified candidate rather than skipping a patch.
+    latest = commit_file("packages/etl/README.md", "new docs")
+    assert CI.scraper_image_inputs_changed(deployed, latest)
+    assert CI.scraper_image_inputs_changed("f" * 40, latest)
 
 
 def test_probe_for_another_definition_cannot_promote(operator):

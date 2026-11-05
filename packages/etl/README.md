@@ -222,9 +222,11 @@ project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. APT selects package versions
 and hashes from the signed Ubuntu snapshot. It downloads matching packages from
 the Ubuntu archive first and falls back to the snapshot for superseded versions.
-The `20261030T000000Z` snapshot includes Canonical's October 26 Brotli
-security fix and retains the October 20–22 CA/NSS distrust updates and zlib/XZ
-fixes, plus the earlier updates for libcurl, libX11, librsvg, and libpng.
+The `20261105T000000Z` snapshot supplies Canonical's fixes for the APT and
+PCRE2 vulnerabilities reported by ECR. The image build and SBOM checks require
+`apt=3.2.1ubuntu0.1`, `libapt-pkg7.0=3.2.1ubuntu0.1`, and
+`libpcre2-8-0=10.46-1ubuntu0.1`. See [USN-8996-1](https://ubuntu.com/security/notices/USN-8996-1)
+and [USN-8974-1](https://ubuntu.com/security/notices/USN-8974-1).
 The image build and SBOM gate assert `libcurl3t64-gnutls=8.18.0-1ubuntu2.8`,
 `libx11-6=2:1.8.13-1ubuntu0.1`, `librsvg2-2=2.61.3+dfsg-3ubuntu0.1`,
 `libpng16-16t64=1.6.57-1ubuntu0.1`, and `libaom3=3.13.1-2ubuntu0.1`.
@@ -282,9 +284,9 @@ the selected package, refreshes the lock and all generated consumers, and opens
 or updates one automation pull request. It waits for the required PR validation
 on the exact update commit, reusing those runs instead of dispatching duplicate
 image builds. The built-in-token fallback dispatches validation explicitly.
-A passing, strictly
-newer release within the current Chrome milestone is merged automatically; a
-new milestone or same-version republish remains open for review. Production
+A strictly newer signed release, including a new milestone, qualifies for
+automatic merge after its generated changes pass the required checks. A
+same-version republish needs maintainer review. Production
 smoke tests are independent of Chrome release drift, while scheduled ETL runs
 consume the reviewed lock instead of failing merely because Google published a
 newer release. The repository's Actions settings must allow `GITHUB_TOKEN` to
@@ -299,14 +301,15 @@ built-in `GITHUB_TOKEN`, even when separately dispatched validation has passed.
 Without `CHROME_UPDATE_TOKEN`, the updater still opens and validates the update,
 then requests native auto-merge and reports the outstanding approval. Approve
 the workflows on that exact PR to finish it. With the dedicated token, those
-PR checks can run unattended. Native auto-merge waits for branch protection;
-neither mode bypasses required checks or merges milestone changes automatically.
-Any previous auto-merge request is cleared before the automation branch is
-refreshed, so approval of a patch update cannot carry over to a new milestone.
+PR checks can run unattended. Native auto-merge waits for branch protection.
+The updater clears previous requests before refreshing the branch and verifies
+the exact tested commit again when it requests a merge.
 See [GitHub's token event rules](https://docs.github.com/en/actions/concepts/security/github_token).
 
 After a merge, `scraper-deploy.yml` waits for ETL quality on that exact `main`
-commit. It builds from `git archive`, runs the shared image smoke script and
+commit. It compares the active release's source with the inputs to the scraper
+image, including the Dockerfile, package locks, and runtime code. A change to
+any of those inputs can trigger promotion. It builds from `git archive`, runs the shared image smoke script and
 the existing exact-image Syft/Grype and ECR gates, then registers image-only
 worker and monitor revisions. One-shot Fargate probes prove the live portal,
 monitor health, exact digest, runtime isolation, and authoritative ENI security
@@ -481,9 +484,10 @@ the live process is the non-root `app` user; seccomp filter mode is 2; effective
 permitted, and bounding capability sets are zero; the root mount is read-only;
 `/tmp` is a separate writable mode-1777 mount; the Chrome sandbox helper and
 reachable SUID/SGID files are absent; and `GITHUB_DISPATCH_TOKEN` is absent. It
-then uses the real `UJSPortalScraper` to reach the live landing selector under
-the exact-origin policy and, while the browser is open, proves that a Chrome
-process has the explicit `--no-sandbox` argument.
+then uses the real `UJSPortalScraper` to submit a synthetic incident number
+to the live portal under the exact-origin policy. It requires the portal's
+explicit zero-results response and verifies the running Chrome process has
+the expected `--no-sandbox` argument.
 
 Promote only when the task exits zero and its logs contain this marker exactly
 once:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,7 +40,7 @@ def _push_script() -> str:
 def _merge_script() -> str:
     step = (
         WORKFLOW.read_text()
-        .split("      - name: Merge a validated same-milestone update\n", maxsplit=1)[1]
+        .split("      - name: Merge a validated Chrome upgrade\n", maxsplit=1)[1]
         .split("      - name:", maxsplit=1)[0]
     )
     script = textwrap.dedent(step.split("        run: |\n", maxsplit=1)[1])
@@ -496,10 +497,43 @@ class ChromeUpdateBranchTests(unittest.TestCase):
     def assert_protected(self, previous_sha: str) -> None:
         result = self.run_updater()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Refusing to overwrite a Chrome update branch", result.stderr)
+        self.assertIn("Refusing to use a Chrome update branch", result.stderr)
         remote_sha = self.git("ls-remote", "origin", f"refs/heads/{UPDATE_BRANCH}").split()[0]
         self.assertEqual(remote_sha, previous_sha)
         self.assertFalse(self.output.exists())
+
+    @unittest.skipUnless(shutil.which("dpkg"), "uses the Ubuntu runner's Debian version comparison")
+    def test_only_strictly_newer_signed_packages_qualify_for_merge(self) -> None:
+        # Start after the signed resolver and renderer have produced the candidate.
+        step = WORKFLOW.read_text().split("      - name: Resolve the signed stable release\n", 1)[1]
+        decision = "changed=false\n" + textwrap.dedent(
+            step.split("          changed=false\n", 1)[1].split("      - name:", 1)[0]
+        )
+        self.write(LOCK, "updated signed package\n")
+        for new_version, expected in (
+            ("156.0.9.10-1", "true"),
+            ("157.0.1.1-1", "true"),
+            ("156.0.9.9-1", "false"),  # republished bytes at the same version
+            ("155.0.1.1-1", "false"),
+        ):
+            with self.subTest(new_version=new_version):
+                result = subprocess.run(
+                    ["bash", "-eu", "-c", decision],
+                    cwd=self.repository,
+                    env=self.environment
+                    | {
+                        "old_version": "156.0.9.9-1",
+                        "new_version": new_version,
+                        "base_sha": "base",
+                    },
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"automatic_update={expected}", self.output.read_text().splitlines())
+                self.output.unlink()
 
     def test_refreshes_a_fully_merged_branch(self) -> None:
         self.write(LOCK, "previous release\n")
@@ -529,6 +563,12 @@ class ChromeUpdateBranchTests(unittest.TestCase):
         self.write(LOCK, "human edit\n")
         self.commit("Human Chrome edit")
         self.assert_protected(self.prepare_update())
+
+    def test_protects_a_matching_candidate_with_a_human_commit(self) -> None:
+        self.environment["GIT_AUTHOR_EMAIL"] = HUMAN_EMAIL
+        self.write(LOCK, "candidate\n")
+        self.commit("Same tree as the signed update")
+        self.assert_protected(self.prepare_update(identical=True))
 
     def test_protects_an_unmerged_human_committer(self) -> None:
         self.environment["GIT_COMMITTER_EMAIL"] = HUMAN_EMAIL
