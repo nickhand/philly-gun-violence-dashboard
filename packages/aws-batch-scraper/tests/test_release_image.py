@@ -2039,6 +2039,7 @@ def test_deployed_scan_binds_observation_to_digest_without_building_or_publishin
         (0, json.dumps([{"Id": IMAGE_ID, "Os": "linux", "Architecture": "amd64"}])),
         (0, _manifest_payload()),
         (0, "tagged"),
+        (0, _scan_payload()),
     )
     findings = [{"component": "image", "package": "example", "advisory": "CVE-2099-3"}]
 
@@ -2072,8 +2073,63 @@ def test_deployed_scan_binds_observation_to_digest_without_building_or_publishin
     observed = release_image.scan_deployed_image(_target(), DIGEST, **kwargs)
     assert observed["image"] == remote and observed["image_id"] == IMAGE_ID
     assert observed["source_sha"] == COMMIT
+    assert observed["ecr"]["scan_completed_at"] == SCAN_COMPLETED_AT
     assert observed["findings"] == ([] if result == "clean" else findings)
     assert json.loads((tmp_path / "observation.json").read_text()) == observed
     assert runner.calls[0] == ["docker", "pull", "--platform", "linux/amd64", remote]
-    assert runner.calls[-1][0:3] == ["docker", "tag", remote]
-    assert f"imageDigest={DIGEST}" in runner.calls[-2]
+    assert runner.calls[-2][0:3] == ["docker", "tag", remote]
+    assert f"imageDigest={DIGEST}" in runner.calls[-3]
+    assert "describe-image-scan-findings" in runner.calls[-1]
+
+
+def test_deployed_ecr_reports_all_stored_blockers_and_original_scan_time() -> None:
+    scan = json.loads(_scan_payload(high=1, undefined=1))
+    scan["imageScanFindings"]["imageScanCompletedAt"] = "2026-08-10T12:00:00Z"
+    scan["imageScanFindings"]["vulnerabilitySourceUpdatedAt"] = "2026-08-09T15:00:00Z"
+    finding = {
+        "name": "CVE-2099-3",
+        "severity": "HIGH",
+        "attributes": [
+            {"key": "package_name", "value": "libpcre2-8-0"},
+            {"key": "package_version", "value": "10.46-1build1"},
+        ],
+    }
+    scan["imageScanFindings"]["findings"] = [finding]
+    first = json.dumps({**scan, "nextToken": "page-2"})
+    finding.update(name="CVE-2099-4", severity="UNDEFINED")
+    runner = StubRunner((0, first), (0, json.dumps(scan)))
+    meta, findings = release_image.read_ecr_scan_findings(_target(), DIGEST, runner=runner, now=NOW)
+    assert meta["scan_completed_at"] == "2026-08-10T12:00:00+00:00"
+    assert meta["vulnerability_source_updated_at"] == "2026-08-09T15:00:00+00:00"
+    assert {(item["advisory"], item["severity"]) for item in findings} == {
+        ("CVE-2099-3", "High"),
+        ("CVE-2099-4", "Unknown"),
+    }
+    assert all(
+        item["component"] == "ecr"
+        and item["package"] == "libpcre2-8-0"
+        and item["version"] == "10.46-1build1"
+        for item in findings
+    )
+    assert json.loads(runner.calls[1][-1])["nextToken"] == "page-2"
+    assert all("describe-image-scan-findings" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize("failure", ["incomplete", "other digest", "future", "changed", "loop"])
+def test_deployed_ecr_never_clears_issues_from_partial_or_unbound_results(failure) -> None:
+    scan = json.loads(_scan_payload())
+    first = json.dumps({**scan, "nextToken": "page-2"})
+    if failure == "incomplete":
+        scan["imageScanFindings"]["findingSeverityCounts"]["HIGH"] = 9
+        first = json.dumps({**scan, "nextToken": "page-2"})
+    elif failure == "other digest":
+        scan["imageId"]["imageDigest"] = IMAGE_ID
+    elif failure == "future":
+        scan["imageScanFindings"]["vulnerabilitySourceUpdatedAt"] = "2026-08-30T12:00:00Z"
+    elif failure == "changed":
+        scan["imageScanFindings"]["imageScanCompletedAt"] = "2026-08-19T14:29:00Z"
+    elif failure == "loop":
+        scan["nextToken"] = "page-2"
+    runner = StubRunner((0, first), (0, json.dumps(scan)))
+    with pytest.raises(ReleaseIntegrityError):
+        release_image.read_ecr_scan_findings(_target(), DIGEST, runner=runner, now=NOW)

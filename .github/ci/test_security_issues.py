@@ -100,6 +100,17 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(issue["state"], "open")
         self.assertEqual(len(self.issues), 1)
 
+    def test_registry_findings_share_package_issue_and_show_scan_date(self):
+        data = observation()
+        data["ecr"] = {"scan_completed_at": (NOW - timedelta(days=2)).isoformat()}
+        data["findings"].append(data["findings"][0] | {"component": "ecr"})
+        reports = MONITOR.deployed_reports(data, NOW)
+        self.assertEqual(len(reports), 1)
+        self.assertIn("ECR scan of 2026-11-03", next(iter(reports.values()))[1])
+        data["ecr"]["scan_completed_at"] = (NOW + timedelta(days=1)).isoformat()
+        with self.assertRaisesRegex(ValueError, "ECR scan time"):
+            MONITOR.deployed_reports(data, NOW)
+
     def test_ignores_human_authors_forged_bot_names_and_prs(self):
         reports = MONITOR.weekly_reports({"api": "failure"})
         MONITOR.reconcile("weekly", reports)

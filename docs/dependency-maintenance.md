@@ -47,7 +47,11 @@ digest using a read-only AWS session. The monitor verifies the image identity
 and deployed Chrome lock, generates a fresh package inventory, and scans both
 the image and the browser with a current vulnerability database. A
 known-vulnerable Chrome control checks that browser advisories are being
-detected. The monitor rechecks the release pointer before publishing a result.
+detected. It also reads the last completed ECR scan for the same digest and
+includes any outstanding registry findings with that scan's timestamp.
+ECR Basic scans on each push. Daily coverage comes from fresh Grype data
+even as the stored ECR result ages. A new release still needs a fresh ECR pass.
+The monitor rechecks the release pointer before publishing a result.
 
 * **Production findings** open one GitHub issue per affected package. The issue
   lists the blocker severities, advisories, available fixed versions and

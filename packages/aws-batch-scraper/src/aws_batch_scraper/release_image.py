@@ -2142,6 +2142,11 @@ def scan_deployed_image(
         # Monitors can report a verified exposure. Release callers always fail
         # closed and no success receipt is minted when the threshold is crossed.
         findings = exc.findings
+    ecr, ecr_findings = read_ecr_scan_findings(
+        target, digest, now=_clock_time(clock), runner=runner
+    )
+    _write_new_json_file(output_directory / "ecr-basic.json", {**ecr, "findings": ecr_findings})
+    findings.extend(ecr_findings)
 
     observation = {
         "schema_version": 1,
@@ -2150,6 +2155,7 @@ def scan_deployed_image(
         "image_id": image_id,
         "observed_at": _clock_time(clock).isoformat(),
         "findings": findings,
+        "ecr": ecr,
         "artifacts": {path.name: _sha256_file(path) for path in sorted(output_directory.iterdir())},
     }
     _write_new_json_file(output_directory / "observation.json", observation)
@@ -2161,6 +2167,7 @@ def _scan_findings_payload(
     digest: str,
     *,
     runner: CommandRunner,
+    next_token: str | None = None,
 ) -> dict[str, Any] | None:
     """Read one scan snapshot, tolerating only initial scan-registration lag."""
     command = target.aws_command(
@@ -2176,6 +2183,10 @@ def _scan_findings_payload(
         "--output",
         "json",
     )
+    if next_token is not None:
+        # AWS CLI's --starting-token is a synthetic paginator token. Pass
+        # the service token as API input so we can verify each response.
+        command.extend(("--cli-input-json", json.dumps({"nextToken": next_token})))
     result = runner(command)
     if result.returncode != 0:
         stderr = result.stderr if isinstance(result.stderr, str) else ""
@@ -2206,6 +2217,20 @@ def _validated_scan_status(
     return status
 
 
+def _ecr_severity_counts(findings: dict[str, Any]) -> dict[str, int]:
+    counts = findings.get("findingSeverityCounts")
+    if not isinstance(counts, dict):
+        raise ReleaseIntegrityError("ECR image scan omitted valid severity counts")
+    for severity, count in counts.items():
+        if not isinstance(severity, str) or severity not in _SCAN_SEVERITIES:
+            raise ReleaseIntegrityError("ECR image scan returned an unknown severity")
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise ReleaseIntegrityError("ECR image scan returned an invalid severity count")
+        if count < 0:
+            raise ReleaseIntegrityError("ECR image scan returned a negative severity count")
+    return counts
+
+
 def _require_clean_scan_findings(
     payload: dict[str, Any],
     *,
@@ -2230,16 +2255,7 @@ def _require_clean_scan_findings(
         now=now,
         max_age=REMOTE_VULNERABILITY_SOURCE_MAX_AGE,
     )
-    counts = findings.get("findingSeverityCounts")
-    if not isinstance(counts, dict):
-        raise ReleaseIntegrityError("ECR image scan omitted valid severity counts")
-    for severity, count in counts.items():
-        if not isinstance(severity, str) or severity not in _SCAN_SEVERITIES:
-            raise ReleaseIntegrityError("ECR image scan returned an unknown severity")
-        if isinstance(count, bool) or not isinstance(count, int):
-            raise ReleaseIntegrityError("ECR image scan returned an invalid severity count")
-        if count < 0:
-            raise ReleaseIntegrityError("ECR image scan returned a negative severity count")
+    counts = _ecr_severity_counts(findings)
     # AWS reports this map as aggregate totals even when detailed findings have
     # a nextToken, so omitted individual High/Critical keys mean zero.
     critical = counts.get("CRITICAL", 0)
@@ -2250,6 +2266,89 @@ def _require_clean_scan_findings(
             "ECR scan blocked release: "
             f"{critical} Critical, {high} High, and {undefined} Undefined findings"
         )
+
+
+def read_ecr_scan_findings(
+    target: ReleaseTarget,
+    digest: str,
+    *,
+    now: datetime,
+    runner: CommandRunner = _default_runner,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Read all findings in the latest completed Basic scan of the exact digest.
+
+    ECR performs a Basic scan on push. Its stored report is supplemental
+    evidence as of the recorded scan and feed times, even on an older release.
+    """
+    metadata: dict[str, Any] = {}
+    findings: list[dict[str, Any]] = []
+    totals: dict[str, int] = {}
+    seen_tokens: set[str] = set()
+    next_token = None
+    while True:
+        page = _scan_findings_payload(target, digest, runner=runner, next_token=next_token)
+        if page is None or _validated_scan_status(page, target, digest) != "COMPLETE":
+            raise ReleaseIntegrityError("No completed Basic ECR scan for the deployed digest")
+        snapshot = page.get("imageScanFindings")
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get("findings"), list):
+            raise ReleaseIntegrityError("Basic ECR scan omitted its detailed findings")
+        if snapshot.get("enhancedFindings"):
+            raise ReleaseIntegrityError("Expected Basic ECR findings for the deployed digest")
+        completed = _aware_timestamp(snapshot.get("imageScanCompletedAt"), label="ECR scan")
+        source = _aware_timestamp(snapshot.get("vulnerabilitySourceUpdatedAt"), label="ECR source")
+        if completed > now + LOCAL_SCAN_CLOCK_SKEW or source > completed + LOCAL_SCAN_CLOCK_SKEW:
+            raise ReleaseIntegrityError("ECR scan or vulnerability-source time was inconsistent")
+        counts = _ecr_severity_counts(snapshot)
+        page_metadata = {
+            "scan_completed_at": completed.isoformat(),
+            "vulnerability_source_updated_at": source.isoformat(),
+            "severity_counts": counts,
+        }
+        if metadata and metadata != page_metadata:
+            raise ReleaseIntegrityError("ECR scan changed during pagination")
+        metadata = page_metadata
+        for finding in snapshot["findings"]:
+            severity = finding.get("severity") if isinstance(finding, dict) else None
+            if not isinstance(severity, str) or severity not in _SCAN_SEVERITIES:
+                raise ReleaseIntegrityError("ECR reported an invalid finding severity")
+            totals[severity] = totals.get(severity, 0) + 1
+            if severity in {"CRITICAL", "HIGH", "UNDEFINED"}:
+                findings.append(_ecr_blocking_finding(finding, severity))
+        next_token = page.get("nextToken")
+        if next_token is None:
+            break
+        if not isinstance(next_token, str) or not next_token or next_token in seen_tokens:
+            raise ReleaseIntegrityError("Invalid or repeated ECR scan pagination token")
+        seen_tokens.add(next_token)
+    if totals != {key: value for key, value in counts.items() if value}:
+        raise ReleaseIntegrityError("Detailed ECR findings did not match aggregate severity counts")
+    return metadata, findings
+
+
+def _ecr_blocking_finding(finding: dict[str, Any], severity: str) -> dict[str, Any]:
+    attributes = finding.get("attributes")
+    if not isinstance(attributes, list):
+        raise ReleaseIntegrityError("ECR blocking finding omitted package attributes")
+    package: dict[str, str] = {}
+    for attribute in attributes:
+        if not isinstance(attribute, dict):
+            raise ReleaseIntegrityError("Malformed ECR finding attribute")
+        key, value = attribute.get("key"), attribute.get("value")
+        if key in ("package_name", "package_version"):
+            if key in package or not isinstance(value, str) or not value.strip():
+                raise ReleaseIntegrityError("Ambiguous ECR package identity")
+            package[key] = value
+    advisory = finding.get("name")
+    if len(package) != 2 or not isinstance(advisory, str) or not advisory.strip():
+        raise ReleaseIntegrityError("ECR blocker omitted its advisory or package identity")
+    return {
+        "component": "ecr",
+        "package": package["package_name"],
+        "version": package["package_version"],
+        "advisory": advisory,
+        "severity": "Unknown" if severity == "UNDEFINED" else severity.title(),
+        "fixed_versions": [],
+    }
 
 
 def verify_remote_scan(

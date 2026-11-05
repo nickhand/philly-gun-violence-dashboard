@@ -13,7 +13,8 @@ from botocore.exceptions import ClientError
 
 from etl.courts.deployment import CourtsRelease, lock_digest
 
-SCRIPT = Path(__file__).resolve().parents[3] / ".github/ci/scan_deployed_scraper.py"
+ETL = Path(__file__).resolve().parents[1]
+SCRIPT = ETL / "scripts/scan_deployed_scraper.py"
 SPEC = importlib.util.spec_from_file_location("scan_deployed_scraper", SCRIPT)
 assert SPEC and SPEC.loader
 CI = importlib.util.module_from_spec(SPEC)
@@ -31,7 +32,7 @@ REPOSITORY = f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/ujs-scraper"
 @pytest.fixture
 def services(monkeypatch, tmp_path):
     # Deliberately use an older, valid release than the lock in the checkout.
-    lock = json.loads((SCRIPT.parents[2] / "packages/etl/chrome-lock.json").read_text())
+    lock = json.loads((ETL / "chrome-lock.json").read_text())
     version = "154.0.1.1"
     package = lock["package"]
     package.update(
@@ -57,7 +58,14 @@ def services(monkeypatch, tmp_path):
     monkeypatch.setattr(CI.boto3, "client", Mock(return_value=s3))
     git = Mock(return_value=contents)
     monkeypatch.setattr(CI.subprocess, "check_output", git)
-    scan = Mock(return_value={"image": release.image, "findings": [], "observed_at": "outdated"})
+    scan = Mock(
+        return_value={
+            "image": release.image,
+            "findings": [],
+            "observed_at": "outdated",
+            "ecr": {"scan_completed_at": "2026-11-04T07:17:00+00:00"},
+        }
+    )
     monkeypatch.setattr(CI, "scan_deployed_image", scan)
     monkeypatch.setenv("AWS_ACCOUNT_ID", ACCOUNT)
     monkeypatch.setenv("AWS_REGION", REGION)

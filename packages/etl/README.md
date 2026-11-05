@@ -222,9 +222,11 @@ project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. APT selects package versions
 and hashes from the signed Ubuntu snapshot. It downloads matching packages from
 the Ubuntu archive first and falls back to the snapshot for superseded versions.
-The `20261030T000000Z` snapshot includes Canonical's October 26 Brotli
-security fix and retains the October 20–22 CA/NSS distrust updates and zlib/XZ
-fixes, plus the earlier updates for libcurl, libX11, librsvg, and libpng.
+The `20261105T000000Z` snapshot supplies Canonical's fixes for the APT and
+PCRE2 vulnerabilities reported by ECR. The image build and SBOM checks require
+`apt=3.2.1ubuntu0.1`, `libapt-pkg7.0=3.2.1ubuntu0.1`, and
+`libpcre2-8-0=10.46-1ubuntu0.1`. See [USN-8996-1](https://ubuntu.com/security/notices/USN-8996-1)
+and [USN-8974-1](https://ubuntu.com/security/notices/USN-8974-1).
 The image build and SBOM gate assert `libcurl3t64-gnutls=8.18.0-1ubuntu2.8`,
 `libx11-6=2:1.8.13-1ubuntu0.1`, `librsvg2-2=2.61.3+dfsg-3ubuntu0.1`,
 `libpng16-16t64=1.6.57-1ubuntu0.1`, and `libaom3=3.13.1-2ubuntu0.1`.

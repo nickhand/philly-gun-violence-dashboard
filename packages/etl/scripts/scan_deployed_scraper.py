@@ -17,6 +17,7 @@ from aws_batch_scraper.release_image import (
     ReleaseTarget,
     scan_deployed_image,
 )
+
 from etl.chrome_release import load_chrome_lock
 from etl.courts.deployment import CourtsRelease, lock_digest
 
@@ -77,7 +78,8 @@ def main() -> None:
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(
             f"Scanned `{release.image}` (Chrome {lock.package.product_version}). "
-            f"Found {len(observation['findings'])} release-blocking matches.\n"
+            f"Found {len(observation['findings'])} release-blocking matches. "
+            f"The stored ECR result is from `{observation['ecr']['scan_completed_at']}`.\n"
         )
 
 

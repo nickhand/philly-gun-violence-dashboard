@@ -42,7 +42,7 @@ jobs:
             {"Version":"2012-10-17","Statement":[
               {"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::philly-gun-violence-dashboard/ujs-scraper/deployment/active.json"},
               {"Effect":"Allow","Action":"ecr:GetAuthorizationToken","Resource":"*"},
-              {"Effect":"Allow","Action":["ecr:BatchGetImage","ecr:DescribeImages","ecr:DescribeRepositories","ecr:BatchCheckLayerAvailability","ecr:GetDownloadUrlForLayer"],"Resource":"arn:aws:ecr:us-east-1:985454606291:repository/ujs-scraper"}
+              {"Effect":"Allow","Action":["ecr:BatchGetImage","ecr:DescribeImageScanFindings","ecr:BatchCheckLayerAvailability","ecr:GetDownloadUrlForLayer"],"Resource":"arn:aws:ecr:us-east-1:985454606291:repository/ujs-scraper"}
             ]}
       - name: Scan with current vulnerability data
         id: scan
@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           aws ecr get-login-password | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
-          packages/etl/.venv/bin/python .github/ci/scan_deployed_scraper.py "${RUNNER_TEMP}/evidence" "${RUNNER_TEMP}/observation.json"
+          packages/etl/.venv/bin/python packages/etl/scripts/scan_deployed_scraper.py "${RUNNER_TEMP}/evidence" "${RUNNER_TEMP}/observation.json"
       - name: Record incomplete coverage
         if: steps.scan.outcome == 'failure'
         run: |

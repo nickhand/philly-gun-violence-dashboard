@@ -4,7 +4,7 @@
 FROM docker.io/library/ubuntu:26.04@sha256:88a381d5b5eeb2b35d3ad70925a362c37ce569daf43ede89ff818ec20e4d3794 AS ubuntu-base
 
 # Use one reviewed snapshot for both the build tools and the runtime packages.
-ARG UBUNTU_SNAPSHOT=20261030T000000Z
+ARG UBUNTU_SNAPSHOT=20261105T000000Z
 
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
 # HTTPS. Bootstrap the two Launchpad artifacts whose hashes were verified in
@@ -38,7 +38,7 @@ RUN sed -i \
 # Only the dated snapshot can supply indexes. For the .debs named and hashed
 # in those indexes, try the main archive first, then the snapshot for versions
 # the archive no longer carries. APT mirror metadata follows a literal tab.
-RUN test "$UBUNTU_SNAPSHOT" = "20261030T000000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20261105T000000Z" \
     && printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1 type:deb\nhttps://snapshot.ubuntu.com/ubuntu/%s/\tpriority:2\n' \
         "$UBUNTU_SNAPSHOT" > "/etc/apt/ubuntu-${UBUNTU_SNAPSHOT}.mirrors" \
     && printf '%s\n' \
@@ -106,9 +106,8 @@ ADD --checksum=sha256:a62b277dc03da2cff50cc04589deb66f6875be339c066d46adb49b49ee
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
-# The October 30 snapshot includes the Brotli security fix and retains the
-# CA/NSS distrust updates and earlier zlib/XZ/libcurl/X11/rsvg/png fixes.
-# Assert their versions so stale packages cannot silently return to the image.
+# The November 5 snapshot includes Canonical's APT and PCRE2 security fixes.
+# Assert the installed packages alongside the previously reviewed security pins.
 #
 # Fargate's default seccomp profile cannot start Chrome's nested namespace
 # sandbox. The courts worker therefore disables that sandbox, so the runtime
@@ -134,6 +133,12 @@ RUN rm -rf /var/lib/apt/lists/* \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
         = "157.0.8103.38-1" \
+    && test "$(dpkg-query --show --showformat='${Version}' apt)" \
+        = "3.2.1ubuntu0.1" \
+    && test "$(dpkg-query --show --showformat='${Version}' libapt-pkg7.0)" \
+        = "3.2.1ubuntu0.1" \
+    && test "$(dpkg-query --show --showformat='${Version}' libpcre2-8-0)" \
+        = "10.46-1ubuntu0.1" \
     && test "$(dpkg-query --show --showformat='${Version}' libcurl3t64-gnutls)" \
         = "8.18.0-1ubuntu2.8" \
     && test "$(dpkg-query --show --showformat='${Version}' libx11-6)" \

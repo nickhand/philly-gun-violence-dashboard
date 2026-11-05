@@ -56,7 +56,6 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         ".github/workflows/scraper-image-quality.yml",
         ".github/ci/build_scraper_image.py",
         ".github/ci/deploy_scraper.py",
-        ".github/ci/scan_deployed_scraper.py",
         ".github/ci/smoke_scraper_image.sh",
         ".github/ci/check_tls_trust.py",
         ".github/workflows/scraper-deploy.yml",
@@ -147,7 +146,6 @@ GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     "etl": {
         "etl": (
             ".github/ci/deploy_scraper.py",
-            ".github/ci/scan_deployed_scraper.py",
             ".github/workflows/scraper-deploy.yml",
             "packages/etl/src/**",
             "packages/etl/tests/**",

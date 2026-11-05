@@ -68,11 +68,16 @@ def deployed_reports(observation, now):
         )
         fixes = finding["fixed_versions"]
         if (
-            component not in {"image", "chrome"}
+            component not in {"image", "chrome", "ecr"}
             or severity not in {"Critical", "High", "Unknown"}
             or not isinstance(fixes, list)
         ):
             raise ValueError("Invalid component, severity or fixed versions in deployed scan")
+        if component == "ecr":
+            completed = datetime.fromisoformat(observation["ecr"]["scan_completed_at"])
+            if completed.tzinfo is None or completed > observed:
+                raise ValueError("Invalid ECR scan time")
+            component = f"ECR scan of {completed.date().isoformat()}"
         fixed = ", ".join(sorted({single_line(v) for v in fixes})) or "no fix listed"
         packages[package].add(
             f"- {severity} `{advisory}` in `{version}` ({component}), fix: `{fixed}`"

@@ -91,8 +91,7 @@ class SecurityMaintenanceRoutingTests(unittest.TestCase):
             "s3:GetObject",
             "ecr:GetAuthorizationToken",
             "ecr:BatchGetImage",
-            "ecr:DescribeImages",
-            "ecr:DescribeRepositories",
+            "ecr:DescribeImageScanFindings",
             "ecr:BatchCheckLayerAvailability",
             "ecr:GetDownloadUrlForLayer",
         }
