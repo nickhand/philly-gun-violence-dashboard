@@ -259,7 +259,7 @@ neither scanner's vulnerability threshold is relaxed. Revisit this temporary
 package when Canonical supplies a complete supported fix.
 <!-- BEGIN GENERATED: chrome-lock-product-version -->
 It full-upgrades that snapshot before installing Ubuntu's native Python
-(3.13 or newer) and a checksum-pinned Google Chrome 157.0.8103.38 package.
+(3.13 or newer) and a checksum-pinned Google Chrome 157.0.8103.50 package.
 <!-- END GENERATED: chrome-lock-product-version -->
 The Playwright client is pinned to 1.64.1, launches the system `chrome` channel
 and never downloads a separate browser bundle. The courts worker explicitly

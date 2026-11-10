@@ -189,8 +189,8 @@ aws_batch_scraper_cli_group := "courts"
 aws_batch_scraper_dockerfile := "packages/etl/Dockerfile"
 aws_batch_scraper_browser_lock_script := "etl/scripts/render_chrome_lock.py"
 # BEGIN GENERATED: chrome-lock-release-contract
-aws_batch_scraper_required_sbom_packages := "python:playwright=1.64.1,deb:google-chrome-stable=157.0.8103.38-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8,deb:libx11-6=2:1.8.13-1ubuntu0.1,deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1,deb:libpng16-16t64=1.6.57-1ubuntu0.1,deb:libaom3=3.13.1-2ubuntu0.1,deb:bubblewrap=0.12.0-0philly1,deb:ca-certificates=20260816ubuntu0.26.04.1,deb:libnss3=2:3.120-1ubuntu2.2,deb:liblzma5=5.8.3-1ubuntu0.1,deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2,deb:libbrotli1=1.2.0-3ubuntu0.1,deb:apt=3.2.1ubuntu0.1,deb:libapt-pkg7.0=3.2.1ubuntu0.1,deb:libpcre2-8-0=10.46-1ubuntu0.1,binary:node=24.22.1"
-aws_batch_scraper_chrome_executable_sha256 := "sha256:fa67e06a5bcd0525739996fb8e3ecff449039e6165c15ea7968d3935e59e829e"
+aws_batch_scraper_required_sbom_packages := "python:playwright=1.64.1,deb:google-chrome-stable=157.0.8103.50-1,deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8,deb:libx11-6=2:1.8.13-1ubuntu0.1,deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1,deb:libpng16-16t64=1.6.57-1ubuntu0.1,deb:libaom3=3.13.1-2ubuntu0.1,deb:bubblewrap=0.12.0-0philly1,deb:ca-certificates=20260816ubuntu0.26.04.1,deb:libnss3=2:3.120-1ubuntu2.2,deb:liblzma5=5.8.3-1ubuntu0.1,deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2,deb:libbrotli1=1.2.0-3ubuntu0.1,deb:apt=3.2.1ubuntu0.1,deb:libapt-pkg7.0=3.2.1ubuntu0.1,deb:libpcre2-8-0=10.46-1ubuntu0.1,binary:node=24.22.1"
+aws_batch_scraper_chrome_executable_sha256 := "sha256:cce8581219e59c17bcc60bff0cdfdcb2405a6d63acb1f3c32670a40814ba558c"
 # END GENERATED: chrome-lock-release-contract
 aws_batch_scraper_chrome_sandbox_scan_args := "--forbid-chrome-sandbox --forbid-setuid-setgid-files"
 aws_batch_scraper_release_evidence_root := ".artifacts/aws-batch-scraper/releases"
