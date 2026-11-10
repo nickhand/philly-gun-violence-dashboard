@@ -1,7 +1,7 @@
 # Use an ECR-supported LTS userspace and pin its exact linux/amd64 manifest.
 # Resolve multiarch index updates to their linux/amd64 child before changing this pin.
 # Docker Hub serves the identical manifest without ECR Public's shared CI quota.
-FROM docker.io/library/ubuntu:26.04@sha256:88a381d5b5eeb2b35d3ad70925a362c37ce569daf43ede89ff818ec20e4d3794 AS ubuntu-base
+FROM docker.io/library/ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS ubuntu-base
 
 # Use one reviewed snapshot for both the build tools and the runtime packages.
 ARG UBUNTU_SNAPSHOT=20261105T000000Z
