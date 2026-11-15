@@ -26,8 +26,8 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
     assert re.search(expected_base, source, re.MULTILINE)
-    assert "ARG UBUNTU_SNAPSHOT=20261105T000000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20261105T000000Z"' in source
+    assert "ARG UBUNTU_SNAPSHOT=20261115T000000Z" in source
+    assert 'test "$UBUNTU_SNAPSHOT" = "20261115T000000Z"' in source
     # Only the dated snapshot may supply indexes. The ordinary archive can
     # supply .debs whose hashes have already been authenticated by those indexes.
     assert (
@@ -49,7 +49,7 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
         assert f' = "{version}"' in source
     assert ' = "3.13.1-2ubuntu0.1"' in source
     for package, version in (
-        ("ca-certificates", "20260816ubuntu0.26.04.1"),
+        ("ca-certificates", "20260816ubuntu0.26.04.2"),
         ("libnss3", "2:3.120-1ubuntu2.2"),
         ("liblzma5", "5.8.3-1ubuntu0.1"),
         ("zlib1g", "1:1.3.dfsg+really1.3.1-1ubuntu3.2"),
@@ -57,6 +57,11 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
         ("apt", "3.2.1ubuntu0.1"),
         ("libapt-pkg7.0", "3.2.1ubuntu0.1"),
         ("libpcre2-8-0", "10.46-1ubuntu0.1"),
+        ("perl-base", "5.40.1-7ubuntu0.4"),
+        ("libheif1", "1.21.2-3ubuntu0.7"),
+        ("libheif-plugin-aomdec", "1.21.2-3ubuntu0.7"),
+        ("libc6", "2.43-2ubuntu2.7"),
+        ("libc-bin", "2.43-2ubuntu2.7"),
     ):
         assert f"${{Version}}' {package})" in source
         assert f' = "{version}"' in source
@@ -77,11 +82,12 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
         "ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621"
     ) in source
     assert (
-        "ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd"
+        "ADD --checksum=sha256:a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6"
     ) in source
     assert "https://launchpadlibrarian.net/878823491/openssl_3.5.5-1ubuntu3.7_amd64.deb" in source
     assert (
-        "https://launchpadlibrarian.net/881832632/ca-certificates_20260816ubuntu0.26.04.1_all.deb"
+        "https://snapshot.ubuntu.com/ubuntu/20261115T000000Z/pool/main/c/ca-certificates/"
+        "ca-certificates_20260816ubuntu0.26.04.2_all.deb"
     ) in source
     assert expected_chrome in source
     assert PINNED_CHROME_FILENAME in source
@@ -250,7 +256,7 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
         "deb:libx11-6=2:1.8.13-1ubuntu0.1",
         "deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1",
         "deb:libpng16-16t64=1.6.57-1ubuntu0.1",
-        "deb:ca-certificates=20260816ubuntu0.26.04.1",
+        "deb:ca-certificates=20260816ubuntu0.26.04.2",
         "deb:libnss3=2:3.120-1ubuntu2.2",
         "deb:liblzma5=5.8.3-1ubuntu0.1",
         "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
@@ -258,6 +264,11 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
         "deb:apt=3.2.1ubuntu0.1",
         "deb:libapt-pkg7.0=3.2.1ubuntu0.1",
         "deb:libpcre2-8-0=10.46-1ubuntu0.1",
+        "deb:perl-base=5.40.1-7ubuntu0.4",
+        "deb:libheif1=1.21.2-3ubuntu0.7",
+        "deb:libheif-plugin-aomdec=1.21.2-3ubuntu0.7",
+        "deb:libc6=2.43-2ubuntu2.7",
+        "deb:libc-bin=2.43-2ubuntu2.7",
     ):
         assert package in source
     assert "root:root:755" not in source
@@ -282,7 +293,7 @@ def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
         "deb:libx11-6=2:1.8.13-1ubuntu0.1",
         "deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1",
         "deb:libpng16-16t64=1.6.57-1ubuntu0.1",
-        "deb:ca-certificates=20260816ubuntu0.26.04.1",
+        "deb:ca-certificates=20260816ubuntu0.26.04.2",
         "deb:libnss3=2:3.120-1ubuntu2.2",
         "deb:liblzma5=5.8.3-1ubuntu0.1",
         "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
@@ -290,6 +301,11 @@ def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
         "deb:apt=3.2.1ubuntu0.1",
         "deb:libapt-pkg7.0=3.2.1ubuntu0.1",
         "deb:libpcre2-8-0=10.46-1ubuntu0.1",
+        "deb:perl-base=5.40.1-7ubuntu0.4",
+        "deb:libheif1=1.21.2-3ubuntu0.7",
+        "deb:libheif-plugin-aomdec=1.21.2-3ubuntu0.7",
+        "deb:libc6=2.43-2ubuntu2.7",
+        "deb:libc-bin=2.43-2ubuntu2.7",
     ):
         assert package in justfile
     assert "scraper-check-browser-lock:" in recipe

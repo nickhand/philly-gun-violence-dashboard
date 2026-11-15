@@ -4,16 +4,16 @@
 FROM docker.io/library/ubuntu:26.04@sha256:88a381d5b5eeb2b35d3ad70925a362c37ce569daf43ede89ff818ec20e4d3794 AS ubuntu-base
 
 # Use one reviewed snapshot for both the build tools and the runtime packages.
-ARG UBUNTU_SNAPSHOT=20261105T000000Z
+ARG UBUNTU_SNAPSHOT=20261115T000000Z
 
 # The minimal Ubuntu base intentionally omits CA roots, but apt snapshots use
-# HTTPS. Bootstrap the two Launchpad artifacts whose hashes were verified in
+# HTTPS. Bootstrap the two artifacts whose hashes were verified in
 # the signed resolute-security Packages index before the first apt call.
 ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621 \
     https://launchpadlibrarian.net/878823491/openssl_3.5.5-1ubuntu3.7_amd64.deb \
     /tmp/openssl.deb
-ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd \
-    https://launchpadlibrarian.net/881832632/ca-certificates_20260816ubuntu0.26.04.1_all.deb \
+ADD --checksum=sha256:a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6 \
+    https://snapshot.ubuntu.com/ubuntu/20261115T000000Z/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.2_all.deb \
     /tmp/ca-certificates.deb
 
 RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
@@ -21,7 +21,7 @@ RUN DEBIAN_FRONTEND=noninteractive dpkg --install \
     && test "$(dpkg-query --show --showformat='${Version}' openssl)" \
         = "3.5.5-1ubuntu3.7" \
     && test "$(dpkg-query --show --showformat='${Version}' ca-certificates)" \
-        = "20260816ubuntu0.26.04.1" \
+        = "20260816ubuntu0.26.04.2" \
     && test -s /etc/ssl/certs/ca-certificates.crt \
     && rm -f /tmp/openssl.deb /tmp/ca-certificates.deb
 
@@ -38,7 +38,7 @@ RUN sed -i \
 # Only the dated snapshot can supply indexes. For the .debs named and hashed
 # in those indexes, try the main archive first, then the snapshot for versions
 # the archive no longer carries. APT mirror metadata follows a literal tab.
-RUN test "$UBUNTU_SNAPSHOT" = "20261105T000000Z" \
+RUN test "$UBUNTU_SNAPSHOT" = "20261115T000000Z" \
     && printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1 type:deb\nhttps://snapshot.ubuntu.com/ubuntu/%s/\tpriority:2\n' \
         "$UBUNTU_SNAPSHOT" > "/etc/apt/ubuntu-${UBUNTU_SNAPSHOT}.mirrors" \
     && printf '%s\n' \
@@ -106,8 +106,8 @@ ADD --checksum=sha256:4d740636b5c96f687798602c5aad6a5a270f44dd02e48db0638ae77aa4
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
-# The November 5 snapshot includes Canonical's APT and PCRE2 security fixes.
-# Assert the installed packages alongside the previously reviewed security pins.
+# The November 15 snapshot also fixes Perl, libheif, glibc, and the CA keystore
+# integration. Assert the installed packages alongside the existing security pins.
 #
 # Fargate's default seccomp profile cannot start Chrome's nested namespace
 # sandbox. The courts worker therefore disables that sandbox, so the runtime
@@ -150,7 +150,17 @@ RUN rm -rf /var/lib/apt/lists/* \
     && test "$(dpkg-query --show --showformat='${Version}' libaom3)" \
         = "3.13.1-2ubuntu0.1" \
     && test "$(dpkg-query --show --showformat='${Version}' ca-certificates)" \
-        = "20260816ubuntu0.26.04.1" \
+        = "20260816ubuntu0.26.04.2" \
+    && test "$(dpkg-query --show --showformat='${Version}' perl-base)" \
+        = "5.40.1-7ubuntu0.4" \
+    && test "$(dpkg-query --show --showformat='${Version}' libheif1)" \
+        = "1.21.2-3ubuntu0.7" \
+    && test "$(dpkg-query --show --showformat='${Version}' libheif-plugin-aomdec)" \
+        = "1.21.2-3ubuntu0.7" \
+    && test "$(dpkg-query --show --showformat='${Version}' libc6)" \
+        = "2.43-2ubuntu2.7" \
+    && test "$(dpkg-query --show --showformat='${Version}' libc-bin)" \
+        = "2.43-2ubuntu2.7" \
     && test "$(dpkg-query --show --showformat='${Version}' libnss3)" \
         = "2:3.120-1ubuntu2.2" \
     && test "$(dpkg-query --show --showformat='${Version}' liblzma5)" \
