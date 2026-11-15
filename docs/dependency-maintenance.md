@@ -18,6 +18,17 @@ updates preserve existing compatible requirements with `increase-if-necessary`,
 reducing drift between linked package lockfiles. Version-update PR limits remain three for Python and two
 for the other ecosystems; these are not a repository-wide total.
 
+The API and scheduler stay on Python 3.14, including patch and digest updates.
+Python 3.15 is a deferred runtime migration, even though Dependabot classifies
+it as a minor update. Validation of PR #120 on November 15, 2026 found that its
+base bundles pip 26.2.1 with an outdated certificate bundle. An isolated build
+with the verified pip 26.2.2 wheel passed the pip and offline ensurepip checks,
+then failed because the locked geospatial dependencies lack Python 3.15 wheels
+(`pyproj` fell back to a source build without PROJ). Revisit the Docker ignore
+range only with compatible geospatial locks and a passing full API image smoke;
+retain the pip/certificate security floor. Security findings still require
+review and remediation on the supported runtime.
+
 Every dependency in a group must qualify. The pinned official metadata action
 verifies the Dependabot author and commit signatures. The repository policy
 then requires the expected repository and head commit, a complete file inventory,
