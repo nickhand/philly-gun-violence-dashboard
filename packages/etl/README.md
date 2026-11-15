@@ -222,8 +222,8 @@ project-specific. The final image starts from an exact `linux/amd64` manifest
 of Ubuntu 26.04 LTS, which ECR scanning supports. APT selects package versions
 and hashes from the signed Ubuntu snapshot. It downloads matching packages from
 the Ubuntu archive first and falls back to the snapshot for superseded versions.
-The `20261105T000000Z` snapshot supplies Canonical's fixes for the APT and
-PCRE2 vulnerabilities reported by ECR. The image build and SBOM checks require
+The `20261115T000000Z` snapshot supplies Canonical's fixes for the vulnerabilities
+reported by ECR. The image build and SBOM checks retain
 `apt=3.2.1ubuntu0.1`, `libapt-pkg7.0=3.2.1ubuntu0.1`, and
 `libpcre2-8-0=10.46-1ubuntu0.1`. See [USN-8996-1](https://ubuntu.com/security/notices/USN-8996-1)
 and [USN-8974-1](https://ubuntu.com/security/notices/USN-8974-1).
@@ -235,13 +235,22 @@ These cover the ECR release blockers [CVE-2026-92392](https://ubuntu.com/securit
 [CVE-2026-96889](https://ubuntu.com/security/CVE-2026-96889), and
 [USN-8899-1](https://ubuntu.com/security/notices/USN-8899-1).
 
-The build and SBOM gate also require `ca-certificates=20260816ubuntu0.26.04.1`,
+The build and SBOM gate also require `ca-certificates=20260816ubuntu0.26.04.2`,
 `libnss3=2:3.120-1ubuntu2.2`, `liblzma5=5.8.3-1ubuntu0.1`, and
 `zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2`. These address
 [USN-8944-1](https://ubuntu.com/security/notices/USN-8944-1),
 [USN-8947-1](https://ubuntu.com/security/notices/USN-8947-1),
 [USN-8945-1](https://ubuntu.com/security/notices/USN-8945-1), and
 [CVE-2026-85091](https://ubuntu.com/security/CVE-2026-85091).
+The November 15 snapshot additionally requires `perl-base=5.40.1-7ubuntu0.4`,
+`libheif1=1.21.2-3ubuntu0.7`, `libheif-plugin-aomdec=1.21.2-3ubuntu0.7`, and
+`libc6`/`libc-bin=2.43-2ubuntu2.7`. These fix
+[CVE-2026-82560](https://ubuntu.com/security/CVE-2026-82560),
+[CVE-2026-120208](https://ubuntu.com/security/CVE-2026-120208), and
+[CVE-2026-84243](https://ubuntu.com/security/CVE-2026-84243).
+The updated CA package fixes [USN-9001-1](https://ubuntu.com/security/notices/USN-9001-1).
+ECR reported these blockers even though the local Grype gate passed; both scans
+remain required, with no vulnerability exceptions or relaxed thresholds.
 The build-only `xz-utils` package is also asserted at `5.8.3-1ubuntu0.1`.
 The runtime and SBOM gate require `libbrotli1=1.2.0-3ubuntu0.1`, fixing
 [CVE-2026-111497](https://ubuntu.com/security/CVE-2026-111497) as published in
@@ -364,11 +373,12 @@ policy change to investigate and review, not something the worker follows
 implicitly.
 
 Before its first APT transaction, the build downloads the TLS certificate bundle
-and its OpenSSL dependency from Launchpad Librarian. Docker verifies
+from the pinned Ubuntu snapshot and its OpenSSL dependency from Launchpad
+Librarian. Docker verifies
 `openssl` 3.5.5-1ubuntu3.7 (SHA-256
 `6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621`)
-and `ca-certificates` 20260816ubuntu0.26.04.1 (SHA-256
-`5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd`)
+and `ca-certificates` 20260816ubuntu0.26.04.2 (SHA-256
+`a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6`)
 against hashes published in the snapshot's `resolute-security` Packages index.
 The Ubuntu archive key `F6ECB3762474EDA9D21B7022871920D1991BC93C` signs its
 InRelease file. The build clears inherited package lists and requires fresh,
