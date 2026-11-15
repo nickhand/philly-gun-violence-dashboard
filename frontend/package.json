@@ -39,13 +39,13 @@
     "@nuxtjs/sitemap": "8.6.2",
     "@unhead/vue": "^2.1.1",
     "@uswds/uswds": "^3.14.0",
+    "braces": "file:vendor/braces-3.0.4-philly.1.tgz",
     "maplibre-gl": "^6.16.0",
-    "nuxt": "^4.6.4",
-    "posthog-js": "^1.446.0",
-    "vue": "3.5.44",
-    "vue-router": "5.4.0",
     "node-forge": "file:vendor/node-forge-1.4.1-philly.1.tgz",
-    "braces": "file:vendor/braces-3.0.4-philly.1.tgz"
+    "nuxt": "^4.6.4",
+    "posthog-js": "1.438.21",
+    "vue": "3.5.44",
+    "vue-router": "5.4.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

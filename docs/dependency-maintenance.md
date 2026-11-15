@@ -34,6 +34,15 @@ range only with compatible geospatial locks and a passing full API image smoke;
 retain the pip/certificate security floor. Security findings still require
 review and remediation on the supported runtime.
 
+PostHog stays at 1.438.21 with its existing locked core/browser dependencies.
+The 1.446.0 update measured 112.6 KiB for deferred analytics, exceeding the
+100 KiB transfer budget. Keep that budget and revisit the upgrade with an SDK
+size reduction; the other November frontend updates remain eligible.
+
+The API requires OpenTelemetry API 1.45.2 or newer for
+[CVE-2026-126360](https://github.com/open-telemetry/opentelemetry-python/security/advisories/GHSA-mf5v-w3w3-f6cg).
+Its production dependency audit remains strict.
+
 Every dependency in a group must qualify. The pinned official metadata action
 verifies the Dependabot author and commit signatures. The repository policy
 then requires the expected repository and head commit, a complete file inventory,
