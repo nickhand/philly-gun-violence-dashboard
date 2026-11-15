@@ -18,6 +18,31 @@ updates preserve existing compatible requirements with `increase-if-necessary`,
 reducing drift between linked package lockfiles. Version-update PR limits remain three for Python and two
 for the other ecosystems; these are not a repository-wide total.
 
+Python quality jobs validate committed lockfiles before running tools, since
+`uv run` can otherwise repair stale metadata locally and hide it until the image
+build. After changing shared-package requirements, regenerate every consuming
+project's lock with the CI-pinned uv version and check all four locks.
+
+The API and scheduler stay on Python 3.14, including patch and digest updates.
+Python 3.15 is a deferred runtime migration, even though Dependabot classifies
+it as a minor update. Validation of PR #120 on November 15, 2026 found that its
+base bundles pip 26.2.1 with an outdated certificate bundle. An isolated build
+with the verified pip 26.2.2 wheel passed the pip and offline ensurepip checks,
+then failed because the locked geospatial dependencies lack Python 3.15 wheels
+(`pyproj` fell back to a source build without PROJ). Revisit the Docker ignore
+range only with compatible geospatial locks and a passing full API image smoke;
+retain the pip/certificate security floor. Security findings still require
+review and remediation on the supported runtime.
+
+PostHog stays at 1.438.21 with its existing locked core/browser dependencies.
+The 1.446.0 update measured 112.6 KiB for deferred analytics, exceeding the
+100 KiB transfer budget. Keep that budget and revisit the upgrade with an SDK
+size reduction; the other November frontend updates remain eligible.
+
+The API requires OpenTelemetry API 1.45.2 or newer for
+[CVE-2026-126360](https://github.com/open-telemetry/opentelemetry-python/security/advisories/GHSA-mf5v-w3w3-f6cg).
+Its production dependency audit remains strict.
+
 Every dependency in a group must qualify. The pinned official metadata action
 verifies the Dependabot author and commit signatures. The repository policy
 then requires the expected repository and head commit, a complete file inventory,

@@ -71,6 +71,11 @@ updates:
     allow:
       - dependency-name: "*"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+    # Runtime upgrades need compatible geospatial wheels and a reviewed pip
+    # seed. Continue 3.14 patch/digest updates while the 3.15 migration is deferred.
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.15"]
     cooldown:
       default-days: 7
     groups:

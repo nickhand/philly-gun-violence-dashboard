@@ -37,10 +37,23 @@ test('build tools can trace, archive, and configure nested files with the patche
   assert.ok(fileList.has(join('assets', 'nested', 'public.json')));
   assert.ok(!fileList.has(join('assets', 'nested', 'notes.txt')));
 
-  const archived = require('archiver-utils').file.expand(
-    { cwd: root }, ['assets/**/*.json', '!**/internal.json'],
+  // Nitro updates can remove archiver-utils altogether or nest its installed
+  // copy. Exercise every locked copy; a locked-but-missing module must fail.
+  const lock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  const archivePaths = Object.keys(lock.packages).filter((path) =>
+    path === 'node_modules/archiver-utils' || path.endsWith('/node_modules/archiver-utils'),
   );
-  assert.deepEqual(archived, ['assets/nested/public.json']);
+  await t.test('installed archive tools preserve glob exclusions', {
+    skip: archivePaths.length === 0 ? 'The dependency tree contains no archiver-utils' : false,
+  }, () => {
+    for (const path of archivePaths) {
+      const archiveRequire = createRequire(new URL(`../${path}/package.json`, import.meta.url));
+      const archived = archiveRequire('./').file.expand(
+        { cwd: root }, ['assets/**/*.json', '!**/internal.json'],
+      );
+      assert.deepEqual(archived, ['assets/nested/public.json']);
+    }
+  });
 
   writeFileSync(join(root, '.editorconfig'), 'root = true\n[**/*.{js,json}]\nindent_size = 2\n');
   const editorconfig = require('editorconfig');
