@@ -18,6 +18,11 @@ updates preserve existing compatible requirements with `increase-if-necessary`,
 reducing drift between linked package lockfiles. Version-update PR limits remain three for Python and two
 for the other ecosystems; these are not a repository-wide total.
 
+Python quality jobs validate committed lockfiles before running tools, since
+`uv run` can otherwise repair stale metadata locally and hide it until the image
+build. After changing shared-package requirements, regenerate every consuming
+project's lock with the CI-pinned uv version and check all four locks.
+
 The API and scheduler stay on Python 3.14, including patch and digest updates.
 Python 3.15 is a deferred runtime migration, even though Dependabot classifies
 it as a minor update. Validation of PR #120 on November 15, 2026 found that its
