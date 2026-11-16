@@ -526,3 +526,20 @@ class DeploymentContracts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UbuntuUpdateContracts(unittest.TestCase):
+    def test_updater_dispatches_every_gate_when_pr_events_are_suppressed(self):
+        source = (WORKFLOWS / "ubuntu-snapshot-update.yml").read_text()
+        fallback = source.split('if [[ "$HAS_UPDATE_TOKEN" != true ]]; then', 1)[1]
+        for workflow in (
+            "etl-quality.yml",
+            "config-quality.yml",
+            "api-quality.yml",
+            "frontend-quality.yml",
+            "security-quality.yml",
+        ):
+            self.assertIn(workflow, fallback)
+        self.assertIn("dependabot-auto-merge.yml --ref main", source)
+        self.assertNotIn("gh pr merge", source)
+        self.assertNotIn("--force-with-lease", source)

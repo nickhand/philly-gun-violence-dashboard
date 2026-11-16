@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.CHROME_UPDATE_TOKEN || github.token }}
+      HAS_UPDATE_TOKEN: ${{ secrets.CHROME_UPDATE_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,7 +60,13 @@ jobs:
           Requires image build, smoke, SBOM/security checks and the unchanged ECR/live-probe deployment gates. Deployment remains a separate approved action.
           BODY
           gh pr create --base main --head "$branch" --label ubuntu-snapshot --title "build(scraper): refresh Ubuntu snapshot ${snapshot}" --body-file "$RUNNER_TEMP/ubuntu-pr.md"
-          # Explicit dispatch also works when GITHUB_TOKEN suppresses PR events.
-          for workflow in etl-quality.yml api-quality.yml frontend-quality.yml security-quality.yml; do
-            gh workflow run "$workflow" --ref "$branch"
-          done
+          # PAT-created PRs start their own checks. Explicitly dispatch every
+          # required gate only when GITHUB_TOKEN suppresses those PR events.
+          if [[ "$HAS_UPDATE_TOKEN" != true ]]; then
+            for workflow in etl-quality.yml config-quality.yml api-quality.yml frontend-quality.yml security-quality.yml; do
+              gh workflow run "$workflow" --ref "$branch"
+            done
+          fi
+          number="$(gh pr view "$branch" --json number --jq .number)"
+          # Use trusted main even during pull_request_target policy brownouts.
+          gh workflow run dependabot-auto-merge.yml --ref main --field "pull_request_number=${number}"
