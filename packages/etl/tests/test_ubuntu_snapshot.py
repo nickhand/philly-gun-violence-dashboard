@@ -62,3 +62,40 @@ def test_render_keeps_chrome_and_bubblewrap_pins(tmp_path):
         assert "0.12.0-0philly1" in rendered
         assert "2.43-2ubuntu2.8" in rendered
     updater.check(tmp_path, new)
+
+
+def test_unexpected_archive_signer_is_rejected(monkeypatch, tmp_path):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    snapshot = datetime.now(UTC).strftime("%Y%m%dT000000Z")
+    monkeypatch.setattr(updater, "download", lambda *a: b"signed metadata")
+    monkeypatch.setattr(
+        updater.subprocess,
+        "run",
+        lambda *a, **kw: SimpleNamespace(stdout="[GNUPG:] VALIDSIG WRONG "),
+    )
+    with pytest.raises(ValueError, match="Unexpected Ubuntu archive signer"):
+        updater.resolve({"snapshot": snapshot}, snapshot, tmp_path / "keyring")
+
+
+def test_signed_package_downgrade_is_still_rejected(monkeypatch, tmp_path):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    snapshot = datetime.now(UTC).strftime("%Y%m%dT000000Z")
+    monkeypatch.setattr(updater, "download", lambda *a: b"signed metadata")
+    monkeypatch.setattr(
+        updater.subprocess,
+        "run",
+        lambda *a, **kw: SimpleNamespace(stdout=f"[GNUPG:] VALIDSIG {updater.ARCHIVE_SIGNER} "),
+    )
+    monkeypatch.setattr(updater, "verify_index", lambda *a: None)
+    monkeypatch.setattr(updater, "package_records", lambda *a: [("openssl", {"version": "1"})])
+    monkeypatch.setattr(updater, "version_at_least", lambda left, right: int(left) >= int(right))
+    with pytest.raises(ValueError, match="Package downgrade refused"):
+        updater.resolve(
+            {"snapshot": snapshot, "packages": {"openssl": {"version": "2"}}},
+            snapshot,
+            tmp_path / "keyring",
+        )

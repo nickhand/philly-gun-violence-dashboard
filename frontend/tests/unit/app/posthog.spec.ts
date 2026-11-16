@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
-import posthog from "posthog-js";
+import posthog from "posthog-js/dist/module.slim";
+import { AnalyticsExtensions } from "posthog-js/dist/extension-bundles";
 
 it("keeps explicit events, history pageviews and pageleave with the real SDK", async () => {
   vi.useFakeTimers();
@@ -11,6 +12,7 @@ it("keeps explicit events, history pageviews and pageleave with the real SDK", a
   try {
     posthog.init("phc_local_regression", {
       api_host: "https://analytics.example.test",
+      __extensionClasses: AnalyticsExtensions,
       autocapture: false,
       capture_pageleave: true,
       capture_pageview: "history_change",
