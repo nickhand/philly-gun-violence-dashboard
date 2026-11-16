@@ -1,5 +1,6 @@
 """Smoke tests for aws-batch-scraper examples."""
 
+import json
 import re
 import sys
 import tomllib
@@ -12,6 +13,9 @@ from etl.chrome_release import (
     PINNED_CHROME_SHA256,
     PINNED_CHROME_VERSION,
 )
+
+OS_LOCK = json.loads((Path(__file__).resolve().parents[1] / "ubuntu-lock.json").read_text())
+OS_PACKAGES = OS_LOCK["packages"]
 
 
 def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
@@ -26,8 +30,8 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     expected_product_version = PINNED_CHROME_VERSION.removesuffix("-1")
 
     assert re.search(expected_base, source, re.MULTILINE)
-    assert "ARG UBUNTU_SNAPSHOT=20261115T000000Z" in source
-    assert 'test "$UBUNTU_SNAPSHOT" = "20261115T000000Z"' in source
+    assert f"ARG UBUNTU_SNAPSHOT={OS_LOCK['snapshot']}" in source
+    assert f'test "$UBUNTU_SNAPSHOT" = "{OS_LOCK["snapshot"]}"' in source
     # Only the dated snapshot may supply indexes. The ordinary archive can
     # supply .debs whose hashes have already been authenticated by those indexes.
     assert (
@@ -43,28 +47,9 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     assert "--yes --no-install-recommends full-upgrade" in source
     assert "ubuntu-${UBUNTU_SNAPSHOT}.mirrors_dists_${suite}_InRelease" in source
     assert "ubuntu-${UBUNTU_SNAPSHOT}.mirrors_dists_${suite}_*_binary-amd64_Packages.lz4" in source
-    assert "libcurl3t64-gnutls" in source
-    assert ' = "8.18.0-1ubuntu2.8"' in source
-    for version in ("2:1.8.13-1ubuntu0.1", "2.61.3+dfsg-3ubuntu0.1", "1.6.57-1ubuntu0.1"):
-        assert f' = "{version}"' in source
-    assert ' = "3.13.1-2ubuntu0.1"' in source
-    for package, version in (
-        ("ca-certificates", "20260816ubuntu0.26.04.2"),
-        ("libnss3", "2:3.120-1ubuntu2.2"),
-        ("liblzma5", "5.8.3-1ubuntu0.1"),
-        ("zlib1g", "1:1.3.dfsg+really1.3.1-1ubuntu3.2"),
-        ("libbrotli1", "1.2.0-3ubuntu0.1"),
-        ("apt", "3.2.1ubuntu0.1"),
-        ("libapt-pkg7.0", "3.2.1ubuntu0.1"),
-        ("libpcre2-8-0", "10.46-1ubuntu0.1"),
-        ("perl-base", "5.40.1-7ubuntu0.4"),
-        ("libheif1", "1.21.2-3ubuntu0.7"),
-        ("libheif-plugin-aomdec", "1.21.2-3ubuntu0.7"),
-        ("libc6", "2.43-2ubuntu2.7"),
-        ("libc-bin", "2.43-2ubuntu2.7"),
-    ):
+    for package, record in OS_PACKAGES.items():
         assert f"${{Version}}' {package})" in source
-        assert f' = "{version}"' in source
+        assert f' = "{record["version"]}"' in source
     for root in ("emSign_ECC_Root_CA_-_G3", "Comodo_AAA_Services_root"):
         assert source.rindex(f"test ! -e /etc/ssl/certs/{root}.pem") > source.index("full-upgrade")
     assert ' = "0.12.0-0philly1"' in source
@@ -78,17 +63,9 @@ def test_courts_image_pins_supported_ubuntu_snapshot_and_chrome() -> None:
     assert source.count("|| exit 1;") >= 2
     assert "apt-get update" not in source
     assert "snapshot.debian.org" not in source
-    assert (
-        "ADD --checksum=sha256:6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621"
-    ) in source
-    assert (
-        "ADD --checksum=sha256:a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6"
-    ) in source
-    assert "https://launchpadlibrarian.net/878823491/openssl_3.5.5-1ubuntu3.7_amd64.deb" in source
-    assert (
-        "https://snapshot.ubuntu.com/ubuntu/20261115T000000Z/pool/main/c/ca-certificates/"
-        "ca-certificates_20260816ubuntu0.26.04.2_all.deb"
-    ) in source
+    for package in OS_LOCK["bootstrap"].values():
+        assert f"ADD --checksum=sha256:{package['sha256']}" in source
+        assert package["url"] in source
     assert expected_chrome in source
     assert PINNED_CHROME_FILENAME in source
     assert f'= "{PINNED_CHROME_VERSION}"' in source
@@ -251,26 +228,9 @@ def test_etl_quality_browser_smoke_matches_fargate_security_profile() -> None:
     assert "--forbid-chrome-sandbox" in source
     assert "--forbid-setuid-setgid-files" in source
     assert "--required-chrome-sandbox-sha256" not in source
-    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8" in source
-    for package in (
-        "deb:libx11-6=2:1.8.13-1ubuntu0.1",
-        "deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1",
-        "deb:libpng16-16t64=1.6.57-1ubuntu0.1",
-        "deb:ca-certificates=20260816ubuntu0.26.04.2",
-        "deb:libnss3=2:3.120-1ubuntu2.2",
-        "deb:liblzma5=5.8.3-1ubuntu0.1",
-        "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
-        "deb:libbrotli1=1.2.0-3ubuntu0.1",
-        "deb:apt=3.2.1ubuntu0.1",
-        "deb:libapt-pkg7.0=3.2.1ubuntu0.1",
-        "deb:libpcre2-8-0=10.46-1ubuntu0.1",
-        "deb:perl-base=5.40.1-7ubuntu0.4",
-        "deb:libheif1=1.21.2-3ubuntu0.7",
-        "deb:libheif-plugin-aomdec=1.21.2-3ubuntu0.7",
-        "deb:libc6=2.43-2ubuntu2.7",
-        "deb:libc-bin=2.43-2ubuntu2.7",
-    ):
-        assert package in source
+    for name, record in OS_PACKAGES.items():
+        if name not in ("openssl", "xz-utils"):
+            assert f"deb:{name}={record['version']}" in source
     assert "root:root:755" not in source
     assert "root:root:4755" not in source
     assert "image_entrypoint=" in source
@@ -288,26 +248,9 @@ def test_local_release_checks_lock_and_production_smoke_is_decoupled() -> None:
 
     script = "packages/etl/scripts/render_chrome_lock.py"
     assert f'aws_batch_scraper_browser_lock_script := "{script}"' in justfile
-    assert "deb:libcurl3t64-gnutls=8.18.0-1ubuntu2.8" in justfile
-    for package in (
-        "deb:libx11-6=2:1.8.13-1ubuntu0.1",
-        "deb:librsvg2-2=2.61.3+dfsg-3ubuntu0.1",
-        "deb:libpng16-16t64=1.6.57-1ubuntu0.1",
-        "deb:ca-certificates=20260816ubuntu0.26.04.2",
-        "deb:libnss3=2:3.120-1ubuntu2.2",
-        "deb:liblzma5=5.8.3-1ubuntu0.1",
-        "deb:zlib1g=1:1.3.dfsg+really1.3.1-1ubuntu3.2",
-        "deb:libbrotli1=1.2.0-3ubuntu0.1",
-        "deb:apt=3.2.1ubuntu0.1",
-        "deb:libapt-pkg7.0=3.2.1ubuntu0.1",
-        "deb:libpcre2-8-0=10.46-1ubuntu0.1",
-        "deb:perl-base=5.40.1-7ubuntu0.4",
-        "deb:libheif1=1.21.2-3ubuntu0.7",
-        "deb:libheif-plugin-aomdec=1.21.2-3ubuntu0.7",
-        "deb:libc6=2.43-2ubuntu2.7",
-        "deb:libc-bin=2.43-2ubuntu2.7",
-    ):
-        assert package in justfile
+    for name, record in OS_PACKAGES.items():
+        if name not in ("openssl", "xz-utils"):
+            assert f"deb:{name}={record['version']}" in justfile
     assert "scraper-check-browser-lock:" in recipe
     assert 'python3 "{{aws_batch_scraper_browser_lock_script}}" --check' in recipe
     build_dependency = (

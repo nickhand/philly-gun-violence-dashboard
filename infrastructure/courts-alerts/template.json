@@ -1,0 +1,54 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Immediate court worker and monitor failure emails, independent of GitHub and ECS monitors",
+  "Parameters": {
+    "AlertEmail": {"Type": "String", "AllowedPattern": "[^@\\s]+@[^@\\s]+\\.[^@\\s]+"},
+    "ClusterName": {"Type": "String", "Default": "ujs-scraper"}
+  },
+  "Resources": {
+    "Alerts": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {"TopicName": "philly-courts-failures", "Subscription": [{"Protocol": "email", "Endpoint": {"Ref": "AlertEmail"}}]}
+    },
+    "Failures": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": "philly-courts-task-failures",
+        "State": "ENABLED",
+        "EventPattern": {
+          "source": ["aws.ecs"],
+          "detail-type": ["ECS Task State Change"],
+          "detail": {
+            "clusterArn": [{"Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}"}],
+            "group": ["family:ujs-scraper", "family:ujs-scraper-monitor"],
+            "lastStatus": ["STOPPED"],
+            "$or": [
+              {"stopCode": ["TaskFailedToStart", "SpotInterruption", "TerminationNotice"]},
+              {"containers": {"exitCode": [{"numeric": [">", 0]}]}},
+              {"stopCode": ["EssentialContainerExited"], "containers": {"exitCode": [{"exists": false}]}}
+            ]
+          }
+        },
+        "Targets": [{
+          "Id": "Email",
+          "Arn": {"Ref": "Alerts"},
+          "InputTransformer": {
+            "InputPathsMap": {"task": "$.detail.taskArn", "code": "$.detail.stopCode", "reason": "$.detail.stoppedReason", "time": "$.time"},
+            "InputTemplate": "\"Court task failed at <time>. Task: <task>. Stop code: <code>. Reason: <reason>. Check the Courts completion watchdog and /ecs/ujs-scraper logs. Do not submit a duplicate run; automatic recovery is limited to one proven image-pull failure.\""
+          },
+          "RetryPolicy": {"MaximumEventAgeInSeconds": 86400, "MaximumRetryAttempts": 185}
+        }]
+      }
+    },
+    "TopicPolicy": {
+      "Type": "AWS::SNS::TopicPolicy",
+      "Properties": {
+        "Topics": [{"Ref": "Alerts"}],
+        "PolicyDocument": {"Version": "2012-10-17", "Statement": [{
+          "Effect": "Allow", "Principal": {"Service": "events.amazonaws.com"}, "Action": "sns:Publish", "Resource": {"Ref": "Alerts"}
+        }]}
+      }
+    }
+  },
+  "Outputs": {"TopicArn": {"Value": {"Ref": "Alerts"}}, "RuleArn": {"Value": {"Fn::GetAtt": ["Failures", "Arn"]}}}
+}

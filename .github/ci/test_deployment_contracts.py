@@ -19,11 +19,13 @@ ALLOWED_LOCAL_REUSABLE_WORKFLOWS = frozenset(
         "./.github/workflows/production-smoke.yml",
         "./.github/workflows/scraper-image-quality.yml",
         "./.github/workflows/courts-watchdog.yml",
+        "./.github/workflows/daily-shootings-sync.yml",
     }
 )
 
 EXTERNAL_SCHEDULE_COUNTS = {
     "chrome-update.yml": 1,
+    "ubuntu-snapshot-update.yml": 1,
     "courts-scrape.yml": 1,
     "courts-watchdog.yml": 1,
     "daily-homicide-sync.yml": 1,
@@ -40,8 +42,9 @@ EXPECTED_CRONTAB_LINES = (
     "15 15 * * * python scripts/dispatch_workflow.py daily-homicide-sync.yml",
     "15 2 * * 5 python scripts/dispatch_workflow.py courts-scrape.yml",
     "0 19 * * * python scripts/dispatch_workflow.py production-smoke.yml",
-    "45 * * * * python scripts/dispatch_workflow.py courts-watchdog.yml",
+    "*/10 * * * * python scripts/dispatch_workflow.py courts-watchdog.yml",
     "17 7 * * * python scripts/dispatch_workflow.py security-quality.yml",
+    "47 8 * * 1 python scripts/dispatch_workflow.py ubuntu-snapshot-update.yml",
 )
 
 
@@ -450,6 +453,12 @@ class DeploymentContracts(unittest.TestCase):
         self.assertNotIn("schedule:", watchdog)
         self.assertIn("courts health", watchdog)
         self.assertNotIn("--execute", watchdog)
+        recovery = (WORKFLOWS / "courts-recovery.yml").read_text()
+        self.assertNotIn("workflow_call:", recovery)
+        self.assertIn("workflows: [Courts completion watchdog]", recovery)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", recovery)
+        self.assertIn("github.event.workflow_run.conclusion == 'failure'", recovery)
+        self.assertIn("auto-recover --execute", recovery)
         self.assertNotIn("secrets.GITHUB_PAT", watchdog)
         self.assertIn("inline-session-policy:", watchdog)
         self.assertNotIn("s3:PutObject", watchdog)

@@ -2,6 +2,10 @@ name: Daily Shootings ETL
 
 on:
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      FLY_API_TOKEN:
+        required: true
 
 permissions:
   contents: read
@@ -12,6 +16,7 @@ concurrency:
   # and scheduled refreshes so two releases cannot race that final update.
   group: daily-shootings-sync
   cancel-in-progress: false
+  queue: max
 
 jobs:
   daily-sync-shootings:

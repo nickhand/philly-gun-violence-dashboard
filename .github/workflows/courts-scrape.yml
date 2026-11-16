@@ -1,4 +1,4 @@
-name: Batch Courts Scraper ETL
+name: Courts scrape submission
 
 on:
   workflow_dispatch:

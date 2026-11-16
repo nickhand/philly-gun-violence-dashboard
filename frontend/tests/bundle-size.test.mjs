@@ -42,7 +42,8 @@ function checkBundle({
         "components/DashboardExplorer.client.vue": preload("shell.js", "map.js", ...(workerInManifest ? ["maplibre-gl-worker-test.js"] : [])),
         "../node_modules/maplibre-gl/dist/maplibre-gl.mjs": preload("map.js"),
         "../node_modules/maplibre-gl/dist/maplibre-gl.css": preload("map.css"),
-        "../node_modules/posthog-js/dist/module.mjs": preload("analytics.js", "analytics-extension.js"),
+        "../node_modules/posthog-js/dist/module.slim.js": preload("analytics.js"),
+        "../node_modules/posthog-js/dist/extension-bundles.js": preload("analytics-extension.js"),
       },
     };
     writeFileSync(join(virtual, "precomputed.mjs"), `export default ${JSON.stringify(manifest)};`);

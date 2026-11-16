@@ -1,0 +1,65 @@
+name: Ubuntu snapshot update
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: ubuntu-snapshot-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.CHROME_UPDATE_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.CHROME_UPDATE_TOKEN || github.token }}
+      - name: Resolve authenticated Ubuntu packages
+        run: |
+          python3 packages/etl/scripts/update_ubuntu_snapshot.py update
+          python3 packages/etl/scripts/update_ubuntu_snapshot.py check
+      - name: Open a reviewable snapshot update
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then exit 0; fi
+          unexpected="$(git diff --name-only | grep -Ev '^(packages/etl/(ubuntu-lock.json|Dockerfile)|Justfile|.github/workflows/scraper-image-quality.yml|packages/aws-batch-scraper/docs/container.md)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo 'Updater changed an unexpected file' >&2
+            exit 1
+          fi
+          # Keep at most one update pending. Never overwrite an existing branch
+          # or maintainer edits; the next weekly run refreshes after it is merged.
+          existing="$(gh pr list --state open --label ubuntu-snapshot --json number --jq length)"
+          if [[ "$existing" != 0 ]]; then
+            echo 'A snapshot update is already awaiting review.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          snapshot="$(python3 -c 'import json; print(json.load(open("packages/etl/ubuntu-lock.json"))["snapshot"])')"
+          branch="automation/ubuntu-${snapshot}-${GITHUB_RUN_ID}"
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/etl/ubuntu-lock.json packages/etl/Dockerfile Justfile .github/workflows/scraper-image-quality.yml packages/aws-batch-scraper/docs/container.md
+          git commit -m "build(scraper): refresh Ubuntu snapshot ${snapshot}"
+          git push origin "HEAD:refs/heads/${branch}"
+          gh label create ubuntu-snapshot --description 'Authenticated Ubuntu snapshot refresh' --color 0052cc --force
+          cat > "$RUNNER_TEMP/ubuntu-pr.md" <<'BODY'
+          Refresh the pinned Ubuntu snapshot and package assertions from signed archive indexes. Bootstrap packages are checked against authenticated SHA-256 digests; package downgrades are refused.
+
+          Requires image build, smoke, SBOM/security checks and the unchanged ECR/live-probe deployment gates. Deployment remains a separate approved action.
+          BODY
+          gh pr create --base main --head "$branch" --label ubuntu-snapshot --title "build(scraper): refresh Ubuntu snapshot ${snapshot}" --body-file "$RUNNER_TEMP/ubuntu-pr.md"
+          # Explicit dispatch also works when GITHUB_TOKEN suppresses PR events.
+          for workflow in etl-quality.yml api-quality.yml frontend-quality.yml security-quality.yml; do
+            gh workflow run "$workflow" --ref "$branch"
+          done

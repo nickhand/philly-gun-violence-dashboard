@@ -26,7 +26,10 @@ const LAYOUT_KEY = "layouts/default.vue";
 const EXPLORER_KEY = "components/DashboardExplorer.client.vue";
 const MAPLIBRE_KEY = "../node_modules/maplibre-gl/dist/maplibre-gl.mjs";
 const MAPLIBRE_CSS_KEY = "../node_modules/maplibre-gl/dist/maplibre-gl.css";
-const ANALYTICS_KEY = "../node_modules/posthog-js/dist/module.mjs";
+const ANALYTICS_KEYS = [
+  "../node_modules/posthog-js/dist/module.slim.js",
+  "../node_modules/posthog-js/dist/extension-bundles.js",
+];
 
 // Files a browser fetches for a module: the chunk itself plus what it preloads.
 function preloadFiles(key) {
@@ -76,7 +79,7 @@ if (mapWorkerFiles.size !== 1) {
 for (const file of mapWorkerFiles) {
   mapFiles.delete(file);
 }
-const analyticsFiles = preloadFiles(ANALYTICS_KEY);
+const analyticsFiles = new Set(ANALYTICS_KEYS.flatMap((key) => [...preloadFiles(key)]));
 for (const file of analyticsFiles) {
   if (appShellFiles.has(file)) {
     throw new Error(`Analytics must stay deferred, but the app shell preloads ${file}`);

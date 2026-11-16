@@ -24,6 +24,8 @@ jobs:
       - name: Verify generated Chrome pin consumers
         working-directory: packages/etl
         run: uv run python scripts/render_chrome_lock.py --check
+      - name: Verify Ubuntu snapshot consumers
+        run: python3 packages/etl/scripts/update_ubuntu_snapshot.py check
       - name: Build production scraper image
         # Keep slow but progressing snapshot downloads within a bounded build.
         timeout-minutes: 90
