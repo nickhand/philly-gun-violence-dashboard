@@ -1,0 +1,83 @@
+name: Courts bounded startup recovery
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Courts completion watchdog]
+    types: [completed]
+
+permissions:
+  contents: read
+  id-token: write
+  actions: write
+
+jobs:
+  recover:
+    name: One bounded startup recovery
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.event == 'workflow_dispatch' &&
+        github.event.workflow_run.conclusion == 'failure'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      actions: write
+    concurrency:
+      group: courts-production
+      cancel-in-progress: false
+      queue: max
+    env:
+      ENV: prod
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+      S3_SCRAPER_PREFIX: ${{ vars.S3_SCRAPER_PREFIX }}
+      S3_PROCESSED_PREFIX: ${{ vars.S3_PROCESSED_PREFIX }}
+      S3_REFERENCE_PREFIX: ${{ vars.S3_REFERENCE_PREFIX }}
+      SQS_QUEUE_NAME: ${{ vars.SQS_QUEUE_NAME }}
+      SQS_DLQ_NAME: ${{ vars.SQS_DLQ_NAME }}
+      ECS_CLUSTER_NAME: ${{ vars.ECS_CLUSTER_NAME }}
+      # Exact digest-backed worker revision; must not contain monitor secrets.
+      ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }}
+      # Distinct exact monitor revision, permitted to receive the dispatch token.
+      ECS_MONITOR_TASK_DEFINITION: ${{ vars.ECS_MONITOR_TASK_DEFINITION }}
+      # Exact repository@sha256 URI printed only after local and ECR release gates pass.
+      ECS_EXPECTED_IMAGE_URI: ${{ vars.ECS_EXPECTED_IMAGE_URI }}
+      # Exact reviewed roles; task-definition substitution fails before queue mutation.
+      ECS_EXPECTED_TASK_ROLE_ARN: ${{ vars.ECS_EXPECTED_TASK_ROLE_ARN }}
+      ECS_EXPECTED_EXECUTION_ROLE_ARN: ${{ vars.ECS_EXPECTED_EXECUTION_ROLE_ARN }}
+      # Exact monitor-only secret and reviewed Fargate runtime contract.
+      ECS_EXPECTED_MONITOR_SECRET_ARN: ${{ vars.ECS_EXPECTED_MONITOR_SECRET_ARN }}
+      ECS_PLATFORM_VERSION: "1.4.0"
+      ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
+      ECS_TASK_COUNT: ${{ vars.ECS_TASK_COUNT }}
+      ECS_SUBNET_IDS: ${{ vars.ECS_SUBNET_IDS }}
+      ECS_SECURITY_GROUP_IDS: ${{ vars.ECS_SECURITY_GROUP_IDS }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      COURTS_RELEASE_KEY: ${{ vars.COURTS_RELEASE_KEY }}
+      GITHUB_DISPATCH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::985454606291:role/gha-ujs-scraper
+          aws-region: us-east-1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.5"
+      - name: Update pip certificate bundle
+        run: uv pip install --no-config --exclude-newer-package "pip=0 days" --python "$(python -c 'import sys; print(sys.executable)')" "pip==26.2.2"
+      - name: Load the atomic courts release
+        run: uv run --project packages/etl --frozen python packages/etl/scripts/load_courts_release.py
+      - name: Recover only proven startup failures
+        run: uv run --project packages/etl --frozen gv-dashboard-etl courts auto-recover --execute

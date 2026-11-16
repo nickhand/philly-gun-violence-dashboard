@@ -11,7 +11,9 @@ from pathlib import Path
 from urllib.request import urlopen
 
 
-def check_metadata(metadata: object, *, now: datetime, max_age_days: int = 8) -> str:
+def check_metadata(
+    metadata: object, *, now: datetime, max_age_days: int = 8, expected_run_id: str | None = None
+) -> str:
     if now.tzinfo is None or max_age_days <= 0:
         raise ValueError("Freshness requires an aware clock and a positive age limit")
     if not isinstance(metadata, dict):
@@ -19,6 +21,8 @@ def check_metadata(metadata: object, *, now: datetime, max_age_days: int = 8) ->
     run_id = metadata.get("run_id")
     if not isinstance(run_id, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]+", run_id):
         raise ValueError("Court metadata has no valid run ID")
+    if expected_run_id is not None and run_id != expected_run_id:
+        raise ValueError(f"Expected court run {expected_run_id}, public API still serves {run_id}")
     for key, expected in {
         "publication_contract_version": 2,
         "court_search_semantics_version": 2,
@@ -54,6 +58,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api-base-url", required=True)
     parser.add_argument("--max-age-days", type=int, default=8)
+    parser.add_argument("--expected-run-id")
     args = parser.parse_args()
     try:
         with urlopen(args.api_base_url.rstrip("/") + "/meta/courts", timeout=30) as response:
@@ -61,7 +66,10 @@ def main() -> None:
             if len(data) > 256 * 1024:
                 raise ValueError("Court metadata exceeded the response size limit")
             message = check_metadata(
-                json.loads(data), now=datetime.now(UTC), max_age_days=args.max_age_days
+                json.loads(data),
+                now=datetime.now(UTC),
+                max_age_days=args.max_age_days,
+                expected_run_id=args.expected_run_id,
             )
         failed = False
     except (OSError, ValueError) as exc:

@@ -52,3 +52,8 @@ class CourtsFreshnessTests(unittest.TestCase):
         ]:
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 check_metadata({**self.metadata, key: value}, now=self.now)
+
+    def test_fresh_previous_run_cannot_satisfy_publication(self):
+        with self.assertRaisesRegex(ValueError, "Expected court run"):
+            check_metadata(self.metadata, now=self.now, expected_run_id="new-run")
+        check_metadata(self.metadata, now=self.now, expected_run_id=self.metadata["run_id"])

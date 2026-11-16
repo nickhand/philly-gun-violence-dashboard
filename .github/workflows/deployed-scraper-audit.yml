@@ -75,6 +75,11 @@ jobs:
           path: ${{ runner.temp }}/observation.json
           if-no-files-found: error
           retention-days: 7
+      - name: Fail when production scan coverage is incomplete
+        if: ${{ !cancelled() && steps.scan.outcome != 'success' }}
+        run: |
+          echo '::error::Production security could not be verified. Existing findings remain open; retry with fresh vulnerability data.'
+          exit 1
 
   reconcile:
     name: Record verified production findings

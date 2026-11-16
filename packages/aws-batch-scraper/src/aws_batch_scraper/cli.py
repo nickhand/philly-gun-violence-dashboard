@@ -793,6 +793,32 @@ def create_cli(
             wait=wait,
         )
 
+    @app.command("auto-recover")
+    def auto_recover_command(
+        execute: Annotated[bool, typer.Option("--execute")] = False,
+    ) -> None:
+        """Recover one proven image-pull failure; preview unless --execute is set."""
+        from aws_batch_scraper.auto_recovery import auto_recover
+        from aws_batch_scraper.aws import make_boto3_session
+
+        config = submitter_config_class()
+        session = make_boto3_session(config=config)
+        typer.echo(
+            auto_recover(
+                session.client("s3"),
+                session.client("sqs"),
+                session.client("ecs"),
+                config,
+                execute=execute,
+                monitor_command=lambda run_id, attempt_id: _recovery_monitor_command(
+                    script_name,
+                    name,
+                    run_id,
+                    attempt_id,
+                ),
+            )
+        )
+
     @app.command("resume-reconcile")
     def resume_reconcile(
         run_id: Annotated[

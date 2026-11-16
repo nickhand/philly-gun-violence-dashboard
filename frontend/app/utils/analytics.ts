@@ -25,8 +25,15 @@ export interface AnalyticsOptions {
 }
 
 const defaultLoader: AnalyticsLoader = async () => {
-  const { default: posthog } = await import("posthog-js");
-  return { default: posthog };
+  const { default: posthog } = await import("posthog-js/dist/module.slim");
+  const { AnalyticsExtensions } = await import("posthog-js/dist/extension-bundles");
+  return {
+    default: {
+      capture: posthog.capture.bind(posthog),
+      init: (key, options) =>
+        posthog.init(key, { ...options, __extensionClasses: AnalyticsExtensions }),
+    },
+  };
 };
 
 export function createAnalytics(loadClient: AnalyticsLoader = defaultLoader) {

@@ -12,6 +12,7 @@ REPOSITORY = "nickhand/philly-gun-violence-dashboard"
 ALLOWED_WORKFLOWS = frozenset(
     {
         "chrome-update.yml",
+        "ubuntu-snapshot-update.yml",
         "courts-scrape.yml",
         "courts-watchdog.yml",
         "daily-homicide-sync.yml",
