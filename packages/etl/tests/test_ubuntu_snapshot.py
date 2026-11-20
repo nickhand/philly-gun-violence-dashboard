@@ -52,13 +52,22 @@ def test_render_keeps_chrome_and_bubblewrap_pins(tmp_path):
         "url": "https://snapshot.ubuntu.com/openssl.deb",
         "sha256": "b" * 64,
     }
+    chrome_version = json.loads((ROOT / "packages/etl/chrome-lock.json").read_text())["package"][
+        "product_version"
+    ]
     for path in updater.CONSUMERS:
         target = tmp_path / path
         target.parent.mkdir(parents=True, exist_ok=True)
         original = (ROOT / path).read_text()
         rendered = updater.render(original, old, new)
         target.write_text(rendered)
-        assert "157.0.8103.78" in rendered or "${chrome_package_version}" in rendered
+        chrome_pin = (
+            "${chrome_package_version}"
+            if "${chrome_package_version}" in original
+            else chrome_version
+        )
+        assert original.count(chrome_pin) > 0
+        assert rendered.count(chrome_pin) == original.count(chrome_pin)
         assert "0.12.0-0philly1" in rendered
         assert "2.43-2ubuntu2.8" in rendered
     updater.check(tmp_path, new)

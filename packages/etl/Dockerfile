@@ -243,13 +243,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/dashboard-utils --locked \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
-        "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.64.1'" \
+        "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.65.2'" \
     && test "$(google-chrome --product-version)" = "158.0.8127.36" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
 
 # Assert the actual Node runtime used by Playwright has the eMudhra fix.
-RUN /app/.venv/bin/python -c "from pathlib import Path; import playwright, subprocess; driver = Path(playwright.__file__).parent / 'driver' / 'node'; assert subprocess.check_output([driver, '--version'], text=True).strip() == 'v24.22.1'"
+RUN /app/.venv/bin/python -c "from pathlib import Path; import playwright, subprocess; driver = Path(playwright.__file__).parent / 'driver' / 'node'; assert subprocess.check_output([driver, '--version'], text=True).strip() == 'v26.13.1'"
 
 # Place executables in the environment at the front of the path.
 ENV PATH="/app/.venv/bin:$PATH"
