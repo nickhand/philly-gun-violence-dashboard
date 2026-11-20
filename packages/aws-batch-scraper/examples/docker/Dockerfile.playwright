@@ -28,7 +28,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
 # Assert the actual Node runtime used by Playwright has the eMudhra fix.
-RUN /app/.venv/bin/python -c "from pathlib import Path; import playwright, subprocess; driver = Path(playwright.__file__).parent / 'driver' / 'node'; assert subprocess.check_output([driver, '--version'], text=True).strip() == 'v24.22.1'"
+RUN /app/.venv/bin/python -c "from pathlib import Path; import playwright, subprocess; driver = Path(playwright.__file__).parent / 'driver' / 'node'; assert subprocess.check_output([driver, '--version'], text=True).strip() == 'v26.13.1'"
 
 RUN uv run playwright install chromium --with-deps
 

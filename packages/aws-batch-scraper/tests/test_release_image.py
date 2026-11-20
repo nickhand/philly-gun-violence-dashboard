@@ -36,9 +36,9 @@ IMAGE_PUSHED_AT = "2026-08-19T14:00:00+00:00"
 IMAGE_ID = "sha256:" + "c" * 64
 MANIFEST_DIGEST = "sha256:" + "d" * 64
 # BEGIN GENERATED: chrome-lock-test-constants
-CHROME_PACKAGE_VERSION = "157.0.8103.78-1"
-CHROME_VERSION = "157.0.8103.78"
-CHROME_SHA256 = "sha256:91e519ce83eac12740d54398364583b3131116055eca863d0a240d6062e84053"
+CHROME_PACKAGE_VERSION = "158.0.8127.36-1"
+CHROME_VERSION = "158.0.8127.36"
+CHROME_SHA256 = "sha256:08d5a3fba3197010b28113da201bd31a49b4439619dbf558f8040e4015c787bb"
 # END GENERATED: chrome-lock-test-constants
 CHROME_SANDBOX_SHA256 = "sha256:18391bf9d217ddbde9956347cbb1346d2808a73ade4baa3f88a610447cf946b4"
 NOW = datetime(2026, 8, 19, 14, 30, tzinfo=UTC)
@@ -1049,9 +1049,9 @@ def test_push_recipe_cannot_mask_scan_cli_failure_with_a_later_echo() -> None:
 
 def _required_packages() -> tuple[PackageRequirement, ...]:
     return parse_package_requirements(
-        "python:playwright=1.64.1,"
+        "python:playwright=1.65.2,"
         f"deb:google-chrome-stable={CHROME_PACKAGE_VERSION},"
-        "binary:node=24.22.1"
+        "binary:node=26.13.1"
     )
 
 
@@ -1070,9 +1070,9 @@ def _syft_payload() -> dict[str, object]:
         "artifacts": [
             {
                 "name": "playwright",
-                "version": "1.64.1",
+                "version": "1.65.2",
                 "type": "python",
-                "purl": "pkg:pypi/playwright@1.64.1",
+                "purl": "pkg:pypi/playwright@1.65.2",
                 "locations": [{"path": "/app/.venv/playwright/METADATA"}],
             },
             {
@@ -1093,10 +1093,10 @@ def _syft_payload() -> dict[str, object]:
             },
             {
                 "name": "node",
-                "version": "24.22.1",
+                "version": "26.13.1",
                 "type": "binary",
-                "purl": "pkg:generic/node@24.22.1",
-                "cpes": [{"cpe": "cpe:2.3:a:nodejs:node.js:24.22.1:*:*:*:*:*:*:*"}],
+                "purl": "pkg:generic/node@26.13.1",
+                "cpes": [{"cpe": "cpe:2.3:a:nodejs:node.js:26.13.1:*:*:*:*:*:*:*"}],
                 "locations": [
                     {"path": ("/app/.venv/lib/python3.14/site-packages/playwright/driver/node")}
                 ],
@@ -1190,14 +1190,14 @@ def _clone(payload: dict[str, object]) -> dict[str, object]:
 
 def test_package_contract_requires_actual_system_chrome_and_playwright_node() -> None:
     assert {requirement.canonical for requirement in _required_packages()} == {
-        "python:playwright=1.64.1",
+        "python:playwright=1.65.2",
         f"deb:google-chrome-stable={CHROME_PACKAGE_VERSION}",
-        "binary:node=24.22.1",
+        "binary:node=26.13.1",
     }
 
     with pytest.raises(ValueError, match="google-chrome-stable"):
         parse_package_requirements(
-            f"python:playwright=1.64.1,binary:chrome={CHROME_VERSION},binary:node=24.22.1"
+            f"python:playwright=1.65.2,binary:chrome={CHROME_VERSION},binary:node=26.13.1"
         )
 
 

@@ -109,10 +109,9 @@ repairs separately from routine updates. The direct-only boundary for ordinary
 version updates remains in place. See GitHub's
 [security grouping rules](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependabot-security-updates).
 
-The temporary [node-forge backport](../frontend/vendor/README.md) includes a
-reproducible archive and regression tests because no patched upstream release
-was available. Revisit it when upstream ships the fix. Vulnerability thresholds
-and release gates remain enforced.
+The frontend uses upstream node-forge through listhen. The dependency security
+tests exercise that installed copy. The remaining [braces backport](../frontend/vendor/README.md)
+has its own regression tests and removal criteria.
 
 `main` requires an up-to-date PR and these checks, including for administrators:
 
