@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "snapshot": "20261115T000000Z",
+  "snapshot": "20261122T000000Z",
   "packages": {
     "apt": {
       "version": "3.2.1ubuntu0.1",
@@ -105,11 +105,11 @@
   },
   "bootstrap": {
     "openssl": {
-      "url": "https://launchpadlibrarian.net/878823491/openssl_3.5.5-1ubuntu3.7_amd64.deb",
+      "url": "https://snapshot.ubuntu.com/ubuntu/20261122T000000Z/pool/main/o/openssl/openssl_3.5.5-1ubuntu3.7_amd64.deb",
       "sha256": "6965aafe69e0a49ef34d2e26f8e83d09d1c6037b7e9ee37f19b292a3c6851621"
     },
     "ca-certificates": {
-      "url": "https://snapshot.ubuntu.com/ubuntu/20261115T000000Z/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.2_all.deb",
+      "url": "https://snapshot.ubuntu.com/ubuntu/20261122T000000Z/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.2_all.deb",
       "sha256": "a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6"
     }
   }
