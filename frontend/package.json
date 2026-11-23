@@ -40,28 +40,28 @@
     "@unhead/vue": "^2.1.1",
     "@uswds/uswds": "^3.14.0",
     "braces": "file:vendor/braces-3.0.4-philly.1.tgz",
-    "maplibre-gl": "^6.17.0",
+    "maplibre-gl": "^6.18.0",
     "nuxt": "^4.6.4",
-    "posthog-js": "1.447.4",
+    "posthog-js": "1.450.0",
     "vue": "3.5.45",
-    "vue-router": "5.4.0"
+    "vue-router": "5.5.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
-    "@playwright/test": "^1.65.0",
+    "@playwright/test": "^1.65.1",
     "@types/geojson": "^7946.0.14",
     "@types/node": "^20.19.43",
-    "@vitejs/plugin-vue": "^6.0.9",
+    "@vitejs/plugin-vue": "^6.0.11",
     "@vitest/coverage-v8": "^4.1.12",
-    "@vue/test-utils": "^2.5.1",
+    "@vue/test-utils": "^2.6.0",
     "jsdom": "^26.1.0",
     "lighthouse": "13.6.0",
-    "sass-embedded": "^1.108.1",
+    "sass-embedded": "^1.108.2",
     "typescript": "^5.5.3",
     "vite": "^7.3.8",
     "vitest": "^4.1.12",
     "vue-tsc": "^3.3.14",
-    "wrangler": "4.158.0"
+    "wrangler": "4.163.0"
   },
   "overrides": {
     "brace-expansion@^2.0.0": "2.1.7",
