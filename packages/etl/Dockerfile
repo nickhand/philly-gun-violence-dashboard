@@ -101,8 +101,8 @@ COPY --from=bubblewrap-build /bubblewrap.deb /tmp/bubblewrap.deb
 # Installing the local deb through apt lets Ubuntu resolve its runtime libraries
 # from the same signed snapshot as the rest of the image.
 # BEGIN GENERATED: chrome-lock-package
-ADD --checksum=sha256:4696bce00b128f385a870ba2eb6eede61698f22374ea0d8e09af8a1c6543d397 \
-    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_158.0.8127.36-1_amd64.deb \
+ADD --checksum=sha256:a656b2db00a8cb7f13a1d754f6aad91f84014906452c6dfb7f3ead93035da03b \
+    https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_158.0.8127.88-1_amd64.deb \
     /tmp/google-chrome-stable.deb
 # END GENERATED: chrome-lock-package
 
@@ -132,7 +132,7 @@ RUN rm -rf /var/lib/apt/lists/* \
         tzdata \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
     && test "$(dpkg-query --show --showformat='${Version}' google-chrome-stable)" \
-        = "158.0.8127.36-1" \
+        = "158.0.8127.88-1" \
     && test "$(dpkg-query --show --showformat='${Version}' apt)" \
         = "3.2.1ubuntu0.1" \
     && test "$(dpkg-query --show --showformat='${Version}' libapt-pkg7.0)" \
@@ -175,7 +175,7 @@ RUN rm -rf /var/lib/apt/lists/* \
         = "0.12.0-0philly1" \
     && test "$(bwrap --version)" = "bubblewrap 0.12.0" \
     && test -z "$(dpkg --audit)" \
-    && test "$(google-chrome --product-version)" = "158.0.8127.36" \
+    && test "$(google-chrome --product-version)" = "158.0.8127.88" \
     && python3 -c 'import sys; assert sys.version_info >= (3, 13), sys.version' \
     && rm -f \
         /tmp/google-chrome-stable.deb /tmp/bubblewrap.deb \
@@ -244,7 +244,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --project /app/etl --locked \
     && /app/.venv/bin/python -c \
         "import importlib.metadata as m, sys; assert sys.version_info >= (3, 13), sys.version; assert m.version('playwright') == '1.65.2'" \
-    && test "$(google-chrome --product-version)" = "158.0.8127.36" \
+    && test "$(google-chrome --product-version)" = "158.0.8127.88" \
     && test ! -e /ms-playwright \
     && test ! -e /root/.cache/ms-playwright
 
